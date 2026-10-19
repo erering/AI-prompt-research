@@ -1,0 +1,315 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastScanner {
+    static const int BUFSIZE = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[BUFSIZE];
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        char c;
+        do c = getChar(); while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do c = getChar(); while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+vector<vector<unsigned long long>> adjBits;
+vector<int> compDeg;
+int bestAns = 0;
+
+inline bool adjacent(int u, int v) {
+    return (adjBits[u][v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void setAdj(int u, int v) {
+    adjBits[u][v >> 6] |= 1ULL << (v & 63);
+}
+
+inline void clearAdj(int u, int v) {
+    adjBits[u][v >> 6] &= ~(1ULL << (v & 63));
+}
+
+vector<int> greedyBitsetClique() {
+    vector<int> clique;
+    vector<unsigned long long> C(W, ~0ULL);
+    if (N & 63) C[W - 1] &= (1ULL << (N & 63)) - 1ULL;
+
+    while (true) {
+        int bestV = -1;
+        int bestCnt = -1;
+
+        for (int wi = 0; wi < W; ++wi) {
+            unsigned long long x = C[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                if (v < N) {
+                    int cnt = 0;
+                    for (int k = 0; k < W; ++k)
+                        cnt += __builtin_popcountll(adjBits[v][k] & C[k]);
+                    if (cnt > bestCnt || (cnt == bestCnt && compDeg[v] < compDeg[bestV])) {
+                        bestCnt = cnt;
+                        bestV = v;
+                    }
+                }
+                x &= x - 1;
+            }
+        }
+
+        if (bestV < 0) break;
+        clique.push_back(bestV);
+        for (int k = 0; k < W; ++k) C[k] &= adjBits[bestV][k];
+    }
+
+    return clique;
+}
+
+vector<int> greedyOrderedClique() {
+    vector<int> C(N), clique;
+    iota(C.begin(), C.end(), 0);
+    sort(C.begin(), C.end(), [](int a, int b) {
+        if (compDeg[a] != compDeg[b]) return compDeg[a] < compDeg[b];
+        return a < b;
+    });
+
+    while (!C.empty()) {
+        int v = C.front();
+        clique.push_back(v);
+        vector<int> nxt;
+        nxt.reserve(C.size());
+        for (int i = 1; i < (int)C.size(); ++i)
+            if (adjacent(v, C[i])) nxt.push_back(C[i]);
+        C.swap(nxt);
+    }
+
+    return clique;
+}
+
+void improveClique(vector<int>& S) {
+    if (N > 1200) return;
+
+    vector<char> inS(N);
+    int limit = 500;
+
+    while (limit--) {
+        fill(inS.begin(), inS.end(), 0);
+        for (int v : S) inS[v] = 1;
+
+        vector<vector<int>> cand(N);
+        bool changed = false;
+
+        for (int v = 0; v < N; ++v) {
+            if (inS[v]) continue;
+            int cnt = 0, sole = -1;
+            for (int s : S) {
+                if (!adjacent(v, s)) {
+                    sole = s;
+                    if (++cnt > 1) break;
+                }
+            }
+            if (cnt == 0) {
+                S.push_back(v);
+                changed = true;
+                break;
+            } else if (cnt == 1) {
+                cand[sole].push_back(v);
+            }
+        }
+
+        if (changed) continue;
+
+        int rem = -1, add1 = -1, add2 = -1;
+        for (int s : S) {
+            auto& L = cand[s];
+            if (L.size() < 2) continue;
+
+            for (int i = 0; i < (int)L.size() && add1 < 0; ++i) {
+                for (int j = i + 1; j < (int)L.size(); ++j) {
+                    if (adjacent(L[i], L[j])) {
+                        rem = s;
+                        add1 = L[i];
+                        add2 = L[j];
+                        break;
+                    }
+                }
+            }
+            if (add1 >= 0) break;
+        }
+
+        if (add1 < 0) break;
+
+        for (int i = 0; i < (int)S.size(); ++i) {
+            if (S[i] == rem) {
+                S[i] = S.back();
+                S.pop_back();
+                break;
+            }
+        }
+        S.push_back(add1);
+        S.push_back(add2);
+    }
+}
+
+void colorSort(vector<int>& P, vector<int>& colors) {
+    vector<int> U = P, ordered, rest, cls;
+    ordered.reserve(P.size());
+    colors.clear();
+    colors.reserve(P.size());
+    rest.reserve(P.size());
+    cls.reserve(16);
+
+    int color = 0;
+    while (!U.empty()) {
+        ++color;
+        rest.clear();
+        cls.clear();
+
+        for (int v : U) {
+            bool ok = true;
+            for (int u : cls) {
+                if (adjacent(v, u)) {
+                    ok = false;
+                    break;
+                }
+            }
+
+            if (ok) {
+                cls.push_back(v);
+                ordered.push_back(v);
+                colors.push_back(color);
+            } else {
+                rest.push_back(v);
+            }
+        }
+
+        U.swap(rest);
+    }
+
+    P.swap(ordered);
+}
+
+void expand(vector<int> P, int curSize) {
+    int ps = (int)P.size();
+    if (curSize + ps <= bestAns) return;
+
+    if (ps == 0) {
+        if (curSize > bestAns) bestAns = curSize;
+        return;
+    }
+
+    if (ps == 1) {
+        if (curSize + 1 > bestAns) bestAns = curSize + 1;
+        return;
+    }
+
+    vector<int> colors;
+    colorSort(P, colors);
+
+    for (int i = (int)P.size() - 1; i >= 0; --i) {
+        if (curSize + colors[i] <= bestAns) return;
+
+        int v = P[i];
+        vector<int> newP;
+        newP.reserve(i);
+
+        for (int j = 0; j < i; ++j) {
+            int u = P[j];
+            if (adjacent(v, u)) newP.push_back(u);
+        }
+
+        if (newP.empty()) {
+            if (curSize + 1 > bestAns) bestAns = curSize + 1;
+        } else {
+            expand(std::move(newP), curSize + 1);
+        }
+    }
+}
+
+int main() {
+    FastScanner fs;
+    N = fs.nextInt();
+    W = (N + 63) >> 6;
+
+    adjBits.assign(N, vector<unsigned long long>(W, 0));
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = fs.nextBit();
+            if (b && i != j) setAdj(i, j);
+        }
+    }
+
+    compDeg.assign(N, 0);
+    long long compEdges = 0;
+
+    for (int i = 0; i < N; ++i) clearAdj(i, i);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool e = adjacent(i, j) || adjacent(j, i);
+            if (e) {
+                setAdj(i, j);
+                setAdj(j, i);
+            } else {
+                clearAdj(i, j);
+                clearAdj(j, i);
+                ++compDeg[i];
+                ++compDeg[j];
+                ++compEdges;
+            }
+        }
+    }
+
+    if (N == 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    if (compEdges == 0) {
+        printf("%d\n", N);
+        return 0;
+    }
+
+    vector<int> h1;
+    if (N <= 3500) h1 = greedyBitsetClique();
+    else h1 = greedyOrderedClique();
+
+    vector<int> h2 = greedyOrderedClique();
+    if (h2.size() > h1.size()) h1.swap(h2);
+
+    improveClique(h1);
+    bestAns = (int)h1.size();
+
+    vector<int> P(N);
+    iota(P.begin(), P.end(), 0);
+    sort(P.begin(), P.end(), [](int a, int b) {
+        if (compDeg[a] != compDeg[b]) return compDeg[a] < compDeg[b];
+        return a < b;
+    });
+
+    expand(std::move(P), 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

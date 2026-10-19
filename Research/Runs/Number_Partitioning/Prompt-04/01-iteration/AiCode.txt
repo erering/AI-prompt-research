@@ -1,0 +1,425 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <queue>
+#include <limits>
+#include <bit>
+#include <chrono>
+#include <cstdint>
+#include <atomic>
+#include <new>
+
+using ull = unsigned long long;
+
+[[noreturn]] void give_up() {
+    static std::atomic<unsigned long long> x{0};
+    for (;;) x.fetch_add(1, std::memory_order_relaxed);
+}
+
+bool solve_dp(const std::vector<ull>& a, ull sum, ull& ans) {
+    ull target = sum / 2;
+    if (target == 0) {
+        ans = sum;
+        return true;
+    }
+
+    const ull MAX_WORDS = 4000000ULL;
+    ull words64 = target / 64 + 1;
+    if (words64 > MAX_WORDS) return false;
+
+    size_t useful = 0;
+    for (ull x : a) if (x <= target) ++useful;
+
+    long double est = (long double)words64 * (long double)useful;
+    if (est > 220000000.0L && target > 5000000ULL) return false;
+
+    size_t words = (size_t)words64;
+    std::vector<ull> bits;
+    try {
+        bits.assign(words, 0);
+    } catch (...) {
+        return false;
+    }
+
+    bits[0] = 1;
+    ull maxReach = 0;
+
+    for (ull x : a) {
+        if (x > target) continue;
+
+        size_t ws = (size_t)(x >> 6);
+        unsigned bs = (unsigned)(x & 63);
+        size_t curWord = (size_t)(maxReach >> 6);
+
+        if (bs == 0) {
+            for (size_t ii = curWord + 1; ii > 0; --ii) {
+                size_t i = ii - 1;
+                size_t d = i + ws;
+                if (d < words) bits[d] |= bits[i];
+            }
+        } else {
+            unsigned rbs = 64 - bs;
+            for (size_t ii = curWord + 1; ii > 0; --ii) {
+                size_t i = ii - 1;
+                ull v = bits[i];
+                size_t d = i + ws;
+                if (d < words) bits[d] |= v << bs;
+                if (d + 1 < words) bits[d + 1] |= v >> rbs;
+            }
+        }
+
+        if (target - maxReach < x) maxReach = target;
+        else maxReach += x;
+
+        if ((bits[(size_t)(target >> 6)] >> (target & 63)) & 1ULL) {
+            ans = sum - 2 * target;
+            return true;
+        }
+    }
+
+    size_t last = (size_t)(target >> 6);
+    unsigned rem = (unsigned)(target & 63);
+    ull mask = (rem == 63) ? ~0ULL : ((1ULL << (rem + 1)) - 1ULL);
+
+    for (size_t ii = last + 1; ii > 0; --ii) {
+        size_t i = ii - 1;
+        ull w = bits[i];
+        if (i == last) w &= mask;
+        if (w) {
+            unsigned pos = 63u - (unsigned)std::countl_zero(w);
+            ull sub = (ull)i * 64ULL + pos;
+            ans = sum - 2 * sub;
+            return true;
+        }
+    }
+
+    ans = sum;
+    return true;
+}
+
+ull kk_bound(const std::vector<ull>& a) {
+    std::priority_queue<ull> pq;
+    for (ull x : a) pq.push(x);
+    if (pq.empty()) return 0;
+    while (pq.size() > 1) {
+        ull x = pq.top(); pq.pop();
+        ull y = pq.top(); pq.pop();
+        pq.push(x - y);
+    }
+    return pq.top();
+}
+
+bool solve_mitm(const std::vector<ull>& a, ull sum, ull& ans, ull upperDiff) {
+    size_t n = a.size();
+    if (n > 48) return false;
+
+    ull target = sum / 2;
+    size_t rCount = std::min<size_t>(23, n);
+    size_t lCount = n - rCount;
+    size_t rOff = lCount;
+    size_t rSize = size_t(1) << rCount;
+
+    std::vector<ull> right;
+    try {
+        right.resize(rSize);
+    } catch (...) {
+        return false;
+    }
+
+    right[0] = 0;
+    for (size_t m = 1; m < rSize; ++m) {
+        unsigned b = (unsigned)std::countr_zero(m);
+        right[m] = right[m & (m - 1)] + a[rOff + b];
+    }
+    std::sort(right.begin(), right.end());
+
+    ull targetSub = (sum - upperDiff) / 2;
+    ull bestSub = targetSub;
+
+    std::vector<ull> suffix(lCount + 1, 0);
+    for (size_t i = lCount; i > 0; --i) suffix[i - 1] = suffix[i] + a[i - 1];
+
+    ull rightMax = right.empty() ? 0 : right.back();
+    bool found = (bestSub == target);
+
+    auto dfs = [&](auto&& self, size_t idx, ull cur) -> void {
+        if (found) return;
+        if (cur > target) return;
+        if (cur + suffix[idx] + rightMax <= bestSub) return;
+
+        if (idx == lCount) {
+            ull rem = target - cur;
+            auto it = std::upper_bound(right.begin(), right.end(), rem);
+            if (it != right.begin()) {
+                --it;
+                ull val = cur + *it;
+                if (val > bestSub) {
+                    bestSub = val;
+                    if (bestSub == target) found = true;
+                }
+            }
+            return;
+        }
+
+        if (cur + a[idx] <= target) self(self, idx + 1, cur + a[idx]);
+        self(self, idx + 1, cur);
+    };
+
+    dfs(dfs, 0, 0);
+    ans = sum - 2 * bestSub;
+    return true;
+}
+
+std::vector<ull> make_sums(const std::vector<ull>& a, size_t off, size_t cnt) {
+    size_t sz = size_t(1) << cnt;
+    std::vector<ull> s(sz);
+    s[0] = 0;
+    for (size_t m = 1; m < sz; ++m) {
+        unsigned b = (unsigned)std::countr_zero(m);
+        s[m] = s[m & (m - 1)] + a[off + b];
+    }
+    std::sort(s.begin(), s.end());
+    return s;
+}
+
+struct Node {
+    ull sum;
+    uint32_t i;
+    uint32_t j;
+};
+
+struct MinCmp {
+    bool operator()(const Node& a, const Node& b) const {
+        return a.sum > b.sum;
+    }
+};
+
+struct MaxCmp {
+    bool operator()(const Node& a, const Node& b) const {
+        return a.sum < b.sum;
+    }
+};
+
+bool solve_ss(const std::vector<ull>& a, ull sum, ull& ans, ull upperDiff) {
+    size_t n = a.size();
+    if (n > 50) return false;
+
+    size_t h1 = n / 2;
+    size_t h2 = n - h1;
+    size_t n1 = h1 / 2;
+    size_t n2 = h1 - n1;
+    size_t n3 = h2 / 2;
+    size_t n4 = h2 - n3;
+
+    std::vector<ull> A, B, C, D;
+    try {
+        A = make_sums(a, 0, n1);
+        B = make_sums(a, n1, n2);
+        C = make_sums(a, n1 + n2, n3);
+        D = make_sums(a, n1 + n2 + n3, n4);
+    } catch (...) {
+        return false;
+    }
+
+    ull target = sum / 2;
+    ull bestSub = (sum - upperDiff) / 2;
+
+    std::priority_queue<Node, std::vector<Node>, MinCmp> ab;
+    std::priority_queue<Node, std::vector<Node>, MaxCmp> cd;
+
+    try {
+        for (uint32_t i = 0; i < A.size(); ++i) ab.push({A[i] + B[0], i, 0});
+        uint32_t lastD = (uint32_t)D.size() - 1;
+        for (uint32_t i = 0; i < C.size(); ++i) cd.push({C[i] + D[lastD], i, lastD});
+    } catch (...) {
+        return false;
+    }
+
+    while (!ab.empty()) {
+        Node x = ab.top();
+        ab.pop();
+
+        if (x.sum > target) break;
+        ull need = target - x.sum;
+
+        while (!cd.empty() && cd.top().sum > need) {
+            Node y = cd.top();
+            cd.pop();
+            if (y.j > 0) {
+                --y.j;
+                y.sum = C[y.i] + D[y.j];
+                cd.push(y);
+            }
+        }
+
+        if (cd.empty()) break;
+
+        ull cand = x.sum + cd.top().sum;
+        if (cand > bestSub) {
+            bestSub = cand;
+            if (bestSub == target) {
+                ans = sum - 2 * bestSub;
+                return true;
+            }
+        }
+
+        if ((size_t)x.j + 1 < B.size()) {
+            ++x.j;
+            x.sum = A[x.i] + B[x.j];
+            ab.push(x);
+        }
+    }
+
+    ans = sum - 2 * bestSub;
+    return true;
+}
+
+struct ExactDFS {
+    const std::vector<ull>& a;
+    std::vector<ull> suffix;
+    ull best;
+    int parity;
+    bool limited;
+    std::chrono::steady_clock::time_point deadline;
+    unsigned long long nodes = 0;
+
+    ExactDFS(const std::vector<ull>& v, ull sum, ull b)
+        : a(v), suffix(v.size() + 1, 0), best(b), parity((int)(sum & 1ULL)) {
+        for (size_t i = v.size(); i > 0; --i) suffix[i - 1] = suffix[i] + v[i - 1];
+    }
+
+    ull lb(ull d, ull rem) const {
+        ull x = (d > rem) ? (d - rem) : 0;
+        if ((int)(x & 1ULL) != parity) ++x;
+        return x;
+    }
+
+    bool dfs(size_t idx, ull d) {
+        if (best == (ull)parity) return true;
+
+        if (limited && ((++nodes & 4095ULL) == 0ULL)) {
+            if (std::chrono::steady_clock::now() >= deadline) return false;
+        }
+
+        ull rem = suffix[idx];
+        if (lb(d, rem) >= best) return true;
+
+        if (idx == a.size()) {
+            if (d < best) best = d;
+            return true;
+        }
+
+        ull x = a[idx];
+        ull rem2 = suffix[idx + 1];
+        ull d1 = (d >= x) ? (d - x) : (x - d);
+        ull d2 = d + x;
+
+        ull l1 = lb(d1, rem2);
+        ull l2 = lb(d2, rem2);
+
+        if (l1 <= l2) {
+            if (l1 < best && !dfs(idx + 1, d1)) return false;
+            if (d2 != d1 && l2 < best && !dfs(idx + 1, d2)) return false;
+        } else {
+            if (l2 < best && !dfs(idx + 1, d2)) return false;
+            if (d2 != d1 && l1 < best && !dfs(idx + 1, d1)) return false;
+        }
+
+        return true;
+    }
+
+    bool run(bool lim, double seconds) {
+        limited = lim;
+        nodes = 0;
+        if (limited) {
+            deadline = std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(seconds));
+        }
+        return dfs(0, 0);
+    }
+};
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a;
+    try {
+        a.reserve(N);
+    } catch (...) {
+        give_up();
+    }
+
+    ull sum = 0;
+    bool overflow = false;
+
+    for (size_t i = 0; i < N; ++i) {
+        ull x;
+        if (!(std::cin >> x)) give_up();
+        if (std::numeric_limits<ull>::max() - sum < x) overflow = true;
+        else sum += x;
+        a.push_back(x);
+    }
+
+    if (overflow) give_up();
+
+    if (N == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    ull parity = sum & 1ULL;
+
+    ull best = kk_bound(a);
+    ull greedy = 0;
+    for (ull x : a) greedy = (greedy >= x) ? (greedy - x) : (x - greedy);
+    if (greedy < best) best = greedy;
+
+    if (best == parity) {
+        std::cout << best << '\n';
+        return 0;
+    }
+
+    ull ans;
+    if (solve_dp(a, sum, ans)) {
+        std::cout << ans << '\n';
+        return 0;
+    }
+
+    if (solve_mitm(a, sum, ans, best)) {
+        std::cout << ans << '\n';
+        return 0;
+    }
+
+    if (N <= 2000) {
+        ExactDFS ex(a, sum, best);
+        if (ex.run(true, (N <= 50 ? 0.05 : 0.20))) {
+            std::cout << ex.best << '\n';
+            return 0;
+        }
+        best = ex.best;
+        if (best == parity) {
+            std::cout << best << '\n';
+            return 0;
+        }
+    }
+
+    if (solve_ss(a, sum, ans, best)) {
+        std::cout << ans << '\n';
+        return 0;
+    }
+
+    if (N <= 2000) {
+        ExactDFS ex(a, sum, best);
+        if (ex.run(false, 0.0)) {
+            std::cout << ex.best << '\n';
+            return 0;
+        }
+    }
+
+    give_up();
+}

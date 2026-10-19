@@ -1,0 +1,62 @@
+#include <vector>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int B = 3;
+
+    int L = 0, pwr = 1;
+    while (pwr <= N) {
+        pwr *= B;
+        ++L;
+    }
+
+    vector<int> divs(L);
+    divs[L - 1] = 1;
+    for (int i = L - 2; i >= 0; --i) divs[i] = divs[i + 1] * B;
+
+    auto digit = [&](int v, int pos) -> int {
+        return (v / divs[pos]) % B;
+    };
+
+    auto id = [&](int pos, int d) -> int {
+        return 1 + pos * B + d;
+    };
+
+    vector<vector<int>> s(1 + L * B, vector<int>(N + 1, -1));
+
+    s[0][0] = 0;
+    for (int y = 1; y <= N; ++y) {
+        s[0][y] = id(0, digit(y, 0));
+    }
+
+    for (int pos = 0; pos < L; ++pos) {
+        for (int d = 0; d < B; ++d) {
+            int state = id(pos, d);
+            s[state][0] = (pos % 2 == 0 ? 1 : 0);
+
+            for (int y = 1; y <= N; ++y) {
+                int e = digit(y, pos);
+
+                if (e == d) {
+                    if (pos == L - 1) {
+                        s[state][y] = -1;
+                    } else {
+                        s[state][y] = id(pos + 1, digit(y, pos + 1));
+                    }
+                } else {
+                    int da, db;
+                    if (pos % 2 == 0) {
+                        da = d;
+                        db = e;
+                    } else {
+                        da = e;
+                        db = d;
+                    }
+                    s[state][y] = (da < db ? -1 : -2);
+                }
+            }
+        }
+    }
+
+    return s;
+}

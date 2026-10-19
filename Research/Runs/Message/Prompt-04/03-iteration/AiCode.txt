@@ -1,0 +1,180 @@
+#include <bits/stdc++.h>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    unsigned long long CH[31][16];
+    bool inited = false;
+
+    void init_comb() {
+        if (inited) return;
+        inited = true;
+        for (int n = 0; n <= 30; ++n) {
+            CH[n][0] = 1;
+            for (int k = 1; k <= 15; ++k) {
+                if (k > n) CH[n][k] = 0;
+                else if (k == n) CH[n][k] = 1;
+                else CH[n][k] = CH[n - 1][k - 1] + CH[n - 1][k];
+            }
+        }
+    }
+
+    unsigned long long rank_comb_lex(const std::vector<int>& v, int n = 30, int k = 15) {
+        unsigned long long r = 0;
+        int prev = -1;
+        for (int idx = 0; idx < k; ++idx) {
+            for (int x = prev + 1; x < v[idx]; ++x) {
+                r += CH[n - 1 - x][k - 1 - idx];
+            }
+            prev = v[idx];
+        }
+        return r;
+    }
+
+    bool unrank_comb_lex(unsigned long long r, std::vector<int>& v, int n = 30, int k = 15) {
+        if (r >= CH[n][k]) return false;
+        v.clear();
+        int start = 0;
+        for (int idx = 0; idx < k; ++idx) {
+            for (int x = start; x < n; ++x) {
+                unsigned long long cnt = CH[n - 1 - x][k - 1 - idx];
+                if (r >= cnt) {
+                    r -= cnt;
+                } else {
+                    v.push_back(x);
+                    start = x + 1;
+                    break;
+                }
+            }
+        }
+        return (int)v.size() == k;
+    }
+
+    unsigned long long header_rank_for_index(unsigned long long safe_mask, int i) {
+        std::vector<int> v;
+        v.reserve(15);
+        for (int j = 0; j < 31; ++j) {
+            if (j == i) continue;
+            if ((safe_mask >> j) & 1ULL) {
+                v.push_back(j < i ? j : j - 1);
+            }
+        }
+        return rank_comb_lex(v);
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    init_comb();
+
+    unsigned long long safe_mask = 0;
+    std::vector<int> safe;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) {
+            safe_mask |= (1ULL << i);
+            safe.push_back(i);
+        }
+    }
+
+    unsigned long long ranks[31]{};
+    for (int i : safe) {
+        ranks[i] = header_rank_for_index(safe_mask, i);
+    }
+
+    for (int b = 0; b < 28; ++b) {
+        std::vector<bool> A(31, false);
+        for (int i : safe) {
+            A[i] = ((ranks[i] >> b) & 1ULL) != 0;
+        }
+        send_packet(A);
+    }
+
+    std::vector<bool> stream;
+    int S = (int)M.size();
+    int len = S - 1;
+    for (int b = 0; b < 10; ++b) {
+        stream.push_back(((len >> b) & 1) != 0);
+    }
+    for (bool x : M) stream.push_back(x);
+
+    int P = ((int)stream.size() + 15) / 16;
+    for (int p = 0; p < P; ++p) {
+        std::vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            int idx = p * 16 + j;
+            if (idx < (int)stream.size()) {
+                A[safe[j]] = stream[idx];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    init_comb();
+
+    std::vector<unsigned long long> masks;
+    std::vector<int> counts;
+
+    for (int i = 0; i < 31; ++i) {
+        unsigned long long val = 0;
+        for (int b = 0; b < 28 && b < (int)R.size(); ++b) {
+            if (R[b][i]) val |= (1ULL << b);
+        }
+
+        std::vector<int> comb;
+        if (!unrank_comb_lex(val, comb)) continue;
+
+        unsigned long long mask = (1ULL << i);
+        for (int pos : comb) {
+            int phys = (pos >= i ? pos + 1 : pos);
+            mask |= (1ULL << phys);
+        }
+
+        bool found = false;
+        for (int t = 0; t < (int)masks.size(); ++t) {
+            if (masks[t] == mask) {
+                counts[t]++;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            masks.push_back(mask);
+            counts.push_back(1);
+        }
+    }
+
+    unsigned long long safe_mask = 0;
+    int best = -1;
+    for (int t = 0; t < (int)masks.size(); ++t) {
+        if (counts[t] > best) {
+            best = counts[t];
+            safe_mask = masks[t];
+        }
+    }
+
+    std::vector<int> safe;
+    for (int i = 0; i < 31; ++i) {
+        if ((safe_mask >> i) & 1ULL) safe.push_back(i);
+    }
+
+    std::vector<bool> stream;
+    for (int p = 28; p < (int)R.size(); ++p) {
+        for (int j = 0; j < 16; ++j) {
+            stream.push_back(R[p][safe[j]]);
+        }
+    }
+
+    int len = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (stream[b]) len |= (1 << b);
+    }
+    int S = len + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(stream[10 + i]);
+    }
+    return M;
+}

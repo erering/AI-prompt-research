@@ -1,0 +1,138 @@
+#include <vector>
+#include <utility>
+#include <algorithm>
+
+namespace {
+    constexpr int MAXN = 10005;
+    constexpr int LOG = 15;
+
+    int gN = -1;
+    int depthArr[MAXN];
+    int upArr[LOG][MAXN];
+    int diaA = 0, diaB = 0, diaD = 0;
+    int initA = 0;
+
+    void reset_state(int N) {
+        gN = N;
+        depthArr[0] = 0;
+        for (int k = 0; k < LOG; ++k) upArr[k][0] = 0;
+        diaA = diaB = diaD = 0;
+        initA = 0;
+    }
+
+    int lca_node(int a, int b) {
+        if (depthArr[a] < depthArr[b]) std::swap(a, b);
+        int diff = depthArr[a] - depthArr[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = upArr[k][a];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (upArr[k][a] != upArr[k][b]) {
+                a = upArr[k][a];
+                b = upArr[k][b];
+            }
+        }
+        return upArr[0][a];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return depthArr[a] + depthArr[b] - 2 * depthArr[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (gN != N || i == 1) reset_state(N);
+
+    upArr[0][i] = Pi;
+    depthArr[i] = depthArr[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        upArr[k][i] = upArr[k - 1][upArr[k - 1][i]];
+    }
+
+    int oldA = diaA;
+    int oldB = diaB;
+    int oldD = diaD;
+
+    int dA = dist_node(i, oldA);
+    int dB = dist_node(i, oldB);
+
+    bool changed = false;
+    int kept = -1;
+
+    if (dA > oldD || dB > oldD) {
+        changed = true;
+        if (dA >= dB) {
+            diaA = i;
+            diaB = oldA;
+            diaD = dA;
+            kept = oldA;
+        } else {
+            diaA = i;
+            diaB = oldB;
+            diaD = dB;
+            kept = oldB;
+        }
+    }
+
+    if (N <= 2) {
+        return (i == 1 ? 1 : 0);
+    }
+
+    int C = std::max(1, N - 50);
+
+    if (i < C) return 0;
+
+    if (i == C) {
+        initA = diaA;
+        return diaA + 1;
+    }
+
+    if (i == C + 1) {
+        if (diaA == i) {
+            return 10001 + diaB;
+        }
+        if (diaB == i) {
+            return 10001 + diaA;
+        }
+        int other = (diaA == initA ? diaB : diaA);
+        return other + 1;
+    }
+
+    if (changed) {
+        return kept + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    int C = std::max(1, N - 50);
+
+    int a0 = S[C] - 1;
+    int a, b;
+
+    int v = S[C + 1];
+    if (v >= 10001) {
+        a = C + 1;
+        b = v - 10001;
+    } else {
+        a = a0;
+        b = v - 1;
+    }
+
+    for (int i = C + 2; i < N; ++i) {
+        if (S[i] != 0) {
+            a = i;
+            b = S[i] - 1;
+        }
+    }
+
+    return {a, b};
+}

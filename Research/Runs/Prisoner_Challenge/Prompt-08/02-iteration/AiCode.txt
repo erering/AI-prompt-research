@@ -1,0 +1,71 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    vector<int> base = {2, 2, 2, 3, 3, 3, 3, 3, 3};
+    int L = (int)base.size();
+
+    vector<int> weight(L);
+    weight[L - 1] = 1;
+    for (int i = L - 2; i >= 0; --i) weight[i] = weight[i + 1] * base[i + 1];
+
+    auto digit = [&](int value, int pos) {
+        int v = value - 1;
+        return (v / weight[pos]) % base[pos];
+    };
+
+    vector<vector<int>> id(8);
+    int cur = 1;
+    for (int t = 0; t < 8; ++t) {
+        id[t].resize(base[t]);
+        for (int d = 0; d < base[t]; ++d) id[t][d] = cur++;
+    }
+    int final_id = cur++;
+
+    int X = cur - 1;
+    vector<vector<int>> s(X + 1, vector<int>(N + 1, -1));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = id[0][digit(j, 0)];
+    }
+
+    for (int t = 0; t < 8; ++t) {
+        bool first_is_A = (t % 2 == 0);
+        for (int d = 0; d < base[t]; ++d) {
+            int st = id[t][d];
+            s[st][0] = first_is_A ? 1 : 0;
+
+            for (int j = 1; j <= N; ++j) {
+                int e = digit(j, t);
+
+                if (e < d) {
+                    s[st][j] = first_is_A ? -2 : -1;
+                } else if (e > d) {
+                    s[st][j] = first_is_A ? -1 : -2;
+                } else {
+                    int nd = digit(j, t + 1);
+                    if (t + 1 == 8) {
+                        if (nd == 1) {
+                            s[st][j] = final_id;
+                        } else {
+                            s[st][j] = (nd == 0 ? -1 : -2);
+                        }
+                    } else {
+                        s[st][j] = id[t + 1][nd];
+                    }
+                }
+            }
+        }
+    }
+
+    s[final_id][0] = 1;
+    for (int j = 1; j <= N; ++j) {
+        int e = digit(j, 8);
+        if (e == 0) s[final_id][j] = -2;
+        else if (e == 2) s[final_id][j] = -1;
+        else s[final_id][j] = -1;
+    }
+
+    return s;
+}

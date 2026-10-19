@@ -1,0 +1,227 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class FastInput {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    size_t idx = 0, size = 0;
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+public:
+    int readInt() {
+        char c;
+        do { c = getChar(); } while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int readBit() {
+        char c;
+        do { c = getChar(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+struct MaxClique {
+    int n, words;
+    vector<vector<unsigned long long>> adj, nonadj;
+    int best = 0;
+    vector<unsigned long long> validMask;
+
+    MaxClique(int n_, vector<vector<unsigned long long>>&& a) : n(n_), adj(std::move(a)) {
+        words = (n + 63) >> 6;
+        validMask.assign(words, ~0ULL);
+        if (words && (n & 63)) validMask.back() = (1ULL << (n & 63)) - 1ULL;
+
+        nonadj.assign(n, vector<unsigned long long>(words));
+        for (int i = 0; i < n; ++i) {
+            for (int w = 0; w < words; ++w) nonadj[i][w] = (~adj[i][w]) & validMask[w];
+            nonadj[i][i >> 6] &= ~(1ULL << (i & 63));
+        }
+    }
+
+    inline bool isAdj(int u, int v) const {
+        return (adj[u][v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline int firstSet(const vector<unsigned long long>& b) const {
+        for (int w = 0; w < words; ++w) {
+            if (b[w]) return (w << 6) + __builtin_ctzll(b[w]);
+        }
+        return -1;
+    }
+
+    inline bool anySet(const vector<unsigned long long>& b) const {
+        for (auto x : b) if (x) return true;
+        return false;
+    }
+
+    int greedyClique(vector<unsigned long long> cand, int add = 0) const {
+        int cnt = add;
+        while (true) {
+            int v = firstSet(cand);
+            if (v < 0 || v >= n) break;
+            ++cnt;
+            for (int w = 0; w < words; ++w) cand[w] &= adj[v][w];
+        }
+        return cnt;
+    }
+
+    void initialHeuristic() {
+        vector<unsigned long long> all(words, 0);
+        for (int i = 0; i < n; ++i) all[i >> 6] |= 1ULL << (i & 63);
+        best = max(best, greedyClique(all));
+
+        int starts = min(n, 24);
+        for (int s = 0; s < starts; ++s) {
+            vector<unsigned long long> c = adj[s];
+            best = max(best, greedyClique(c, 1));
+        }
+    }
+
+    void colorSort(const vector<int>& P, vector<int>& order, vector<int>& color) {
+        order.clear();
+        color.clear();
+        order.reserve(P.size());
+        color.reserve(P.size());
+
+        vector<unsigned long long> U(words, 0), Q(words, 0);
+        for (int v : P) U[v >> 6] |= 1ULL << (v & 63);
+
+        int c = 0;
+        while (anySet(U)) {
+            ++c;
+            Q = U;
+            while (true) {
+                int v = firstSet(Q);
+                if (v < 0 || v >= n) break;
+
+                order.push_back(v);
+                color.push_back(c);
+
+                unsigned long long bit = 1ULL << (v & 63);
+                U[v >> 6] &= ~bit;
+                Q[v >> 6] &= ~bit;
+
+                for (int w = 0; w < words; ++w) Q[w] &= nonadj[v][w];
+            }
+        }
+    }
+
+    void expand(const vector<int>& P, int cur) {
+        if (P.empty()) {
+            if (cur > best) best = cur;
+            return;
+        }
+        if (cur + (int)P.size() <= best) return;
+
+        vector<int> order, color;
+        colorSort(P, order, color);
+
+        int m = (int)order.size();
+        for (int i = m - 1; i >= 0; --i) {
+            if (cur + color[i] <= best) return;
+
+            int v = order[i];
+            vector<int> newP;
+            newP.reserve(i);
+
+            for (int j = 0; j < i; ++j) {
+                int u = order[j];
+                if (isAdj(v, u)) newP.push_back(u);
+            }
+
+            if (newP.empty()) {
+                if (cur + 1 > best) best = cur + 1;
+            } else {
+                expand(newP, cur + 1);
+            }
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        initialHeuristic();
+
+        vector<int> P(n);
+        iota(P.begin(), P.end(), 0);
+        expand(P, 0);
+        return best;
+    }
+};
+
+int main() {
+    FastInput in;
+    int N = in.readInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    int W = (N + 63) >> 6;
+    vector<vector<unsigned long long>> oldAdj(N, vector<unsigned long long>(W, 0));
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            if (in.readBit() && i != j) oldAdj[i][j >> 6] |= 1ULL << (j & 63);
+        }
+    }
+
+    for (int i = 0; i < N; ++i) oldAdj[i][i >> 6] &= ~(1ULL << (i & 63));
+
+    vector<int> deg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        int d = 0;
+        for (int w = 0; w < W; ++w) d += __builtin_popcountll(oldAdj[i][w]);
+        deg[i] = d;
+    }
+
+    vector<int> perm(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    vector<int> pos(N);
+    for (int i = 0; i < N; ++i) pos[perm[i]] = i;
+
+    vector<vector<unsigned long long>> adj(N, vector<unsigned long long>(W, 0));
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        for (int w = 0; w < W; ++w) {
+            unsigned long long x = oldAdj[oi][w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (w << 6) + b;
+                if (oj < N) {
+                    int nj = pos[oj];
+                    if (ni != nj) adj[ni][nj >> 6] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+    }
+
+    oldAdj.clear();
+    oldAdj.shrink_to_fit();
+
+    for (int i = 0; i < N; ++i) adj[i][i >> 6] &= ~(1ULL << (i & 63));
+
+    MaxClique solver(N, std::move(adj));
+    printf("%d\n", solver.solve());
+    return 0;
+}

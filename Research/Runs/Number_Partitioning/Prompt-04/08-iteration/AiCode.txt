@@ -1,0 +1,265 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <new>
+
+using ull = unsigned long long;
+
+static ull target_sum;
+
+static inline ull capped_add(ull a, ull b, ull cap) {
+    return a > cap - b ? cap : a + b;
+}
+
+static bool solve_dp(const std::vector<ull>& a, ull total, ull& answer) {
+    ull target = total / 2;
+    const ull MAX_WORDS = 8000000ULL;
+    const ull MAX_OPS = 300000000ULL;
+
+    ull words64 = target / 64 + 1;
+    if (words64 > MAX_WORDS) return false;
+
+    ull effective = 0;
+    for (ull x : a) if (x <= target) ++effective;
+    if (effective != 0 && words64 > MAX_OPS / effective) return false;
+
+    std::vector<ull> bits;
+    try {
+        bits.assign(static_cast<size_t>(words64), 0);
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+
+    bits[0] = 1ULL;
+    size_t words = bits.size();
+    unsigned used = static_cast<unsigned>(target & 63ULL) + 1U;
+    ull last_mask = (used == 64U) ? ~0ULL : ((1ULL << used) - 1ULL);
+
+    for (ull x : a) {
+        if (x == 0 || x > target) continue;
+        size_t sw = static_cast<size_t>(x >> 6);
+        unsigned sb = static_cast<unsigned>(x & 63ULL);
+
+        if (sb == 0) {
+            for (size_t i = words; i-- > sw;) {
+                bits[i] |= bits[i - sw];
+            }
+        } else {
+            for (size_t i = words; i-- > sw;) {
+                ull v = bits[i - sw] << sb;
+                if (i > sw) v |= bits[i - sw - 1] >> (64U - sb);
+                bits[i] |= v;
+            }
+        }
+
+        bits[words - 1] &= last_mask;
+        if (bits[static_cast<size_t>(target >> 6)] & (1ULL << (target & 63ULL))) {
+            answer = total - target - target;
+            return true;
+        }
+    }
+
+    ull best = 0;
+    for (size_t wi = words; wi-- > 0;) {
+        ull word = bits[wi];
+        if (!word) continue;
+        int b = (wi == words - 1) ? static_cast<int>(target & 63ULL) : 63;
+        for (; b >= 0; --b) {
+            if (word & (1ULL << b)) {
+                best = static_cast<ull>(wi) * 64ULL + static_cast<ull>(b);
+                answer = total - best - best;
+                return true;
+            }
+        }
+    }
+
+    answer = total;
+    return true;
+}
+
+static ull greedy_best(const std::vector<ull>& v, ull target) {
+    ull s = 0;
+    for (ull x : v) {
+        if (x <= target - s) s += x;
+        if (s == target) break;
+    }
+    return s;
+}
+
+static bool generate_sums(const std::vector<ull>& v, size_t l, size_t r, ull target, size_t cap, std::vector<ull>& sums) {
+    try {
+        sums.clear();
+        size_t len = r - l;
+        size_t reserve_size = 1;
+        if (len < 63) {
+            ull full = 1ULL << len;
+            reserve_size = static_cast<size_t>(std::min<ull>(full, static_cast<ull>(cap)));
+        } else {
+            reserve_size = cap;
+        }
+        sums.reserve(reserve_size);
+        sums.push_back(0);
+
+        for (size_t i = l; i < r; ++i) {
+            ull x = v[i];
+            if (x > target) continue;
+            ull lim = target - x;
+            size_t cur = sums.size();
+            for (size_t j = 0; j < cur; ++j) {
+                if (sums[j] <= lim) {
+                    if (sums.size() == cap) return false;
+                    sums.push_back(sums[j] + x);
+                }
+            }
+        }
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+    return true;
+}
+
+static bool solve_mitm(const std::vector<ull>& v, ull target, ull& best) {
+    size_t n = v.size();
+    if (n == 0) return true;
+    if (n > 50) return false;
+
+    size_t left_len = (n + 1) / 2;
+    if (left_len > 25) return false;
+
+    const size_t CAP = 1u << 23;
+    std::vector<ull> right;
+    if (!generate_sums(v, left_len, n, target, CAP, right)) return false;
+
+    std::sort(right.begin(), right.end());
+    right.erase(std::unique(right.begin(), right.end()), right.end());
+    if (right.empty()) right.push_back(0);
+
+    std::vector<ull> suffix(left_len + 1, 0);
+    for (size_t i = left_len; i-- > 0;) {
+        suffix[i] = capped_add(suffix[i + 1], v[i], target);
+    }
+
+    std::vector<size_t> next_diff(left_len + 1, left_len);
+    for (size_t i = 0; i < left_len;) {
+        size_t j = i + 1;
+        while (j < left_len && v[j] == v[i]) ++j;
+        for (size_t k = i; k < j; ++k) next_diff[k] = j;
+        i = j;
+    }
+
+    ull right_max = right.back();
+
+    auto dfs = [&](auto&& self, size_t idx, ull sum) -> void {
+        if (best == target) return;
+
+        ull bound = capped_add(capped_add(sum, suffix[idx], target), right_max, target);
+        if (bound <= best) return;
+
+        if (idx == left_len) {
+            ull rem = target - sum;
+            auto it = std::upper_bound(right.begin(), right.end(), rem);
+            if (it != right.begin()) {
+                --it;
+                ull cand = sum + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+
+        ull x = v[idx];
+        if (x <= target - sum) self(self, idx + 1, sum + x);
+        self(self, next_diff[idx], sum);
+    };
+
+    dfs(dfs, 0, 0);
+    return true;
+}
+
+static void solve_branch_bound(const std::vector<ull>& v, ull target, ull& best) {
+    size_t n = v.size();
+    if (n == 0 || best == target) return;
+
+    std::vector<ull> suffix(n + 1, 0);
+    for (size_t i = n; i-- > 0;) {
+        suffix[i] = capped_add(suffix[i + 1], v[i], target);
+    }
+
+    std::vector<size_t> next_diff(n + 1, n);
+    for (size_t i = 0; i < n;) {
+        size_t j = i + 1;
+        while (j < n && v[j] == v[i]) ++j;
+        for (size_t k = i; k < j; ++k) next_diff[k] = j;
+        i = j;
+    }
+
+    std::vector<std::pair<size_t, ull>> st;
+    st.reserve(std::min<size_t>(n + 1, 100000));
+    st.push_back({0, 0});
+
+    while (!st.empty()) {
+        auto [idx, sum] = st.back();
+        st.pop_back();
+
+        if (best == target) return;
+        if (sum > best) best = sum;
+        if (idx >= n) continue;
+
+        if (best >= sum && suffix[idx] <= best - sum) continue;
+
+        ull x = v[idx];
+
+        st.push_back({next_diff[idx], sum});
+        if (x <= target - sum) st.push_back({idx + 1, sum + x});
+    }
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a;
+    a.reserve(N);
+
+    ull total = 0;
+    for (size_t i = 0; i < N; ++i) {
+        ull x;
+        std::cin >> x;
+        a.push_back(x);
+        total += x;
+    }
+
+    ull answer = 0;
+    if (solve_dp(a, total, answer)) {
+        std::cout << answer << '\n';
+        return 0;
+    }
+
+    ull target = total / 2;
+    std::vector<ull> v;
+    v.reserve(a.size());
+    for (ull x : a) {
+        if (x <= target) v.push_back(x);
+    }
+
+    std::sort(v.begin(), v.end(), std::greater<ull>());
+
+    ull best = greedy_best(v, target);
+
+    if (best != target) {
+        ull mitm_best = best;
+        if (solve_mitm(v, target, mitm_best)) {
+            best = mitm_best;
+        } else {
+            solve_branch_bound(v, target, best);
+        }
+    }
+
+    answer = total - best - best;
+    std::cout << answer << '\n';
+    return 0;
+}

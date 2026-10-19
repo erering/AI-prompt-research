@@ -1,0 +1,114 @@
+#include <vector>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+static unsigned long long binom_value(int n, int k) {
+    static unsigned long long c[32][32];
+    static bool initialized = false;
+    if (!initialized) {
+        for (int i = 0; i < 32; ++i) {
+            c[i][0] = c[i][i] = 1;
+            for (int j = 1; j < i; ++j) c[i][j] = c[i - 1][j - 1] + c[i - 1][j];
+        }
+        initialized = true;
+    }
+    if (n < 0 || k < 0 || k > n) return 0;
+    return c[n][k];
+}
+
+static unsigned long long rank_subset_16_31(const std::vector<int>& subset) {
+    unsigned long long rank = 0;
+    int previous = -1;
+    for (int pos = 0; pos < 16; ++pos) {
+        for (int v = previous + 1; v < subset[pos]; ++v) {
+            rank += binom_value(31 - 1 - v, 16 - 1 - pos);
+        }
+        previous = subset[pos];
+    }
+    return rank;
+}
+
+static std::vector<int> unrank_subset_16_31(unsigned long long rank) {
+    std::vector<int> subset;
+    subset.reserve(16);
+    int start = 0;
+    for (int pos = 0; pos < 16; ++pos) {
+        for (int v = start; v <= 31 - (16 - pos); ++v) {
+            unsigned long long cnt = binom_value(31 - 1 - v, 16 - 1 - pos);
+            if (rank >= cnt) {
+                rank -= cnt;
+            } else {
+                subset.push_back(v);
+                start = v + 1;
+                break;
+            }
+        }
+    }
+    return subset;
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> protected_indices;
+    protected_indices.reserve(16);
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) protected_indices.push_back(i);
+    }
+
+    unsigned long long rank = rank_subset_16_31(protected_indices);
+
+    for (int b = 0; b < 29; ++b) {
+        std::vector<bool> A(31, ((rank >> b) & 1ULL) != 0);
+        send_packet(A);
+    }
+
+    std::vector<bool> payload;
+    int S = (int)M.size();
+    int len_code = S - 1;
+    payload.reserve(10 + S);
+    for (int b = 0; b < 10; ++b) payload.push_back(((len_code >> b) & 1) != 0);
+    for (bool x : M) payload.push_back(x);
+
+    int ptr = 0;
+    while (ptr < (int)payload.size()) {
+        std::vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            if (ptr < (int)payload.size()) A[protected_indices[j]] = payload[ptr++];
+            else A[protected_indices[j]] = false;
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    unsigned long long rank = 0;
+    for (int b = 0; b < 29; ++b) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) if (R[b][i]) ++ones;
+        if (ones >= 16) rank |= (1ULL << b);
+    }
+
+    std::vector<int> protected_indices = unrank_subset_16_31(rank);
+
+    std::vector<bool> payload;
+    payload.reserve(std::max(0, ((int)R.size() - 29) * 16));
+    for (int p = 29; p < (int)R.size(); ++p) {
+        for (int idx : protected_indices) {
+            payload.push_back(R[p][idx]);
+        }
+    }
+
+    int len_code = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (payload[b]) len_code |= (1 << b);
+    }
+    int S = len_code + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(payload[10 + i]);
+    }
+    return M;
+}

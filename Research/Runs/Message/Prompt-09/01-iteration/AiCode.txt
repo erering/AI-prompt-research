@@ -1,0 +1,138 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+namespace {
+    constexpr int N = 31;
+    constexpr int K = 16;
+    constexpr int MASK_BITS = 29;
+    constexpr int LEN_BITS = 10;
+
+    unsigned long long combTable[32][32];
+    bool combReady = false;
+
+    void initComb() {
+        if (combReady) return;
+        memset(combTable, 0, sizeof(combTable));
+        for (int n = 0; n <= 31; ++n) {
+            combTable[n][0] = combTable[n][n] = 1;
+            for (int k = 1; k < n; ++k) {
+                combTable[n][k] = combTable[n - 1][k - 1] + combTable[n - 1][k];
+            }
+        }
+        combReady = true;
+    }
+
+    unsigned long long rankSubset(const vector<int>& s) {
+        initComb();
+        unsigned long long rank = 0;
+        int prev = -1;
+        int rem = K;
+        for (int x : s) {
+            for (int v = prev + 1; v < x; ++v) {
+                rank += combTable[N - v - 1][rem - 1];
+            }
+            prev = x;
+            --rem;
+        }
+        return rank;
+    }
+
+    vector<int> unrankSubset(unsigned long long rank) {
+        initComb();
+        vector<int> s;
+        int start = 0;
+        int rem = K;
+        while (rem > 0) {
+            for (int v = start; v < N; ++v) {
+                unsigned long long cnt = combTable[N - v - 1][rem - 1];
+                if (rank >= cnt) {
+                    rank -= cnt;
+                } else {
+                    s.push_back(v);
+                    start = v + 1;
+                    --rem;
+                    break;
+                }
+            }
+        }
+        return s;
+    }
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    vector<int> reliable;
+    reliable.reserve(K);
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) reliable.push_back(i);
+    }
+
+    unsigned long long rnk = rankSubset(reliable);
+
+    for (int b = 0; b < MASK_BITS; ++b) {
+        bool bit = (rnk >> b) & 1ULL;
+        vector<bool> A(N, false);
+        for (int idx : reliable) A[idx] = bit;
+        send_packet(A);
+    }
+
+    vector<bool> payload;
+    int L = (int)M.size();
+    int storedLen = L - 1;
+
+    for (int b = 0; b < LEN_BITS; ++b) {
+        payload.push_back((storedLen >> b) & 1);
+    }
+    for (bool bit : M) payload.push_back(bit);
+
+    int ptr = 0;
+    while (ptr < (int)payload.size()) {
+        vector<bool> A(N, false);
+        for (int idx : reliable) {
+            if (ptr < (int)payload.size()) {
+                A[idx] = payload[ptr++];
+            } else {
+                A[idx] = false;
+            }
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    unsigned long long rnk = 0;
+
+    for (int b = 0; b < MASK_BITS; ++b) {
+        int ones = 0;
+        for (int i = 0; i < N; ++i) {
+            if (R[b][i]) ++ones;
+        }
+        if (ones >= 16) rnk |= (1ULL << b);
+    }
+
+    vector<int> reliable = unrankSubset(rnk);
+
+    vector<bool> bits;
+    for (int p = MASK_BITS; p < (int)R.size(); ++p) {
+        for (int idx : reliable) {
+            bits.push_back(R[p][idx]);
+        }
+    }
+
+    int storedLen = 0;
+    for (int b = 0; b < LEN_BITS && b < (int)bits.size(); ++b) {
+        if (bits[b]) storedLen |= (1 << b);
+    }
+
+    int L = storedLen + 1;
+    vector<bool> M;
+    M.reserve(L);
+
+    for (int i = 0; i < L; ++i) {
+        int pos = LEN_BITS + i;
+        M.push_back(pos < (int)bits.size() ? bits[pos] : false);
+    }
+
+    return M;
+}

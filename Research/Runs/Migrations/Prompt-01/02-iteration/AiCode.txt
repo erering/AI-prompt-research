@@ -1,0 +1,90 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int LOG = 15;
+    int gN = 0;
+    vector<int> parent_, depth_;
+    vector<array<int, LOG>> up_;
+    int A = 0, B = 0, D = 0;
+
+    int lca_(int a, int b) {
+        if (depth_[a] < depth_[b]) swap(a, b);
+        int diff = depth_[a] - depth_[b];
+        for (int k = 0; k < LOG; ++k) {
+            if ((diff >> k) & 1) a = up_[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up_[a][k] != up_[b][k]) {
+                a = up_[a][k];
+                b = up_[b][k];
+            }
+        }
+        return up_[a][0];
+    }
+
+    int dist_(int a, int b) {
+        int c = lca_(a, b);
+        return depth_[a] + depth_[b] - 2 * depth_[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        gN = N;
+        parent_.assign(N, 0);
+        depth_.assign(N, 0);
+        up_.assign(N, {});
+        for (int k = 0; k < LOG; ++k) up_[0][k] = 0;
+        A = B = 0;
+        D = 0;
+    }
+
+    parent_[i] = Pi;
+    depth_[i] = depth_[Pi] + 1;
+    up_[i][0] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up_[i][k] = up_[up_[i][k - 1]][k - 1];
+    }
+
+    bool updated = false;
+    int other = 0;
+
+    int da = dist_(i, A);
+    int db = dist_(i, B);
+
+    if (da > D) {
+        other = A;
+        B = i;
+        D = da;
+        updated = true;
+    } else if (db > D) {
+        other = B;
+        A = i;
+        D = db;
+        updated = true;
+    }
+
+    if (i == N - 2 || i == N - 1) {
+        if (updated) return N + other;
+        if (i == N - 2) return A + 1;
+        return B + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int n = (int)S.size();
+
+    if (S[n - 1] >= n) {
+        return {n - 1, S[n - 1] - n};
+    }
+
+    if (S[n - 2] >= n) {
+        return {n - 2, S[n - 2] - n};
+    }
+
+    return {S[n - 2] - 1, S[n - 1] - 1};
+}

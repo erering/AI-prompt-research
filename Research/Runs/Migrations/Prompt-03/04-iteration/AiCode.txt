@@ -1,0 +1,89 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int LOG = 15;
+    int curN = 0;
+    vector<array<int, LOG>> up;
+    vector<int> dep;
+    int A = 0, B = 0, D = 0;
+
+    void init_state(int N) {
+        curN = N;
+        up.assign(N, {});
+        dep.assign(N, 0);
+        for (int k = 0; k < LOG; ++k) up[0][k] = 0;
+        A = B = D = 0;
+    }
+
+    int lca(int x, int y) {
+        if (dep[x] < dep[y]) swap(x, y);
+        int diff = dep[x] - dep[y];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) x = up[x][k];
+        }
+        if (x == y) return x;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[x][k] != up[y][k]) {
+                x = up[x][k];
+                y = up[y][k];
+            }
+        }
+        return up[x][0];
+    }
+
+    int dist_tree(int x, int y) {
+        int z = lca(x, y);
+        return dep[x] + dep[y] - 2 * dep[z];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || curN != N) init_state(N);
+
+    up[i][0] = Pi;
+    dep[i] = dep[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) up[i][k] = up[up[i][k - 1]][k - 1];
+
+    int dA = dist_tree(i, A);
+    int dB = dist_tree(i, B);
+    bool changed = false;
+    int other = -1;
+
+    if (dA > D || dB > D) {
+        changed = true;
+        if (dA >= dB) {
+            other = A;
+            B = A;
+            A = i;
+            D = dA;
+        } else {
+            other = B;
+            A = i;
+            D = dB;
+        }
+    }
+
+    if (i == N - 2) {
+        return A + 1;
+    }
+
+    if (i == N - 1) {
+        if (changed) return 10001 + other;
+        return B + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    int a = S[N - 2] - 1;
+    int x = S[N - 1];
+
+    if (x >= 10001) {
+        return {N - 1, x - 10001};
+    } else {
+        return {a, x - 1};
+    }
+}

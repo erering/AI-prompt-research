@@ -1,0 +1,77 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    int target = N;
+    const int INF = 1e9;
+
+    vector<int> best(target + 1, INF), pre(target + 1, -1), prer(target + 1, -1);
+    best[1] = 0;
+
+    for (int p = 1; p <= target; ++p) {
+        if (best[p] == INF) continue;
+        for (int r = 2; r <= target; ++r) {
+            long long q = 1LL * p * r;
+            int np = (q >= target ? target : (int)q);
+            if (best[p] + r < best[np]) {
+                best[np] = best[p] + r;
+                pre[np] = p;
+                prer[np] = r;
+            }
+        }
+    }
+
+    vector<int> base;
+    for (int cur = target; cur != 1; cur = pre[cur]) {
+        base.push_back(prer[cur]);
+    }
+
+    int L = (int)base.size();
+
+    vector<int> w(L, 1);
+    for (int i = L - 2; i >= 0; --i) {
+        w[i] = w[i + 1] * base[i + 1];
+    }
+
+    vector<int> off(L + 1, 1);
+    for (int i = 0; i < L; ++i) off[i + 1] = off[i] + base[i];
+
+    int x = off[L] - 1;
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, 0));
+
+    auto digit = [&](int val, int pos) {
+        int v = val - 1;
+        return (v / w[pos]) % base[pos];
+    };
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = off[0] + digit(j, 0);
+    }
+
+    for (int pos = 0; pos < L; ++pos) {
+        int bag = (pos % 2 == 0 ? 1 : 0);
+        for (int d = 0; d < base[pos]; ++d) {
+            int id = off[pos] + d;
+            s[id][0] = bag;
+
+            for (int j = 1; j <= N; ++j) {
+                int e = digit(j, pos);
+
+                if (e < d) {
+                    s[id][j] = (bag == 0 ? -1 : -2);
+                } else if (e > d) {
+                    s[id][j] = (bag == 0 ? -2 : -1);
+                } else {
+                    if (pos + 1 == L) {
+                        s[id][j] = -1;
+                    } else {
+                        s[id][j] = off[pos + 1] + digit(j, pos + 1);
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

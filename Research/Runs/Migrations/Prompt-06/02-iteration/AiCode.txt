@@ -1,0 +1,102 @@
+#include <vector>
+#include <utility>
+#include <array>
+#include <algorithm>
+
+namespace {
+    constexpr int LOG = 20;
+    int curN = 0;
+    std::vector<std::array<int, LOG>> up;
+    std::vector<int> depth_;
+    int diamA = 0, diamB = 0, diamD = 0;
+    int savedA = 0, savedB = 0, savedD = 0;
+    bool saved = false;
+
+    void init_state(int N) {
+        curN = N;
+        up.assign(N, {});
+        depth_.assign(N, 0);
+        for (int k = 0; k < LOG; ++k) up[0][k] = 0;
+        diamA = diamB = 0;
+        diamD = 0;
+        savedA = savedB = savedD = 0;
+        saved = false;
+    }
+
+    int lca_node(int a, int b) {
+        if (depth_[a] < depth_[b]) std::swap(a, b);
+        int diff = depth_[a] - depth_[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[a][k] != up[b][k]) {
+                a = up[a][k];
+                b = up[b][k];
+            }
+        }
+        return up[a][0];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return depth_[a] + depth_[b] - 2 * depth_[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || curN != N || (int)up.size() != N) init_state(N);
+
+    if (N <= 2) return 0;
+
+    up[i][0] = Pi;
+    for (int k = 1; k < LOG; ++k) up[i][k] = up[up[i][k - 1]][k - 1];
+    depth_[i] = depth_[Pi] + 1;
+
+    int da = dist_node(i, diamA);
+    int db = dist_node(i, diamB);
+
+    if (da > diamD) {
+        diamB = i;
+        diamD = da;
+    } else if (db > diamD) {
+        diamA = i;
+        diamD = db;
+    }
+
+    if (i == N - 2) {
+        savedA = diamA;
+        savedB = diamB;
+        savedD = diamD;
+        saved = true;
+        return savedA + 1;
+    }
+
+    if (i == N - 1) {
+        if (saved && diamD > savedD) {
+            int other = (diamA == i ? diamB : diamA);
+            return 10000 + other + 1;
+        }
+        return savedB + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    int a = S[N - 2] - 1;
+    int last = S[N - 1];
+
+    if (last > 10000) {
+        int other = last - 10000 - 1;
+        return {N - 1, other};
+    } else {
+        int b = last - 1;
+        return {a, b};
+    }
+}

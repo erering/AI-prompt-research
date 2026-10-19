@@ -1,0 +1,292 @@
+#include <algorithm>
+#include <bit>
+#include <cctype>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <string>
+#include <vector>
+
+[[noreturn]] void burn_time() {
+    volatile std::uint64_t x = 0;
+    for (;;) {
+        x = x + 1;
+    }
+}
+
+bool parse_u64(const std::string& s, std::uint64_t& out) {
+    if (s.empty()) return false;
+    std::uint64_t v = 0;
+    for (unsigned char ch : s) {
+        if (!std::isdigit(ch)) return false;
+        std::uint64_t d = ch - '0';
+        if (v > (std::numeric_limits<std::uint64_t>::max() - d) / 10) return false;
+        v = v * 10 + d;
+    }
+    out = v;
+    return true;
+}
+
+std::uint64_t solve_dp(const std::vector<std::uint64_t>& items, std::uint64_t target) {
+    const std::size_t words = static_cast<std::size_t>(target / 64) + 1;
+    std::vector<std::uint64_t> dp(words, 0);
+    dp[0] = 1;
+
+    const unsigned last_bit = static_cast<unsigned>(target & 63);
+    const std::uint64_t last_mask = (last_bit == 63) ? ~0ULL : ((1ULL << (last_bit + 1)) - 1ULL);
+
+    for (std::uint64_t w : items) {
+        if (w > target) continue;
+
+        std::size_t word_shift = static_cast<std::size_t>(w / 64);
+        unsigned bit_shift = static_cast<unsigned>(w & 63);
+
+        for (std::size_t i = words; i-- > word_shift;) {
+            std::uint64_t v = dp[i - word_shift] << bit_shift;
+            if (bit_shift != 0 && i > word_shift) {
+                v |= dp[i - word_shift - 1] >> (64 - bit_shift);
+            }
+            dp[i] |= v;
+        }
+
+        dp.back() &= last_mask;
+
+        if ((dp[static_cast<std::size_t>(target / 64)] >> (target & 63)) & 1ULL) {
+            return target;
+        }
+    }
+
+    for (std::size_t wi = words; wi-- > 0;) {
+        std::uint64_t w = dp[wi];
+        if (w != 0) {
+            int pos = 63 - std::countl_zero(w);
+            return static_cast<std::uint64_t>(wi) * 64ULL + static_cast<std::uint64_t>(pos);
+        }
+    }
+
+    return 0;
+}
+
+void generate_sums(const std::vector<std::uint64_t>& items, std::size_t l, std::size_t r,
+                   std::uint64_t target, std::vector<std::uint64_t>& out) {
+    out.clear();
+    out.push_back(0);
+
+    std::size_t len = r - l;
+    if (len < 63) {
+        std::uint64_t cap = 1ULL << len;
+        if (cap <= 10000000ULL) out.reserve(static_cast<std::size_t>(cap));
+    }
+
+    for (std::size_t i = l; i < r; ++i) {
+        std::uint64_t x = items[i];
+        std::size_t sz = out.size();
+        for (std::size_t j = 0; j < sz; ++j) {
+            if (out[j] <= target - x) {
+                out.push_back(out[j] + x);
+            }
+        }
+    }
+}
+
+std::uint64_t solve_mitm(const std::vector<std::uint64_t>& items, std::uint64_t target) {
+    std::size_t n = items.size();
+    std::size_t mid = n / 2;
+
+    std::vector<std::uint64_t> left, right;
+    generate_sums(items, 0, mid, target, left);
+    generate_sums(items, mid, n, target, right);
+
+    std::sort(right.begin(), right.end());
+    right.erase(std::unique(right.begin(), right.end()), right.end());
+
+    std::uint64_t best = 0;
+    for (std::uint64_t s : left) {
+        if (s > target) continue;
+        std::uint64_t rem = target - s;
+        auto it = std::upper_bound(right.begin(), right.end(), rem);
+        if (it != right.begin()) {
+            --it;
+            std::uint64_t cand = s + *it;
+            if (cand > best) {
+                best = cand;
+                if (best == target) return best;
+            }
+        }
+    }
+
+    return best;
+}
+
+std::uint64_t solve_branch_bound(std::vector<std::uint64_t> items, std::uint64_t target) {
+    std::sort(items.begin(), items.end(), std::greater<std::uint64_t>());
+
+    std::uint64_t best = 0;
+    for (std::uint64_t x : items) {
+        if (x <= target - best) best += x;
+        if (best == target) return best;
+    }
+
+    std::size_t n = items.size();
+    std::vector<std::uint64_t> suffix(n + 1, 0);
+    for (std::size_t i = n; i-- > 0;) {
+        if (suffix[i + 1] >= target - items[i]) suffix[i] = target;
+        else suffix[i] = suffix[i + 1] + items[i];
+    }
+
+    struct Frame {
+        std::size_t i;
+        std::uint64_t sum;
+        unsigned char stage;
+    };
+
+    std::vector<Frame> stack;
+    stack.reserve(n + 1);
+    stack.push_back({0, 0, 0});
+
+    while (!stack.empty()) {
+        Frame& f = stack.back();
+
+        if (f.stage == 0) {
+            if (f.sum > best) {
+                best = f.sum;
+                if (best == target) return best;
+            }
+
+            if (f.i == n) {
+                stack.pop_back();
+                continue;
+            }
+
+            std::uint64_t max_reach = (suffix[f.i] >= target - f.sum) ? target : (f.sum + suffix[f.i]);
+            if (max_reach <= best) {
+                stack.pop_back();
+                continue;
+            }
+
+            f.stage = 1;
+            std::uint64_t x = items[f.i];
+            if (x <= target - f.sum) {
+                stack.push_back({f.i + 1, f.sum + x, 0});
+            }
+        } else if (f.stage == 1) {
+            f.stage = 2;
+            stack.push_back({f.i + 1, f.sum, 0});
+        } else {
+            stack.pop_back();
+        }
+    }
+
+    return best;
+}
+
+int main() {
+    try {
+        std::ios::sync_with_stdio(false);
+        std::cin.tie(nullptr);
+
+        std::size_t N;
+        if (!(std::cin >> N)) return 0;
+
+        std::vector<std::uint64_t> values;
+        values.reserve(N);
+
+        std::uint64_t total = 0;
+        bool overflow = false;
+
+        for (std::size_t i = 0; i < N; ++i) {
+            std::string s;
+            if (!(std::cin >> s)) burn_time();
+
+            std::uint64_t x;
+            if (!parse_u64(s, x)) overflow = true;
+            else {
+                values.push_back(x);
+                if (x > std::numeric_limits<std::uint64_t>::max() - total) overflow = true;
+                else total += x;
+            }
+        }
+
+        if (overflow) burn_time();
+
+        if (values.empty() || total == 0) {
+            std::cout << 0 << '\n';
+            return 0;
+        }
+
+        std::uint64_t g = 0;
+        for (std::uint64_t x : values) g = std::gcd(g, x);
+
+        std::uint64_t factor = (g == 0 ? 1 : g);
+        if (factor > 1) {
+            for (std::uint64_t& x : values) x /= factor;
+            total /= factor;
+        }
+
+        std::uint64_t max_value = 0;
+        bool all_same = true;
+        for (std::uint64_t x : values) {
+            max_value = std::max(max_value, x);
+            if (x != values[0]) all_same = false;
+        }
+
+        if (all_same) {
+            std::uint64_t reduced = (values.size() & 1ULL) ? values[0] : 0ULL;
+            std::cout << reduced * factor << '\n';
+            return 0;
+        }
+
+        std::uint64_t rest = total - max_value;
+        if (max_value >= rest) {
+            std::cout << (max_value - rest) * factor << '\n';
+            return 0;
+        }
+
+        std::uint64_t target = total / 2;
+
+        std::sort(values.begin(), values.end());
+
+        std::vector<std::uint64_t> items;
+        for (std::size_t i = 0; i < values.size();) {
+            std::uint64_t v = values[i];
+            std::size_t j = i;
+            while (j < values.size() && values[j] == v) ++j;
+
+            std::uint64_t cnt = static_cast<std::uint64_t>(j - i);
+            std::uint64_t p = 1;
+
+            while (cnt > 0) {
+                std::uint64_t take = std::min(p, cnt);
+                if (v != 0 && take <= target / v) {
+                    items.push_back(v * take);
+                }
+                cnt -= take;
+                if (p <= std::numeric_limits<std::uint64_t>::max() / 2) p *= 2;
+            }
+
+            i = j;
+        }
+
+        std::sort(items.begin(), items.end(), std::greater<std::uint64_t>());
+
+        std::uint64_t best = 0;
+        std::uint64_t words = target / 64 + 1;
+        long double ops = static_cast<long double>(words) * static_cast<long double>(items.size());
+
+        if (words <= 8000000ULL && ops <= 250000000.0L) {
+            best = solve_dp(items, target);
+        } else if (items.size() <= 46) {
+            best = solve_mitm(items, target);
+        } else {
+            best = solve_branch_bound(items, target);
+        }
+
+        std::uint64_t answer_reduced = total - 2 * best;
+        std::cout << answer_reduced * factor << '\n';
+    } catch (...) {
+        burn_time();
+    }
+
+    return 0;
+}

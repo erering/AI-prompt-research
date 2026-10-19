@@ -1,0 +1,366 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using U64 = unsigned long long;
+
+struct FastScanner {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    size_t idx = 0, size = 0;
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    bool readInt(int &out) {
+        char c;
+        do {
+            c = getChar();
+            if (!c) return false;
+        } while (c <= ' ');
+        int sign = 1;
+        if (c == '-') {
+            sign = -1;
+            c = getChar();
+        }
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        out = x * sign;
+        return true;
+    }
+
+    inline int readBit() {
+        char c;
+        do {
+            c = getChar();
+        } while (c != '0' && c != '1' && c != 0);
+        return c == '1';
+    }
+};
+
+static inline void clear_bit(vector<U64> &bs, int v) {
+    bs[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+static inline void clear_bit_ptr(U64 *bs, int v) {
+    bs[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+struct MaxCliqueSolver {
+    int n, W;
+    const vector<vector<U64>> &adj;
+    int best = 0;
+    vector<U64> bufA, bufB;
+
+    MaxCliqueSolver(int n_, const vector<vector<U64>> &adj_)
+        : n(n_), W((n_ + 63) >> 6), adj(adj_) {
+        bufA.assign((size_t)(n + 2) * W, 0);
+        bufB.assign((size_t)(n + 2) * W, 0);
+    }
+
+    inline U64* A(int d) { return bufA.data() + (size_t)d * W; }
+    inline U64* B(int d) { return bufB.data() + (size_t)d * W; }
+
+    inline bool any(const U64 *p) const {
+        for (int i = 0; i < W; ++i) if (p[i]) return true;
+        return false;
+    }
+
+    inline int popcnt(const U64 *p) const {
+        int s = 0;
+        for (int i = 0; i < W; ++i) s += __builtin_popcountll(p[i]);
+        return s;
+    }
+
+    inline int firstBit(const U64 *p) const {
+        for (int i = 0; i < W; ++i) {
+            if (p[i]) return (i << 6) + __builtin_ctzll(p[i]);
+        }
+        return -1;
+    }
+
+    int greedy(const U64 *init) const {
+        vector<U64> p(init, init + W);
+        int res = 0;
+        while (true) {
+            int v = firstBit(p.data());
+            if (v < 0) break;
+            ++res;
+            const vector<U64> &av = adj[v];
+            for (int i = 0; i < W; ++i) p[i] &= av[i];
+        }
+        return res;
+    }
+
+    void colorSort(const U64 *P, int depth, vector<int> &order, vector<int> &colors) {
+        U64 *U = A(depth);
+        U64 *Q = B(depth);
+        memcpy(U, P, (size_t)W * sizeof(U64));
+
+        int color = 0;
+        while (any(U)) {
+            ++color;
+            memcpy(Q, U, (size_t)W * sizeof(U64));
+            while (true) {
+                int v = firstBit(Q);
+                if (v < 0) break;
+
+                order.push_back(v);
+                colors.push_back(color);
+
+                U64 bit = 1ULL << (v & 63);
+                int word = v >> 6;
+                U[word] &= ~bit;
+                Q[word] &= ~bit;
+
+                const vector<U64> &av = adj[v];
+                for (int i = 0; i < W; ++i) Q[i] &= ~av[i];
+            }
+        }
+    }
+
+    void expand(int sz, const U64 *P, int depth) {
+        int pc = popcnt(P);
+        if (sz + pc <= best) return;
+        if (pc == 0) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        vector<int> order;
+        vector<int> colors;
+        order.reserve(pc);
+        colors.reserve(pc);
+        colorSort(P, depth, order, colors);
+
+        U64 *Pcur = A(depth);
+        U64 *newP = B(depth);
+        memcpy(Pcur, P, (size_t)W * sizeof(U64));
+
+        for (int idx = (int)order.size() - 1; idx >= 0; --idx) {
+            if (sz + colors[idx] <= best) return;
+
+            int v = order[idx];
+            const vector<U64> &av = adj[v];
+
+            for (int i = 0; i < W; ++i) newP[i] = Pcur[i] & av[i];
+
+            if (any(newP)) {
+                expand(sz + 1, newP, depth + 1);
+            } else if (sz + 1 > best) {
+                best = sz + 1;
+            }
+
+            clear_bit_ptr(Pcur, v);
+        }
+    }
+
+    int solve(const vector<U64> &initial) {
+        best = greedy(initial.data());
+        if (best < n) expand(0, initial.data(), 0);
+        return best;
+    }
+};
+
+bool bipartition(const vector<vector<int>> &g, vector<int> &col) {
+    int n = (int)g.size();
+    col.assign(n, -1);
+    queue<int> q;
+
+    for (int s = 0; s < n; ++s) {
+        if (col[s] != -1) continue;
+        col[s] = 0;
+        q.push(s);
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+
+            for (int v : g[u]) {
+                if (col[v] == -1) {
+                    col[v] = col[u] ^ 1;
+                    q.push(v);
+                } else if (col[v] == col[u]) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+int hopcroftKarpMIS(const vector<vector<int>> &g, const vector<int> &col) {
+    int n = (int)g.size();
+    vector<int> pairU(n, -1), pairV(n, -1), dist(n);
+    vector<int> lefts;
+    lefts.reserve(n);
+
+    for (int i = 0; i < n; ++i) {
+        if (col[i] == 0) lefts.push_back(i);
+    }
+
+    auto bfs = [&]() {
+        queue<int> q;
+        bool found = false;
+
+        for (int u : lefts) {
+            if (pairU[u] == -1) {
+                dist[u] = 0;
+                q.push(u);
+            } else {
+                dist[u] = -1;
+            }
+        }
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+
+            for (int v : g[u]) {
+                if (col[v] != 1) continue;
+                int pu = pairV[v];
+                if (pu == -1) {
+                    found = true;
+                } else if (dist[pu] == -1) {
+                    dist[pu] = dist[u] + 1;
+                    q.push(pu);
+                }
+            }
+        }
+        return found;
+    };
+
+    function<bool(int)> dfs = [&](int u) {
+        for (int v : g[u]) {
+            if (col[v] != 1) continue;
+            int pu = pairV[v];
+            if (pu == -1 || (dist[pu] == dist[u] + 1 && dfs(pu))) {
+                pairU[u] = v;
+                pairV[v] = u;
+                return true;
+            }
+        }
+        dist[u] = -1;
+        return false;
+    };
+
+    int matching = 0;
+    while (bfs()) {
+        for (int u : lefts) {
+            if (pairU[u] == -1 && dfs(u)) ++matching;
+        }
+    }
+
+    return n - matching;
+}
+
+int main() {
+    FastScanner fs;
+    int N;
+    if (!fs.readInt(N)) return 0;
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    vector<vector<int>> compAdj(N);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = fs.readBit();
+            if (i < j && b == 0) {
+                compAdj[i].push_back(j);
+                compAdj[j].push_back(i);
+            }
+        }
+    }
+
+    vector<char> vis(N, 0);
+    vector<int> loc(N, -1);
+    long long answer = 0;
+
+    for (int start = 0; start < N; ++start) {
+        if (vis[start]) continue;
+
+        vector<int> verts;
+        queue<int> q;
+        vis[start] = 1;
+        q.push(start);
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            verts.push_back(u);
+
+            for (int v : compAdj[u]) {
+                if (!vis[v]) {
+                    vis[v] = 1;
+                    q.push(v);
+                }
+            }
+        }
+
+        int s = (int)verts.size();
+        if (s == 1) {
+            answer += 1;
+            continue;
+        }
+
+        sort(verts.begin(), verts.end(), [&](int a, int b) {
+            if (compAdj[a].size() != compAdj[b].size()) return compAdj[a].size() < compAdj[b].size();
+            return a < b;
+        });
+
+        for (int i = 0; i < s; ++i) loc[verts[i]] = i;
+
+        vector<vector<int>> cg(s);
+        for (int i = 0; i < s; ++i) {
+            int u = verts[i];
+            cg[i].reserve(compAdj[u].size());
+            for (int v : compAdj[u]) {
+                int j = loc[v];
+                if (j >= 0) cg[i].push_back(j);
+            }
+        }
+
+        vector<int> col;
+        if (bipartition(cg, col)) {
+            answer += hopcroftKarpMIS(cg, col);
+        } else {
+            int W = (s + 63) >> 6;
+            U64 lastMask = (s & 63) ? ((1ULL << (s & 63)) - 1ULL) : ~0ULL;
+
+            vector<vector<U64>> adj(s, vector<U64>(W, ~0ULL));
+            for (int i = 0; i < s; ++i) {
+                adj[i][W - 1] &= lastMask;
+                clear_bit(adj[i], i);
+            }
+
+            for (int i = 0; i < s; ++i) {
+                for (int j : cg[i]) {
+                    clear_bit(adj[i], j);
+                }
+            }
+
+            vector<U64> initial(W, ~0ULL);
+            initial[W - 1] &= lastMask;
+
+            MaxCliqueSolver solver(s, adj);
+            answer += solver.solve(initial);
+        }
+
+        for (int v : verts) loc[v] = -1;
+    }
+
+    printf("%lld\n", answer);
+    return 0;
+}

@@ -1,0 +1,114 @@
+#include <vector>
+#include <utility>
+#include <algorithm>
+
+static const int LP_MAXN = 10000;
+static const int LP_LOG = 15;
+
+static int lp_up[LP_LOG][LP_MAXN];
+static int lp_depth[LP_MAXN];
+static int lp_a = 0, lp_b = 0, lp_diam = 0;
+
+static int lp_lca(int u, int v) {
+    if (lp_depth[u] < lp_depth[v]) std::swap(u, v);
+
+    int diff = lp_depth[u] - lp_depth[v];
+    for (int k = 0; k < LP_LOG; ++k) {
+        if (diff & (1 << k)) u = lp_up[k][u];
+    }
+
+    if (u == v) return u;
+
+    for (int k = LP_LOG - 1; k >= 0; --k) {
+        if (lp_up[k][u] != lp_up[k][v]) {
+            u = lp_up[k][u];
+            v = lp_up[k][v];
+        }
+    }
+
+    return lp_up[0][u];
+}
+
+static int lp_dist(int u, int v) {
+    int w = lp_lca(u, v);
+    return lp_depth[u] + lp_depth[v] - 2 * lp_depth[w];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 0) {
+        lp_a = lp_b = 0;
+        lp_diam = 0;
+        lp_depth[0] = 0;
+        for (int k = 0; k < LP_LOG; ++k) lp_up[k][0] = 0;
+        return 0;
+    }
+
+    lp_depth[i] = lp_depth[Pi] + 1;
+    lp_up[0][i] = Pi;
+    for (int k = 1; k < LP_LOG; ++k) {
+        lp_up[k][i] = lp_up[k - 1][lp_up[k - 1][i]];
+    }
+
+    int oldA = lp_a;
+    int oldB = lp_b;
+    int oldD = lp_diam;
+
+    int da = lp_dist(i, oldA);
+    int db = lp_dist(i, oldB);
+
+    int mx, other;
+    if (da >= db) {
+        mx = da;
+        other = oldA;
+    } else {
+        mx = db;
+        other = oldB;
+    }
+
+    bool forms_diameter = (mx >= oldD);
+
+    if (mx > oldD) {
+        lp_a = i;
+        lp_b = other;
+        lp_diam = mx;
+    }
+
+    int lowMax = N - 2;
+    int highOffset = N - 1;
+
+    if (i == N - 3) {
+        return lp_a + 1;
+    }
+
+    if (i == N - 2) {
+        if (forms_diameter) return highOffset + other;
+        return lp_b + 1;
+    }
+
+    if (i == N - 1) {
+        if (forms_diameter) return highOffset + other;
+        return 0;
+    }
+
+    (void)lowMax;
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    if (N == 1) return {0, 0};
+
+    int lowMax = N - 2;
+    int highOffset = N - 1;
+
+    if (S[N - 1] > lowMax) {
+        return {N - 1, S[N - 1] - highOffset};
+    }
+
+    if (S[N - 2] > lowMax) {
+        return {N - 2, S[N - 2] - highOffset};
+    }
+
+    return {S[N - 3] - 1, S[N - 2] - 1};
+}

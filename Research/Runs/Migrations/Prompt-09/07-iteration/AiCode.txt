@@ -1,0 +1,164 @@
+#include <vector>
+#include <array>
+#include <utility>
+#include <algorithm>
+
+namespace diameter_message_solution {
+    constexpr int LOG = 16;
+    constexpr int OFFSET = 10000;
+
+    bool initialized = false;
+    int currentN = 0;
+    std::vector<std::array<int, LOG>> up;
+    std::vector<int> depth;
+
+    int diamA = 0;
+    int diamB = 0;
+    int diamD = 0;
+
+    int savedA = 0;
+    int savedB = 0;
+    int savedD = 0;
+    bool savedReady = false;
+
+    int nonzeroCount = 0;
+
+    void stage1_initialize(int N) {
+        currentN = N;
+        initialized = true;
+        up.assign(std::max(1, N), {});
+        depth.assign(std::max(1, N), 0);
+        for (int k = 0; k < LOG; ++k) up[0][k] = 0;
+        diamA = 0;
+        diamB = 0;
+        diamD = 0;
+        savedA = 0;
+        savedB = 0;
+        savedD = 0;
+        savedReady = false;
+        nonzeroCount = 0;
+    }
+
+    int lca(int a, int b) {
+        if (depth[a] < depth[b]) std::swap(a, b);
+        int diff = depth[a] - depth[b];
+        for (int k = 0; k < LOG; ++k) {
+            if ((diff >> k) & 1) a = up[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[a][k] != up[b][k]) {
+                a = up[a][k];
+                b = up[b][k];
+            }
+        }
+        return up[a][0];
+    }
+
+    int dist(int a, int b) {
+        int c = lca(a, b);
+        return depth[a] + depth[b] - 2 * depth[c];
+    }
+
+    void stage2_process_edge(int i, int Pi) {
+        up[i][0] = Pi;
+        for (int k = 1; k < LOG; ++k) {
+            up[i][k] = up[up[i][k - 1]][k - 1];
+        }
+        depth[i] = depth[Pi] + 1;
+
+        int oldA = diamA;
+        int oldB = diamB;
+        int da = dist(i, oldA);
+        int db = dist(i, oldB);
+
+        if (da > diamD && da >= db) {
+            diamA = oldA;
+            diamB = i;
+            diamD = da;
+        } else if (db > diamD) {
+            diamA = oldB;
+            diamB = i;
+            diamD = db;
+        }
+    }
+
+    int stage3_decide(int N, int i) {
+        if (N <= 1) return 0;
+
+        if (N == 2) {
+            if (i == 1) return OFFSET + 1;
+            return 0;
+        }
+
+        if (i == N - 2) {
+            savedA = diamA;
+            savedB = diamB;
+            savedD = diamD;
+            savedReady = true;
+            return savedA + 1;
+        }
+
+        if (i == N - 1) {
+            if (!savedReady) {
+                return OFFSET + 1;
+            }
+
+            int da = dist(i, savedA);
+            int db = dist(i, savedB);
+
+            if (da > savedD || db > savedD) {
+                int other = (da >= db ? savedA : savedB);
+                return OFFSET + other + 1;
+            } else {
+                return savedB + 1;
+            }
+        }
+
+        return 0;
+    }
+
+    int stage4_emit(int value) {
+        if (value != 0) ++nonzeroCount;
+        return value;
+    }
+
+    std::pair<int, int> stage5_decode(const std::vector<int>& S) {
+        int N = static_cast<int>(S.size());
+        if (N <= 1) return {0, 0};
+
+        if (N == 2) {
+            int v = S[1];
+            if (v > OFFSET) return {1, v - OFFSET - 1};
+            return {0, 1};
+        }
+
+        int a = S[N - 2] - 1;
+        int v = S[N - 1];
+
+        if (v > OFFSET) {
+            int b = v - OFFSET - 1;
+            return {N - 1, b};
+        } else {
+            int b = v - 1;
+            return {a, b};
+        }
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    using namespace diameter_message_solution;
+
+    if (!initialized || currentN != N || i == 0) {
+        stage1_initialize(N);
+    }
+
+    if (i == 0) return 0;
+
+    stage2_process_edge(i, Pi);
+    return stage4_emit(stage3_decide(N, i));
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    return diameter_message_solution::stage5_decode(S);
+}

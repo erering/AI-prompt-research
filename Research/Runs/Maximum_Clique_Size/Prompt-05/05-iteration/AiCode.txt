@@ -1,0 +1,368 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static inline bool bit_test(const vector<uint64_t>& b, int i) {
+    return (b[i >> 6] >> (i & 63)) & 1ULL;
+}
+static inline void bit_set(vector<uint64_t>& b, int i) {
+    b[i >> 6] |= 1ULL << (i & 63);
+}
+static inline void bit_clear(vector<uint64_t>& b, int i) {
+    b[i >> 6] &= ~(1ULL << (i & 63));
+}
+
+struct HopcroftKarp {
+    int n;
+    vector<vector<int>> adj;
+    vector<int> part, dist, ml, mr;
+
+    bool bfs(const vector<int>& left) {
+        queue<int> q;
+        bool found = false;
+        for (int u : left) {
+            if (ml[u] == -1) {
+                dist[u] = 0;
+                q.push(u);
+            } else {
+                dist[u] = -1;
+            }
+        }
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            for (int v : adj[u]) {
+                if (part[v] != 1) continue;
+                int w = mr[v];
+                if (w == -1) {
+                    found = true;
+                } else if (dist[w] == -1) {
+                    dist[w] = dist[u] + 1;
+                    q.push(w);
+                }
+            }
+        }
+        return found;
+    }
+
+    bool dfs(int u) {
+        for (int v : adj[u]) {
+            if (part[v] != 1) continue;
+            int w = mr[v];
+            if (w == -1 || (dist[w] == dist[u] + 1 && dfs(w))) {
+                ml[u] = v;
+                mr[v] = u;
+                return true;
+            }
+        }
+        dist[u] = -1;
+        return false;
+    }
+
+    int max_matching(int n_, const vector<vector<int>>& adj_, const vector<int>& part_) {
+        n = n_;
+        adj = adj_;
+        part = part_;
+        dist.assign(n, -1);
+        ml.assign(n, -1);
+        mr.assign(n, -1);
+
+        vector<int> left;
+        for (int i = 0; i < n; ++i) {
+            if (part[i] == 0) left.push_back(i);
+        }
+
+        int matching = 0;
+        while (bfs(left)) {
+            for (int u : left) {
+                if (ml[u] == -1 && dfs(u)) ++matching;
+            }
+        }
+        return matching;
+    }
+};
+
+struct MaxCliqueSolver {
+    int n, words;
+    vector<vector<uint64_t>> adj;
+    vector<vector<int>> compAdj;
+    int best = 0;
+
+    MaxCliqueSolver(int n_, vector<vector<uint64_t>> adj_, vector<vector<int>> compAdj_)
+        : n(n_), words((n_ + 63) >> 6), adj(move(adj_)), compAdj(move(compAdj_)) {}
+
+    inline bool adjacent(int u, int v) const {
+        return (adj[u][v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    int greedy_clique_once(uint32_t seed) {
+        vector<char> alive(n, 1);
+        vector<int> deg(n);
+        for (int i = 0; i < n; ++i) deg[i] = (int)compAdj[i].size();
+
+        uint32_t x = seed;
+        auto rnd = [&]() {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            return x;
+        };
+
+        int cnt = n, res = 0;
+        while (cnt > 0) {
+            int mn = INT_MAX;
+            for (int i = 0; i < n; ++i) {
+                if (alive[i]) mn = min(mn, deg[i]);
+            }
+
+            vector<int> cand;
+            int slack = (seed == 1 ? 0 : 2);
+            for (int i = 0; i < n; ++i) {
+                if (alive[i] && deg[i] <= mn + slack) cand.push_back(i);
+            }
+            int v = cand[rnd() % cand.size()];
+
+            vector<int> rem;
+            rem.push_back(v);
+            for (int u : compAdj[v]) {
+                if (alive[u]) rem.push_back(u);
+            }
+
+            ++res;
+            for (int u : rem) {
+                if (!alive[u]) continue;
+                alive[u] = 0;
+                --cnt;
+                for (int w : compAdj[u]) {
+                    if (alive[w]) --deg[w];
+                }
+            }
+        }
+        return res;
+    }
+
+    void initial_heuristic() {
+        best = 0;
+        for (uint32_t s = 1; s <= 16; ++s) {
+            best = max(best, greedy_clique_once(1234567u * s + 891011u));
+            if (best == n) return;
+        }
+    }
+
+    void color_sort(const vector<int>& P, vector<int>& order, vector<int>& colors) {
+        order.clear();
+        colors.clear();
+
+        vector<int> rem = P;
+        int color = 0;
+        vector<int> cls, next;
+        while (!rem.empty()) {
+            ++color;
+            cls.clear();
+            next.clear();
+
+            for (int v : rem) {
+                bool ok = true;
+                for (int u : cls) {
+                    if (adjacent(u, v)) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if (ok) {
+                    cls.push_back(v);
+                } else {
+                    next.push_back(v);
+                }
+            }
+
+            for (int v : cls) {
+                order.push_back(v);
+                colors.push_back(color);
+            }
+            rem.swap(next);
+        }
+    }
+
+    void expand(const vector<int>& P, int cur) {
+        if (P.empty()) {
+            if (cur > best) best = cur;
+            return;
+        }
+
+        vector<int> order;
+        vector<int> colors;
+        order.reserve(P.size());
+        colors.reserve(P.size());
+        color_sort(P, order, colors);
+
+        vector<int> newP;
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (cur + colors[i] <= best) return;
+
+            int v = order[i];
+            if (cur + 1 > best) best = cur + 1;
+
+            newP.clear();
+            newP.reserve(i);
+            const vector<uint64_t>& av = adj[v];
+            for (int j = 0; j < i; ++j) {
+                int u = order[j];
+                if ((av[u >> 6] >> (u & 63)) & 1ULL) newP.push_back(u);
+            }
+
+            if (!newP.empty()) expand(newP, cur + 1);
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        if (n == 1) return 1;
+
+        initial_heuristic();
+        if (best == n) return n;
+
+        vector<int> P(n);
+        iota(P.begin(), P.end(), 0);
+        sort(P.begin(), P.end(), [&](int a, int b) {
+            int da = n - 1 - (int)compAdj[a].size();
+            int db = n - 1 - (int)compAdj[b].size();
+            return da > db;
+        });
+
+        expand(P, 0);
+        return best;
+    }
+};
+
+int next_digit() {
+    char c;
+    while (cin.get(c)) {
+        if (c == '0' || c == '1') return c - '0';
+    }
+    return 0;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    int W = (N + 63) >> 6;
+    vector<vector<uint64_t>> orig(N, vector<uint64_t>(W, 0));
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int x = next_digit();
+            if (x && i != j) {
+                bit_set(orig[i], j);
+                bit_set(orig[j], i);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) bit_clear(orig[i], i);
+
+    vector<vector<int>> comp(N);
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            if (!bit_test(orig[i], j)) {
+                comp[i].push_back(j);
+                comp[j].push_back(i);
+            }
+        }
+    }
+
+    vector<int> seen(N, 0);
+    long long answer = 0;
+
+    for (int st = 0; st < N; ++st) {
+        if (seen[st]) continue;
+
+        vector<int> verts;
+        queue<int> q;
+        seen[st] = 1;
+        q.push(st);
+
+        while (!q.empty()) {
+            int v = q.front();
+            q.pop();
+            verts.push_back(v);
+            for (int u : comp[v]) {
+                if (!seen[u]) {
+                    seen[u] = 1;
+                    q.push(u);
+                }
+            }
+        }
+
+        int s = (int)verts.size();
+        if (s == 1) {
+            answer += 1;
+            continue;
+        }
+
+        vector<int> id(N, -1);
+        for (int i = 0; i < s; ++i) id[verts[i]] = i;
+
+        vector<vector<int>> localComp(s);
+        for (int i = 0; i < s; ++i) {
+            int gv = verts[i];
+            for (int gu : comp[gv]) {
+                int lu = id[gu];
+                if (lu != -1) localComp[i].push_back(lu);
+            }
+        }
+
+        vector<int> part(s, -1);
+        bool bip = true;
+        for (int i = 0; i < s && bip; ++i) {
+            if (part[i] != -1) continue;
+            part[i] = 0;
+            queue<int> bq;
+            bq.push(i);
+            while (!bq.empty() && bip) {
+                int v = bq.front();
+                bq.pop();
+                for (int u : localComp[v]) {
+                    if (part[u] == -1) {
+                        part[u] = part[v] ^ 1;
+                        bq.push(u);
+                    } else if (part[u] == part[v]) {
+                        bip = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (bip) {
+            HopcroftKarp hk;
+            int matching = hk.max_matching(s, localComp, part);
+            answer += s - matching;
+            continue;
+        }
+
+        int LW = (s + 63) >> 6;
+        vector<vector<uint64_t>> localOrig(s, vector<uint64_t>(LW, ~0ULL));
+        if (s & 63) {
+            uint64_t mask = (1ULL << (s & 63)) - 1ULL;
+            for (int i = 0; i < s; ++i) localOrig[i][LW - 1] &= mask;
+        }
+
+        for (int i = 0; i < s; ++i) bit_clear(localOrig[i], i);
+
+        for (int i = 0; i < s; ++i) {
+            for (int j : localComp[i]) {
+                bit_clear(localOrig[i], j);
+            }
+        }
+
+        MaxCliqueSolver solver(s, move(localOrig), move(localComp));
+        answer += solver.solve();
+    }
+
+    cout << answer << '\n';
+    return 0;
+}

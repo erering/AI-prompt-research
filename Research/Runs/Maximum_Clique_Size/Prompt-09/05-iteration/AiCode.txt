@@ -1,0 +1,350 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class FastScanner {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    size_t idx = 0, sz = 0;
+
+    int getChar() {
+        if (idx >= sz) {
+            sz = fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (sz == 0) return EOF;
+        }
+        return buf[idx++];
+    }
+
+public:
+    int readInt() {
+        int c;
+        do {
+            c = getChar();
+            if (c == EOF) return 0;
+        } while (c <= ' ');
+
+        int sign = 1;
+        if (c == '-') {
+            sign = -1;
+            c = getChar();
+        }
+
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x * sign;
+    }
+
+    int readBit() {
+        int c;
+        do {
+            c = getChar();
+            if (c == EOF) return 0;
+        } while (c != '0' && c != '1');
+        return c - '0';
+    }
+};
+
+struct MaxCliqueSolver {
+    int n;
+    int words;
+    uint64_t lastMask;
+    vector<vector<uint64_t>> adj;
+    int best = 0;
+
+    MaxCliqueSolver(int n_, vector<vector<uint64_t>> adj_) : n(n_), adj(std::move(adj_)) {
+        words = (n + 63) >> 6;
+        int rem = n & 63;
+        lastMask = rem ? ((1ULL << rem) - 1ULL) : ~0ULL;
+    }
+
+    inline bool testBit(const vector<uint64_t>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline void clearBit(vector<uint64_t>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline int popcountBits(const vector<uint64_t>& b) const {
+        int s = 0;
+        for (uint64_t x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline bool emptyBits(const vector<uint64_t>& b) const {
+        for (uint64_t x : b) if (x) return false;
+        return true;
+    }
+
+    inline int firstBit(const vector<uint64_t>& b) const {
+        for (int i = 0; i < words; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    void colorSort(const vector<uint64_t>& P, vector<int>& order, vector<int>& colors) const {
+        order.clear();
+        colors.clear();
+        order.reserve(n);
+        colors.reserve(n);
+
+        vector<uint64_t> U = P;
+        int color = 0;
+
+        while (!emptyBits(U)) {
+            ++color;
+            vector<uint64_t> Q = U;
+
+            while (!emptyBits(Q)) {
+                int v = firstBit(Q);
+                order.push_back(v);
+                colors.push_back(color);
+
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                for (int w = 0; w < words; ++w) {
+                    Q[w] &= ~adj[v][w];
+                }
+                if (words) Q[words - 1] &= lastMask;
+            }
+        }
+    }
+
+    void expand(vector<uint64_t> P, int depth) {
+        int cnt = popcountBits(P);
+        if (depth + cnt <= best) return;
+        if (cnt == 0) {
+            if (depth > best) best = depth;
+            return;
+        }
+
+        vector<int> order, colors;
+        colorSort(P, order, colors);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (depth + colors[i] <= best) return;
+
+            int v = order[i];
+            if (!testBit(P, v)) continue;
+
+            if (depth + 1 > best) {
+                best = depth + 1;
+                if (best == n) return;
+            }
+
+            vector<uint64_t> nextP(words);
+            for (int w = 0; w < words; ++w) {
+                nextP[w] = P[w] & adj[v][w];
+            }
+
+            expand(std::move(nextP), depth + 1);
+            if (best == n) return;
+
+            clearBit(P, v);
+        }
+    }
+
+    int solve(int initialBest) {
+        best = initialBest;
+        vector<uint64_t> P(words, ~0ULL);
+        if (words) P[words - 1] = lastMask;
+        expand(std::move(P), 0);
+        return best;
+    }
+};
+
+static inline void setBit(vector<uint64_t>& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+static inline void clearBitRaw(vector<uint64_t>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+int greedyIndependentSparse(const vector<vector<int>>& g) {
+    int n = (int)g.size();
+    if (n == 0) return 0;
+
+    vector<int> deg(n);
+    vector<char> alive(n, 1);
+    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+    for (int i = 0; i < n; ++i) {
+        deg[i] = (int)g[i].size();
+        pq.push({deg[i], i});
+    }
+
+    int remaining = n;
+    int ans = 0;
+
+    while (remaining > 0) {
+        int v = -1;
+        while (!pq.empty()) {
+            auto [d, x] = pq.top();
+            pq.pop();
+            if (alive[x] && d == deg[x]) {
+                v = x;
+                break;
+            }
+        }
+        if (v < 0) break;
+
+        ++ans;
+
+        vector<int> rem;
+        rem.push_back(v);
+        for (int u : g[v]) {
+            if (alive[u]) rem.push_back(u);
+        }
+
+        for (int x : rem) {
+            if (!alive[x]) continue;
+            alive[x] = 0;
+            --remaining;
+            for (int y : g[x]) {
+                if (alive[y]) {
+                    --deg[y];
+                    pq.push({deg[y], y});
+                }
+            }
+        }
+    }
+
+    return ans;
+}
+
+int main() {
+    FastScanner fs;
+    int N = fs.readInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    int fullWords = (N + 63) >> 6;
+    vector<vector<uint64_t>> fullAdj(N, vector<uint64_t>(fullWords, 0));
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = fs.readBit();
+            if (b && i != j) {
+                setBit(fullAdj[i], j);
+                setBit(fullAdj[j], i);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) clearBitRaw(fullAdj[i], i);
+
+    vector<vector<int>> comp(N);
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            if (((fullAdj[i][j >> 6] >> (j & 63)) & 1ULL) == 0) {
+                comp[i].push_back(j);
+                comp[j].push_back(i);
+            }
+        }
+    }
+
+    vector<char> alive(N, 1);
+    vector<int> deg(N);
+    deque<int> dq;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)comp[i].size();
+        if (deg[i] <= 1) dq.push_back(i);
+    }
+
+    int forced = 0;
+
+    auto removeVertex = [&](int x) {
+        if (!alive[x]) return;
+        alive[x] = 0;
+        for (int y : comp[x]) {
+            if (alive[y]) {
+                --deg[y];
+                if (deg[y] <= 1) dq.push_back(y);
+            }
+        }
+    };
+
+    while (!dq.empty()) {
+        int v = dq.front();
+        dq.pop_front();
+
+        if (!alive[v] || deg[v] > 1) continue;
+
+        int nei = -1;
+        if (deg[v] == 1) {
+            for (int u : comp[v]) {
+                if (alive[u]) {
+                    nei = u;
+                    break;
+                }
+            }
+        }
+
+        ++forced;
+        removeVertex(v);
+        if (nei != -1) removeVertex(nei);
+    }
+
+    vector<int> vertices;
+    vertices.reserve(N);
+    for (int i = 0; i < N; ++i) {
+        if (alive[i]) vertices.push_back(i);
+    }
+
+    if (vertices.empty()) {
+        printf("%d\n", forced);
+        return 0;
+    }
+
+    sort(vertices.begin(), vertices.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    int n = (int)vertices.size();
+    vector<int> id(N, -1);
+    for (int i = 0; i < n; ++i) id[vertices[i]] = i;
+
+    int words = (n + 63) >> 6;
+    uint64_t lastMask = (n & 63) ? ((1ULL << (n & 63)) - 1ULL) : ~0ULL;
+
+    vector<vector<uint64_t>> adj(n, vector<uint64_t>(words, ~0ULL));
+    if (words) {
+        for (int i = 0; i < n; ++i) adj[i][words - 1] &= lastMask;
+    }
+    for (int i = 0; i < n; ++i) clearBitRaw(adj[i], i);
+
+    vector<vector<int>> compR(n);
+
+    for (int uOld = 0; uOld < N; ++uOld) {
+        if (!alive[uOld]) continue;
+        int u = id[uOld];
+        for (int vOld : comp[uOld]) {
+            if (uOld < vOld && alive[vOld]) {
+                int v = id[vOld];
+                clearBitRaw(adj[u], v);
+                clearBitRaw(adj[v], u);
+                compR[u].push_back(v);
+                compR[v].push_back(u);
+            }
+        }
+    }
+
+    int initial = greedyIndependentSparse(compR);
+
+    MaxCliqueSolver solver(n, std::move(adj));
+    int residual = solver.solve(initial);
+
+    printf("%d\n", forced + residual);
+    return 0;
+}

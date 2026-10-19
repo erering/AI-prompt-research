@@ -1,0 +1,363 @@
+#include <algorithm>
+#include <bit>
+#include <chrono>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <queue>
+#include <string>
+#include <thread>
+#include <vector>
+
+using U64 = unsigned long long;
+
+[[noreturn]] void safe_tle() {
+    for (;;) std::this_thread::sleep_for(std::chrono::hours(24));
+}
+
+bool parse_u64(const std::string& s, U64& out) {
+    if (s.empty()) return false;
+    std::size_t i = 0;
+    if (s[0] == '+') i = 1;
+    if (i == s.size()) return false;
+    U64 v = 0;
+    for (; i < s.size(); ++i) {
+        if (s[i] < '0' || s[i] > '9') return false;
+        unsigned digit = static_cast<unsigned>(s[i] - '0');
+        if (v > (std::numeric_limits<U64>::max() - digit) / 10) return false;
+        v = v * 10 + digit;
+    }
+    out = v;
+    return true;
+}
+
+U64 subset_diff(U64 total, U64 s) {
+    U64 other = total - s;
+    return s >= other ? s - other : other - s;
+}
+
+U64 adjusted_lower(U64 lb, U64 parity) {
+    if ((lb & 1ULL) != parity) {
+        if (lb != std::numeric_limits<U64>::max()) ++lb;
+    }
+    return lb;
+}
+
+U64 greedy_lpt(const std::vector<U64>& a) {
+    U64 x = 0, y = 0;
+    for (U64 v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return x >= y ? x - y : y - x;
+}
+
+U64 greedy_kk(const std::vector<U64>& a) {
+    std::priority_queue<U64> pq;
+    for (U64 v : a) if (v) pq.push(v);
+    while (pq.size() > 1) {
+        U64 x = pq.top(); pq.pop();
+        U64 y = pq.top(); pq.pop();
+        if (x != y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+bool try_dp(const std::vector<U64>& a, U64 total, U64& ans) {
+    U64 target = total / 2;
+    U64 words64 = target / 64 + 1;
+
+    if (words64 > 4'000'000ULL) return false;
+    long double ops = static_cast<long double>(a.size()) * static_cast<long double>(words64);
+    if (ops > 150'000'000.0L) return false;
+
+    try {
+        std::vector<U64> bits(static_cast<std::size_t>(words64), 0);
+        bits[0] = 1ULL;
+
+        std::size_t words = bits.size();
+        int last_bits = static_cast<int>(target & 63ULL);
+        U64 last_mask = (last_bits == 63) ? ~0ULL : ((1ULL << (last_bits + 1)) - 1ULL);
+
+        for (U64 v : a) {
+            if (v > target) continue;
+            std::size_t sw = static_cast<std::size_t>(v / 64);
+            unsigned sb = static_cast<unsigned>(v & 63ULL);
+            if (sw >= words) continue;
+
+            for (std::size_t i = words; i-- > sw;) {
+                U64 val = bits[i - sw] << sb;
+                if (sb && i > sw) val |= bits[i - sw - 1] >> (64 - sb);
+                bits[i] |= val;
+            }
+            bits.back() &= last_mask;
+        }
+
+        for (std::size_t i = words; i-- > 0;) {
+            U64 w = bits[i];
+            if (i == words - 1) w &= last_mask;
+            if (w) {
+                int p = std::bit_width(w) - 1;
+                U64 s = static_cast<U64>(i) * 64ULL + static_cast<U64>(p);
+                ans = total - 2ULL * s;
+                return true;
+            }
+        }
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+
+    return false;
+}
+
+std::vector<U64> make_sums(const std::vector<U64>& a, std::size_t l, std::size_t r) {
+    std::size_t m = r - l;
+    std::vector<U64> sums;
+    sums.reserve(std::size_t{1} << m);
+    sums.push_back(0);
+    for (std::size_t i = l; i < r; ++i) {
+        std::size_t old = sums.size();
+        sums.resize(old * 2);
+        for (std::size_t j = 0; j < old; ++j) {
+            sums[old + j] = sums[j] + a[i];
+        }
+    }
+    return sums;
+}
+
+bool try_mitm(const std::vector<U64>& a, U64 total, U64 parity, U64& ans) {
+    std::size_t n = a.size();
+    if (n > 45) return false;
+
+    try {
+        std::size_t m = n / 2;
+        std::vector<U64> left = make_sums(a, 0, m);
+        std::sort(left.begin(), left.end());
+
+        U64 best = std::numeric_limits<U64>::max();
+        U64 target = total / 2;
+        std::size_t k = n - m;
+        U64 count = 1ULL << k;
+
+        auto check_sum = [&](U64 right_sum) {
+            if (right_sum >= target) {
+                U64 d = subset_diff(total, right_sum);
+                if (d < best) best = d;
+                return;
+            }
+
+            U64 need = target - right_sum;
+            auto it = std::upper_bound(left.begin(), left.end(), need);
+
+            if (it != left.begin()) {
+                U64 s = right_sum + *std::prev(it);
+                U64 d = subset_diff(total, s);
+                if (d < best) best = d;
+            }
+            if (it != left.end()) {
+                U64 s = right_sum + *it;
+                U64 d = subset_diff(total, s);
+                if (d < best) best = d;
+            }
+        };
+
+        U64 cur = 0, prev_gray = 0;
+        check_sum(cur);
+        for (U64 t = 1; t < count; ++t) {
+            U64 gray = t ^ (t >> 1);
+            U64 diff = gray ^ prev_gray;
+            unsigned bit = std::countr_zero(diff);
+            U64 v = a[m + bit];
+            if (gray & diff) cur += v;
+            else cur -= v;
+            prev_gray = gray;
+
+            check_sum(cur);
+            if (best == parity) {
+                ans = best;
+                return true;
+            }
+        }
+
+        ans = best;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+struct CKK {
+    U64 best;
+    U64 parity;
+
+    std::vector<U64> child(const std::vector<U64>& v, U64 x) {
+        std::vector<U64> out;
+        out.reserve(v.size() - 1);
+        bool inserted = (x == 0);
+
+        for (std::size_t i = 2; i < v.size(); ++i) {
+            if (!inserted && x >= v[i]) {
+                out.push_back(x);
+                inserted = true;
+            }
+            out.push_back(v[i]);
+        }
+        if (!inserted) out.push_back(x);
+        return out;
+    }
+
+    void search(const std::vector<U64>& v, U64 sum) {
+        if (best == parity) return;
+
+        std::size_t n = v.size();
+        if (n == 0) {
+            best = 0;
+            return;
+        }
+        if (n == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+
+        U64 a = v[0];
+        U64 rest = sum - a;
+        U64 lb = (a > rest) ? (a - rest) : 0;
+        lb = adjusted_lower(lb, parity);
+        if (lb >= best) return;
+
+        if (a >= rest) {
+            U64 cand = a - rest;
+            if (cand < best) best = cand;
+            return;
+        }
+
+        U64 b = v[1];
+        if (n == 2) {
+            U64 cand = a - b;
+            if (cand < best) best = cand;
+            return;
+        }
+
+        std::vector<U64> diff_child = child(v, a - b);
+        search(diff_child, sum - 2ULL * b);
+        if (best == parity) return;
+
+        std::vector<U64> sum_child = child(v, a + b);
+        search(sum_child, sum);
+    }
+};
+
+U64 assignment_dfs(const std::vector<U64>& a, U64 total, U64 best, U64 parity) {
+    std::size_t n = a.size();
+    std::vector<U64> suffix(n + 1, 0);
+    for (std::size_t i = n; i-- > 0;) suffix[i] = suffix[i + 1] + a[i];
+
+    struct Frame {
+        std::size_t i;
+        U64 d;
+    };
+
+    std::vector<Frame> st;
+    st.reserve(std::min<std::size_t>(n + 1, 1'000'000));
+    st.push_back({0, 0});
+
+    while (!st.empty()) {
+        Frame f = st.back();
+        st.pop_back();
+
+        if (best == parity) return best;
+
+        U64 rem = suffix[f.i];
+        U64 lb = (f.d > rem) ? (f.d - rem) : 0;
+        lb = adjusted_lower(lb, parity);
+        if (lb >= best) continue;
+
+        if (f.i == n) {
+            if (f.d < best) best = f.d;
+            continue;
+        }
+
+        U64 x = a[f.i];
+        U64 d1 = (f.d >= x) ? (f.d - x) : (x - f.d);
+        U64 d2 = f.d + x;
+
+        if (d1 <= d2) {
+            st.push_back({f.i + 1, d2});
+            st.push_back({f.i + 1, d1});
+        } else {
+            st.push_back({f.i + 1, d1});
+            st.push_back({f.i + 1, d2});
+        }
+    }
+
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::string token;
+    if (!(std::cin >> token)) return 0;
+
+    U64 n64;
+    if (!parse_u64(token, n64)) safe_tle();
+    if (n64 > static_cast<U64>(std::numeric_limits<std::size_t>::max())) safe_tle();
+
+    std::size_t n = static_cast<std::size_t>(n64);
+    std::vector<U64> a;
+    try {
+        a.reserve(n);
+    } catch (const std::bad_alloc&) {
+        safe_tle();
+    }
+
+    U64 total = 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (!(std::cin >> token)) safe_tle();
+        U64 v;
+        if (!parse_u64(token, v)) safe_tle();
+        if (total > std::numeric_limits<U64>::max() - v) safe_tle();
+        total += v;
+        a.push_back(v);
+    }
+
+    if (n == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<U64>());
+
+    U64 parity = total & 1ULL;
+    U64 best = greedy_lpt(a);
+    U64 kk = greedy_kk(a);
+    if (kk < best) best = kk;
+
+    if (best == parity) {
+        std::cout << best << '\n';
+        return 0;
+    }
+
+    U64 ans;
+    if (try_dp(a, total, ans)) {
+        std::cout << ans << '\n';
+        return 0;
+    }
+
+    if (try_mitm(a, total, parity, ans)) {
+        std::cout << ans << '\n';
+        return 0;
+    }
+
+    if (n <= 1000) {
+        CKK solver{best, parity};
+        solver.search(a, total);
+        std::cout << solver.best << '\n';
+        return 0;
+    }
+
+    ans = assignment_dfs(a, total, best, parity);
+    std::cout << ans << '\n';
+    return 0;
+}

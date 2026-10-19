@@ -1,0 +1,294 @@
+#include <algorithm>
+#include <cstdint>
+#include <iostream>
+#include <numeric>
+#include <queue>
+#include <vector>
+
+using namespace std;
+
+using ull = unsigned long long;
+
+static ull gcd_all(vector<ull>& a) {
+    ull g = 0;
+    for (ull x : a) g = std::gcd(g, x);
+    return g;
+}
+
+static ull greedy_diff(const vector<ull>& a) {
+    ull s1 = 0, s2 = 0;
+    for (ull x : a) {
+        if (s1 <= s2) s1 += x;
+        else s2 += x;
+    }
+    return s1 > s2 ? s1 - s2 : s2 - s1;
+}
+
+static ull kk_diff(const vector<ull>& a) {
+    priority_queue<ull> pq;
+    for (ull x : a) pq.push(x);
+    while (pq.size() > 1) {
+        ull x = pq.top(); pq.pop();
+        ull y = pq.top(); pq.pop();
+        pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static ull bitset_dp(const vector<ull>& a, ull total) {
+    ull target = total / 2;
+    size_t words = static_cast<size_t>(target / 64 + 1);
+    vector<ull> bits(words, 0);
+    bits[0] = 1;
+
+    ull reached = 0;
+    ull lastMask = ~0ULL;
+    int lastBits = static_cast<int>((target & 63ULL) + 1);
+    if (lastBits < 64) lastMask = (1ULL << lastBits) - 1ULL;
+
+    for (ull x : a) {
+        if (x > target) continue;
+
+        ull oldReached = reached;
+        reached = min(target, reached + x);
+
+        size_t wordShift = static_cast<size_t>(x / 64);
+        unsigned bitShift = static_cast<unsigned>(x & 63ULL);
+        size_t hi = static_cast<size_t>(reached / 64);
+        size_t oldHi = static_cast<size_t>(oldReached / 64);
+
+        for (size_t i = hi + 1; i-- > wordShift;) {
+            ull v = 0;
+            size_t src = i - wordShift;
+            if (src <= oldHi) {
+                v |= bits[src] << bitShift;
+                if (bitShift && src > 0) v |= bits[src - 1] >> (64 - bitShift);
+            }
+            bits[i] |= v;
+            if (i == 0) break;
+        }
+
+        bits.back() &= lastMask;
+
+        if ((bits[target / 64] >> (target & 63ULL)) & 1ULL) {
+            return total - 2 * target;
+        }
+    }
+
+    for (ull s = target;; --s) {
+        if ((bits[s / 64] >> (s & 63ULL)) & 1ULL) {
+            return total - 2 * s;
+        }
+        if (s == 0) break;
+    }
+    return total;
+}
+
+static vector<ull> generate_sums(const vector<ull>& a, int l, int r, ull target) {
+    vector<ull> sums;
+    int len = r - l;
+    if (len <= 24) sums.reserve(1ULL << len);
+    sums.push_back(0);
+
+    for (int i = l; i < r; ++i) {
+        ull x = a[i];
+        if (x > target) continue;
+        size_t sz = sums.size();
+        for (size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= target - x) sums.push_back(sums[j] + x);
+        }
+    }
+    sort(sums.begin(), sums.end());
+    sums.erase(unique(sums.begin(), sums.end()), sums.end());
+    return sums;
+}
+
+static ull mitm(const vector<ull>& a, ull total) {
+    int n = static_cast<int>(a.size());
+    int mid = n / 2;
+    ull target = total / 2;
+
+    vector<ull> left = generate_sums(a, 0, mid, target);
+    vector<ull> right = generate_sums(a, mid, n, target);
+
+    ull best = 0;
+    size_t j = right.empty() ? 0 : right.size() - 1;
+
+    for (ull x : left) {
+        while (j < right.size() && x + right[j] > target) {
+            if (j == 0) {
+                j = right.size();
+                break;
+            }
+            --j;
+        }
+        if (j >= right.size()) break;
+        ull s = x + right[j];
+        if (s > best) {
+            best = s;
+            if (best == target) break;
+        }
+    }
+
+    return total - 2 * best;
+}
+
+static vector<pair<ull, int>> comp;
+static vector<ull> suffix_sum;
+static ull dfs_best;
+static ull dfs_parity;
+
+static ull abs_add_signed(ull diff, long long t, ull x) {
+    if (t >= 0) return diff + static_cast<ull>(t) * x;
+    ull y = static_cast<ull>(-t) * x;
+    return diff >= y ? diff - y : y - diff;
+}
+
+static long long adjust_parity(long long v, long long lo, long long hi, int parity) {
+    if ((v & 1LL) != parity) {
+        long long a = v - 1;
+        long long b = v + 1;
+        if (a >= lo) v = a;
+        else v = b;
+    }
+    if (v < lo) v = lo;
+    if (v > hi) v = hi;
+    if ((v & 1LL) != parity) {
+        if (v + 1 <= hi) ++v;
+        else --v;
+    }
+    return v;
+}
+
+static void dfs_exact(size_t idx, ull diff) {
+    if (dfs_best == dfs_parity) return;
+
+    ull rem = suffix_sum[idx];
+    ull lb = diff > rem ? diff - rem : 0;
+    if (lb < dfs_parity) lb = dfs_parity;
+    if (lb >= dfs_best) return;
+
+    if (idx == comp.size()) {
+        if (diff < dfs_best) dfs_best = diff;
+        return;
+    }
+
+    ull x = comp[idx].first;
+    int k = comp[idx].second;
+
+    long long lo = -static_cast<long long>(k);
+    long long hi = static_cast<long long>(k);
+    int parity = k & 1;
+
+    long long center;
+    if (x == 0) center = 0;
+    else {
+        ull q = diff / x;
+        ull r = diff % x;
+        center = -static_cast<long long>(q);
+        if (r * 2 >= x) --center;
+    }
+
+    long long t0 = adjust_parity(center, lo, hi, parity);
+
+    for (long long delta = 0; ; delta += 2) {
+        bool any = false;
+
+        long long t1 = t0 - delta;
+        if (t1 >= lo && t1 <= hi && ((t1 & 1LL) == parity)) {
+            any = true;
+            dfs_exact(idx + 1, abs_add_signed(diff, t1, x));
+            if (dfs_best == dfs_parity) return;
+        }
+
+        if (delta != 0) {
+            long long t2 = t0 + delta;
+            if (t2 >= lo && t2 <= hi && ((t2 & 1LL) == parity)) {
+                any = true;
+                dfs_exact(idx + 1, abs_add_signed(diff, t2, x));
+                if (dfs_best == dfs_parity) return;
+            }
+        }
+
+        if (!any) {
+            if (t0 - delta < lo && t0 + delta > hi) break;
+        }
+    }
+}
+
+static ull branch_and_bound(vector<ull> a, ull total, ull initial_best) {
+    sort(a.begin(), a.end(), greater<ull>());
+
+    comp.clear();
+    for (ull x : a) {
+        if (!comp.empty() && comp.back().first == x) ++comp.back().second;
+        else comp.push_back({x, 1});
+    }
+
+    suffix_sum.assign(comp.size() + 1, 0);
+    for (int i = static_cast<int>(comp.size()) - 1; i >= 0; --i) {
+        suffix_sum[i] = suffix_sum[i + 1] + comp[i].first * static_cast<ull>(comp[i].second);
+    }
+
+    dfs_best = initial_best;
+    dfs_parity = total & 1ULL;
+    dfs_exact(0, 0);
+    return dfs_best;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    vector<ull> a;
+    a.reserve(N);
+    for (int i = 0; i < N; ++i) {
+        ull x;
+        cin >> x;
+        a.push_back(x);
+    }
+
+    if (a.empty()) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    ull g = gcd_all(a);
+    if (g > 1) {
+        for (ull& x : a) x /= g;
+    }
+
+    ull total = 0;
+    for (ull x : a) total += x;
+
+    sort(a.begin(), a.end(), greater<ull>());
+
+    ull parity = total & 1ULL;
+    ull best = min(greedy_diff(a), kk_diff(a));
+
+    if (best == parity) {
+        cout << best * g << '\n';
+        return 0;
+    }
+
+    ull target = total / 2;
+
+    if (target <= 100000000ULL) {
+        best = bitset_dp(a, total);
+        cout << best * g << '\n';
+        return 0;
+    }
+
+    if (N <= 46) {
+        best = mitm(a, total);
+        cout << best * g << '\n';
+        return 0;
+    }
+
+    best = branch_and_bound(a, total, best);
+    cout << best * g << '\n';
+    return 0;
+}

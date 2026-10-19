@@ -1,0 +1,337 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <queue>
+#include <string>
+#include <cstdint>
+#include <limits>
+#include <functional>
+#include <cmath>
+#include <bit>
+
+using U64 = unsigned long long;
+using U128 = unsigned __int128;
+
+static void print_u128(U128 x) {
+    if (x == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        int d = static_cast<int>(x % 10);
+        s.push_back(static_cast<char>('0' + d));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static std::vector<U64> subset_sums_limited(const std::vector<U64>& a, int l, int r, U64 target) {
+    std::vector<U64> sums;
+    int len = r - l;
+    if (len >= 0 && len <= 23) sums.reserve(1ULL << len);
+    sums.push_back(0);
+
+    for (int i = l; i < r; ++i) {
+        U64 x = a[i];
+        if (x > target) continue;
+        size_t sz = sums.size();
+        for (size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= target - x) sums.push_back(sums[j] + x);
+        }
+    }
+
+    std::sort(sums.begin(), sums.end());
+    sums.erase(std::unique(sums.begin(), sums.end()), sums.end());
+    return sums;
+}
+
+static U64 solve_bitset(const std::vector<U64>& a, U64 target) {
+    size_t words = static_cast<size_t>(target / 64 + 1);
+    std::vector<uint64_t> dp(words, 0);
+    dp[0] = 1;
+
+    const uint64_t lastMask = ((target + 1) % 64 == 0)
+        ? ~0ULL
+        : ((1ULL << ((target + 1) % 64)) - 1ULL);
+
+    for (U64 x : a) {
+        if (x > target) continue;
+        size_t ws = static_cast<size_t>(x / 64);
+        unsigned bs = static_cast<unsigned>(x % 64);
+        if (ws >= words) continue;
+
+        for (size_t i = words; i-- > ws;) {
+            uint64_t v = dp[i - ws] << bs;
+            if (bs && i > ws) v |= dp[i - ws - 1] >> (64 - bs);
+            dp[i] |= v;
+        }
+        dp.back() &= lastMask;
+    }
+
+    for (size_t i = words; i-- > 0;) {
+        uint64_t w = dp[i];
+        if (i == words - 1) w &= lastMask;
+        if (w) {
+            int bit = 63 - std::countl_zero(w);
+            return static_cast<U64>(i * 64 + bit);
+        }
+    }
+    return 0;
+}
+
+static U64 solve_direct_mitm(const std::vector<U64>& a, U64 target) {
+    int n = static_cast<int>(a.size());
+    int m = n / 2;
+
+    std::vector<U64> left = subset_sums_limited(a, 0, m, target);
+    U64 best = 0;
+
+    std::function<void(int, U64)> dfs = [&](int idx, U64 sum) {
+        if (best == target) return;
+        if (idx == n) {
+            U64 rem = target - sum;
+            auto it = std::upper_bound(left.begin(), left.end(), rem);
+            if (it != left.begin()) {
+                --it;
+                U64 cand = sum + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+
+        dfs(idx + 1, sum);
+        if (a[idx] <= target - sum) dfs(idx + 1, sum + a[idx]);
+    };
+
+    dfs(m, 0);
+    return best;
+}
+
+struct PairNode {
+    U64 sum;
+    size_t i;
+    size_t j;
+};
+
+struct MinPairCmp {
+    bool operator()(const PairNode& a, const PairNode& b) const {
+        return a.sum > b.sum;
+    }
+};
+
+struct MaxPairCmp {
+    bool operator()(const PairNode& a, const PairNode& b) const {
+        return a.sum < b.sum;
+    }
+};
+
+class AscPairSums {
+    const std::vector<U64>& x;
+    const std::vector<U64>& y;
+    U64 target;
+    std::priority_queue<PairNode, std::vector<PairNode>, MinPairCmp> pq;
+
+public:
+    AscPairSums(const std::vector<U64>& x_, const std::vector<U64>& y_, U64 t)
+        : x(x_), y(y_), target(t) {
+        if (x.empty() || y.empty()) return;
+        for (size_t i = 0; i < x.size(); ++i) {
+            if (x[i] > target - y[0]) break;
+            pq.push({x[i] + y[0], i, 0});
+        }
+    }
+
+    bool next(U64& out) {
+        if (pq.empty()) return false;
+        PairNode cur = pq.top();
+        pq.pop();
+        out = cur.sum;
+
+        size_t nj = cur.j + 1;
+        if (nj < y.size() && x[cur.i] <= target - y[nj]) {
+            pq.push({x[cur.i] + y[nj], cur.i, nj});
+        }
+        return true;
+    }
+};
+
+class DescPairSums {
+    const std::vector<U64>& x;
+    const std::vector<U64>& y;
+    U64 target;
+    std::priority_queue<PairNode, std::vector<PairNode>, MaxPairCmp> pq;
+
+public:
+    DescPairSums(const std::vector<U64>& x_, const std::vector<U64>& y_, U64 t)
+        : x(x_), y(y_), target(t) {
+        if (x.empty() || y.empty()) return;
+        for (size_t i = 0; i < x.size(); ++i) {
+            if (x[i] > target - y[0]) break;
+            U64 rem = target - x[i];
+            auto it = std::upper_bound(y.begin(), y.end(), rem);
+            if (it == y.begin()) continue;
+            size_t j = static_cast<size_t>((it - y.begin()) - 1);
+            pq.push({x[i] + y[j], i, j});
+        }
+    }
+
+    bool next(U64& out) {
+        if (pq.empty()) return false;
+        PairNode cur = pq.top();
+        pq.pop();
+        out = cur.sum;
+
+        if (cur.j > 0) {
+            size_t nj = cur.j - 1;
+            pq.push({x[cur.i] + y[nj], cur.i, nj});
+        }
+        return true;
+    }
+};
+
+static U64 solve_schroeppel_shamir(const std::vector<U64>& a, U64 target) {
+    int n = static_cast<int>(a.size());
+    int b1 = n / 4;
+    int b2 = n / 2;
+    int b3 = (3 * n) / 4;
+
+    std::vector<U64> s0 = subset_sums_limited(a, 0, b1, target);
+    std::vector<U64> s1 = subset_sums_limited(a, b1, b2, target);
+    std::vector<U64> s2 = subset_sums_limited(a, b2, b3, target);
+    std::vector<U64> s3 = subset_sums_limited(a, b3, n, target);
+
+    AscPairSums asc(s0, s1, target);
+    DescPairSums desc(s2, s3, target);
+
+    U64 p = 0, q = 0;
+    bool hp = asc.next(p);
+    bool hq = desc.next(q);
+    U64 best = 0;
+
+    while (hp && hq && best != target) {
+        if (p > target - q) {
+            hq = desc.next(q);
+        } else {
+            U64 cand = p + q;
+            if (cand > best) best = cand;
+            hp = asc.next(p);
+        }
+    }
+
+    return best;
+}
+
+static U128 absdiff128(U128 a, U128 b) {
+    return a >= b ? a - b : b - a;
+}
+
+static U128 solve_branch_bound(std::vector<U64> a, U128 total) {
+    std::sort(a.begin(), a.end(), std::greater<U64>());
+    int n = static_cast<int>(a.size());
+
+    U128 best = total;
+
+    {
+        U128 g1 = 0, g2 = 0;
+        for (U64 x : a) {
+            if (g1 <= g2) g1 += static_cast<U128>(x);
+            else g2 += static_cast<U128>(x);
+        }
+        best = std::min(best, absdiff128(g1, g2));
+    }
+
+    {
+        std::priority_queue<U64> pq;
+        for (U64 x : a) pq.push(x);
+        while (pq.size() > 1) {
+            U64 x = pq.top(); pq.pop();
+            U64 y = pq.top(); pq.pop();
+            pq.push(x - y);
+        }
+        if (!pq.empty()) best = std::min(best, static_cast<U128>(pq.top()));
+    }
+
+    std::vector<U128> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) suffix[i] = suffix[i + 1] + static_cast<U128>(a[i]);
+
+    std::function<void(int, U128)> dfs = [&](int idx, U128 cur) {
+        if (best == 0) return;
+
+        U128 rem = suffix[idx];
+        if (cur > rem && cur - rem >= best) return;
+
+        if (idx == n) {
+            if (cur < best) best = cur;
+            return;
+        }
+
+        U128 x = static_cast<U128>(a[idx]);
+        U128 reduced = cur >= x ? cur - x : x - cur;
+        U128 increased = cur + x;
+
+        dfs(idx + 1, reduced);
+        dfs(idx + 1, increased);
+    };
+
+    dfs(0, 0);
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<U64> a(N);
+    U128 total = 0;
+    for (int i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        total += static_cast<U128>(a[i]);
+    }
+
+    if (N == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<U64>());
+
+    U128 target128 = total / 2;
+    constexpr U64 U64MAX = std::numeric_limits<U64>::max();
+
+    if (target128 <= static_cast<U128>(U64MAX)) {
+        U64 target = static_cast<U64>(target128);
+
+        constexpr U64 BITSET_LIMIT = 100000000ULL;
+        if (target <= BITSET_LIMIT) {
+            U64 words = target / 64 + 1;
+            long double bitCost = static_cast<long double>(N) * static_cast<long double>(words);
+            long double expCost = (N < 120) ? std::pow(2.0L, static_cast<long double>(N) / 2.0L) : 1e36L;
+
+            if (N > 52 || bitCost < expCost * 8.0L) {
+                U64 best = solve_bitset(a, target);
+                print_u128(total - static_cast<U128>(2) * best);
+                return 0;
+            }
+        }
+
+        if (N <= 44) {
+            U64 best = solve_direct_mitm(a, target);
+            print_u128(total - static_cast<U128>(2) * best);
+            return 0;
+        }
+
+        if (N <= 56) {
+            U64 best = solve_schroeppel_shamir(a, target);
+            print_u128(total - static_cast<U128>(2) * best);
+            return 0;
+        }
+    }
+
+    print_u128(solve_branch_bound(a, total));
+    return 0;
+}

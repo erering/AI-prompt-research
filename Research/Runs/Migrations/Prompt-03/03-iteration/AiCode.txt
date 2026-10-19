@@ -1,0 +1,146 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int MAXN = 10000;
+    constexpr int LOG = 15;
+
+    int par_arr[MAXN];
+    int dep_arr[MAXN];
+    int up_arr[LOG][MAXN];
+
+    int curN = 10000;
+    int diamA = 0, diamB = 0, diamLen = 0;
+    int startPos = 9950;
+
+    int bootA = 0, bootB = 0;
+    bool bootFirstChanged = false;
+
+    int encode_msg(int flag, int endpoint) {
+        return flag * 10000 + endpoint + 1;
+    }
+
+    pair<int,int> decode_msg(int val) {
+        int x = val - 1;
+        return {x / 10000, x % 10000};
+    }
+
+    int lca_node(int a, int b) {
+        if (dep_arr[a] < dep_arr[b]) swap(a, b);
+        int diff = dep_arr[a] - dep_arr[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up_arr[k][a];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up_arr[k][a] != up_arr[k][b]) {
+                a = up_arr[k][a];
+                b = up_arr[k][b];
+            }
+        }
+        return up_arr[0][a];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return dep_arr[a] + dep_arr[b] - 2 * dep_arr[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        curN = N;
+        startPos = N - 50;
+
+        par_arr[0] = 0;
+        dep_arr[0] = 0;
+        for (int k = 0; k < LOG; ++k) up_arr[k][0] = 0;
+
+        diamA = 0;
+        diamB = 0;
+        diamLen = 0;
+        bootA = bootB = 0;
+        bootFirstChanged = false;
+    }
+
+    int oldA = diamA;
+    int oldB = diamB;
+    int oldLen = diamLen;
+
+    par_arr[i] = Pi;
+    dep_arr[i] = dep_arr[Pi] + 1;
+    up_arr[0][i] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up_arr[k][i] = up_arr[k - 1][up_arr[k - 1][i]];
+    }
+
+    bool changed = false;
+    int partner = 0;
+
+    int da = dist_node(i, oldA);
+    int db = dist_node(i, oldB);
+
+    if (da > oldLen || db > oldLen) {
+        changed = true;
+        if (da >= db) {
+            partner = oldA;
+            diamA = i;
+            diamB = oldA;
+            diamLen = da;
+        } else {
+            partner = oldB;
+            diamA = i;
+            diamB = oldB;
+            diamLen = db;
+        }
+    }
+
+    if (i < startPos) return 0;
+
+    if (i == startPos) {
+        bootA = oldA;
+        bootB = oldB;
+        bootFirstChanged = changed;
+        if (changed) return encode_msg(1, partner);
+        return encode_msg(0, bootA);
+    }
+
+    if (i == startPos + 1) {
+        if (changed) return encode_msg(1, partner);
+        if (!bootFirstChanged) return encode_msg(0, bootB);
+        return encode_msg(0, 0);
+    }
+
+    if (changed) return encode_msg(1, partner);
+    return encode_msg(0, 0);
+}
+
+std::pair<int,int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    int start = N - 50;
+
+    auto d1 = decode_msg(S[start]);
+    auto d2 = decode_msg(S[start + 1]);
+
+    int flag1 = d1.first, e1 = d1.second;
+    int flag2 = d2.first, e2 = d2.second;
+
+    pair<int,int> ans;
+
+    if (flag1 == 1) {
+        ans = {start, e1};
+        if (flag2 == 1) ans = {start + 1, e2};
+    } else {
+        if (flag2 == 1) ans = {start + 1, e2};
+        else ans = {e1, e2};
+    }
+
+    for (int i = start + 2; i < N; ++i) {
+        auto d = decode_msg(S[i]);
+        if (d.first == 1) {
+            ans = {i, d.second};
+        }
+    }
+
+    return ans;
+}

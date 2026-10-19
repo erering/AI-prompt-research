@@ -1,0 +1,165 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static const int MAXN = 10005;
+static const int LOG = 15;
+
+static int up_tbl[LOG][MAXN];
+static int dep_tbl[MAXN];
+static int curA, curB, curD;
+static int snapA, snapB;
+static int last_i_seen = -1;
+static bool initialized_sender = false;
+
+static void reset_sender_state() {
+    for (int k = 0; k < LOG; ++k) up_tbl[k][0] = 0;
+    dep_tbl[0] = 0;
+    curA = curB = 0;
+    curD = 0;
+    snapA = snapB = 0;
+    initialized_sender = true;
+}
+
+static int lca_node(int a, int b) {
+    if (dep_tbl[a] < dep_tbl[b]) swap(a, b);
+    int diff = dep_tbl[a] - dep_tbl[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = up_tbl[k][a];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_tbl[k][a] != up_tbl[k][b]) {
+            a = up_tbl[k][a];
+            b = up_tbl[k][b];
+        }
+    }
+    return up_tbl[0][a];
+}
+
+static int dist_node(int a, int b) {
+    int c = lca_node(a, b);
+    return dep_tbl[a] + dep_tbl[b] - 2 * dep_tbl[c];
+}
+
+static bool same_unordered_pair(int x1, int y1, int x2, int y2) {
+    return (x1 == x2 && y1 == y2) || (x1 == y2 && y1 == x2);
+}
+
+static int encode_current_pair_and_normalize(int t1, int t2) {
+    if (same_unordered_pair(curA, curB, snapA, snapB)) {
+        curA = snapA; curB = snapB;
+        return 1;
+    }
+    if (same_unordered_pair(curA, curB, snapA, t1)) {
+        curA = snapA; curB = t1;
+        return 2;
+    }
+    if (same_unordered_pair(curA, curB, snapA, t2)) {
+        curA = snapA; curB = t2;
+        return 3;
+    }
+    if (same_unordered_pair(curA, curB, snapB, t1)) {
+        curA = snapB; curB = t1;
+        return 4;
+    }
+    if (same_unordered_pair(curA, curB, snapB, t2)) {
+        curA = snapB; curB = t2;
+        return 5;
+    }
+    curA = t1; curB = t2;
+    return 6;
+}
+
+int send_message(int N, int i, int Pi) {
+    if (!initialized_sender || i == 0 || i <= last_i_seen) {
+        reset_sender_state();
+    }
+    last_i_seen = i;
+
+    if (i == 0) return 0;
+
+    up_tbl[0][i] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[k][i] = up_tbl[k - 1][up_tbl[k - 1][i]];
+    }
+    dep_tbl[i] = dep_tbl[Pi] + 1;
+
+    int oldA = curA;
+    int oldB = curB;
+    bool updated = false;
+    int update_type = 0;
+
+    int dA = dist_node(i, oldA);
+    int dB = dist_node(i, oldB);
+
+    if (dA > curD) {
+        curA = i;
+        curB = oldA;
+        curD = dA;
+        updated = true;
+        update_type = 1;
+    } else if (dB > curD) {
+        curA = i;
+        curB = oldB;
+        curD = dB;
+        updated = true;
+        update_type = 2;
+    }
+
+    int T = N - 50;
+
+    if (i < T) return 0;
+
+    if (i == T) {
+        snapA = curA;
+        snapB = curB;
+        return snapA + 1;
+    }
+
+    if (i == T + 1) {
+        return snapB + 1;
+    }
+
+    if (i == T + 2) {
+        return encode_current_pair_and_normalize(T + 1, T + 2);
+    }
+
+    if (updated) return update_type;
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+    int T = N - 50;
+
+    int A = S[T] - 1;
+    int B = S[T + 1] - 1;
+    int code = S[T + 2];
+
+    int a = A, b = B;
+
+    if (code == 1) {
+        a = A; b = B;
+    } else if (code == 2) {
+        a = A; b = T + 1;
+    } else if (code == 3) {
+        a = A; b = T + 2;
+    } else if (code == 4) {
+        a = B; b = T + 1;
+    } else if (code == 5) {
+        a = B; b = T + 2;
+    } else {
+        a = T + 1; b = T + 2;
+    }
+
+    for (int i = T + 3; i < N; ++i) {
+        if (S[i] == 1) {
+            b = a;
+            a = i;
+        } else if (S[i] == 2) {
+            a = i;
+        }
+    }
+
+    return {a, b};
+}

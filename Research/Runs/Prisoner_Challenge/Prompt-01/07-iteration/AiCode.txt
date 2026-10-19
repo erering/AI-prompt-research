@@ -1,0 +1,114 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    if (N == 2) {
+        vector<vector<int>> s(1, vector<int>(N + 1, 0));
+        s[0][0] = 0;
+        s[0][1] = -1;
+        s[0][2] = -2;
+        return s;
+    }
+
+    int target = (N + 1) / 2;
+
+    vector<int> rad;
+
+    if (target > 1) {
+        const int INF = 1e9;
+        vector<int> dp(target + 1, INF), preP(target + 1, -1), preR(target + 1, -1);
+        dp[1] = 0;
+
+        for (int p = 1; p <= target; ++p) {
+            if (dp[p] == INF) continue;
+            for (int r = 2; r <= target; ++r) {
+                int np = min(target, p * r);
+                if (dp[p] + r < dp[np]) {
+                    dp[np] = dp[p] + r;
+                    preP[np] = p;
+                    preR[np] = r;
+                }
+            }
+        }
+
+        int cur = target;
+        while (cur != 1) {
+            rad.push_back(preR[cur]);
+            cur = preP[cur];
+        }
+        reverse(rad.begin(), rad.end());
+    }
+
+    int D = (int)rad.size();
+
+    vector<int> unit(D);
+    int prod = 2;
+    for (int i = D - 1; i >= 0; --i) {
+        unit[i] = prod;
+        prod *= rad[i];
+    }
+
+    auto digit = [&](int val, int level) {
+        int v = val - 1;
+        return (v / unit[level]) % rad[level];
+    };
+
+    int x = 0;
+    for (int r : rad) x += r;
+
+    vector<int> offset(D);
+    int ptr = 1;
+    for (int i = 0; i < D; ++i) {
+        offset[i] = ptr;
+        ptr += rad[i];
+    }
+
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+
+    if (D == 0) {
+        for (int j = 1; j <= N; ++j) {
+            if ((j - 1) % 2 == 0) s[0][j] = -1;
+            else s[0][j] = -2;
+        }
+        return s;
+    }
+
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = offset[0] + digit(j, 0);
+    }
+
+    for (int level = 0; level < D; ++level) {
+        for (int d = 0; d < rad[level]; ++d) {
+            int id = offset[level] + d;
+            int inspect = (level % 2 == 0 ? 1 : 0);
+            s[id][0] = inspect;
+
+            for (int j = 1; j <= N; ++j) {
+                int curDigit = digit(j, level);
+
+                if (curDigit != d) {
+                    if (inspect == 1) {
+                        s[id][j] = (d < curDigit ? -1 : -2);
+                    } else {
+                        s[id][j] = (curDigit < d ? -1 : -2);
+                    }
+                } else {
+                    if (level + 1 < D) {
+                        s[id][j] = offset[level + 1] + digit(j, level + 1);
+                    } else {
+                        int rem = (j - 1) & 1;
+                        if (inspect == 1) {
+                            s[id][j] = (rem == 0 ? -2 : -1);
+                        } else {
+                            s[id][j] = (rem == 0 ? -1 : -2);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

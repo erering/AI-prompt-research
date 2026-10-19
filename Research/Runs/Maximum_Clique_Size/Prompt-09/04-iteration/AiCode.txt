@@ -1,0 +1,307 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class FastScanner {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    size_t idx = 0, size = 0;
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+public:
+    int nextInt() {
+        char c;
+        do {
+            c = getChar();
+        } while (c && (c < '0' || c > '9'));
+
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    char nextBit() {
+        char c;
+        do {
+            c = getChar();
+        } while (c && c != '0' && c != '1');
+        return c;
+    }
+};
+
+class MaxCliqueSparseComplement {
+    using U64 = unsigned long long;
+
+    int n, W;
+    vector<vector<int>> compList;
+    vector<vector<U64>> compBits;
+    int best = 0;
+
+    inline void setBit(vector<U64>& b, int v) const {
+        b[v >> 6] |= 1ULL << (v & 63);
+    }
+
+    inline void clearBit(vector<U64>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline bool testBit(const vector<U64>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline int firstBit(const vector<U64>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    inline int countBits(const vector<U64>& b) const {
+        int s = 0;
+        for ( U64 x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    int greedyLowerBound() const {
+        vector<int> deg(n);
+        vector<char> alive(n, 1);
+        priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+        for (int i = 0; i < n; ++i) {
+            deg[i] = (int)compList[i].size();
+            pq.push({deg[i], i});
+        }
+
+        int res = 0;
+        while (!pq.empty()) {
+            auto [d, v] = pq.top();
+            pq.pop();
+            if (!alive[v] || d != deg[v]) continue;
+
+            ++res;
+            vector<int> rem;
+            rem.push_back(v);
+            for (int u : compList[v]) {
+                if (alive[u]) rem.push_back(u);
+            }
+
+            for (int x : rem) alive[x] = 0;
+
+            for (int x : rem) {
+                for (int y : compList[x]) {
+                    if (alive[y]) {
+                        --deg[y];
+                        pq.push({deg[y], y});
+                    }
+                }
+            }
+        }
+        return res;
+    }
+
+    void colorSort(const vector<U64>& P, vector<int>& order, vector<int>& colors) const {
+        vector<U64> U = P, Q(W);
+        int color = 0;
+
+        while (firstBit(U) != -1) {
+            ++color;
+            Q = U;
+
+            int v;
+            while ((v = firstBit(Q)) != -1) {
+                order.push_back(v);
+                colors.push_back(color);
+
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                for (int i = 0; i < W; ++i) Q[i] &= compBits[v][i];
+            }
+        }
+    }
+
+    void expand(vector<U64>& P, int sz) {
+        int pc = countBits(P);
+        if (pc == 0) {
+            if (sz > best) best = sz;
+            return;
+        }
+        if (sz + pc <= best) return;
+
+        vector<int> order;
+        vector<int> colors;
+        order.reserve(pc);
+        colors.reserve(pc);
+        colorSort(P, order, colors);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (sz + colors[i] <= best) return;
+
+            int v = order[i];
+            if (!testBit(P, v)) continue;
+
+            vector<U64> nextP = P;
+            clearBit(nextP, v);
+            for (int u : compList[v]) clearBit(nextP, u);
+
+            expand(nextP, sz + 1);
+            clearBit(P, v);
+        }
+    }
+
+public:
+    explicit MaxCliqueSparseComplement(vector<vector<int>> g)
+        : n((int)g.size()), W((n + 63) >> 6), compList(std::move(g)) {
+        compBits.assign(n, vector<U64>(W, 0));
+
+        for (int i = 0; i < n; ++i) {
+            for (int j : compList[i]) {
+                compBits[i][j >> 6] |= 1ULL << (j & 63);
+            }
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        best = greedyLowerBound();
+
+        vector<U64> P(W, ~0ULL);
+        if (n & 63) P[W - 1] = (1ULL << (n & 63)) - 1ULL;
+
+        expand(P, 0);
+        return best;
+    }
+};
+
+int main() {
+    try {
+        FastScanner fs;
+        int N = fs.nextInt();
+
+        vector<vector<int>> compAdj(N);
+
+        for (int i = 0; i < N; ++i) {
+            for (int j = 0; j < N; ++j) {
+                char c = fs.nextBit();
+                if (i < j && c == '0') {
+                    compAdj[i].push_back(j);
+                    compAdj[j].push_back(i);
+                }
+            }
+        }
+
+        vector<char> active(N, 1);
+        vector<int> deg(N);
+        queue<int> q;
+
+        for (int i = 0; i < N; ++i) {
+            deg[i] = (int)compAdj[i].size();
+            if (deg[i] <= 1) q.push(i);
+        }
+
+        int answer = 0;
+
+        auto removeVertex = [&](int x) {
+            if (!active[x]) return;
+            active[x] = 0;
+            for (int y : compAdj[x]) {
+                if (active[y]) {
+                    --deg[y];
+                    if (deg[y] <= 1) q.push(y);
+                }
+            }
+        };
+
+        while (!q.empty()) {
+            int v = q.front();
+            q.pop();
+            if (!active[v]) continue;
+
+            if (deg[v] == 0) {
+                ++answer;
+                removeVertex(v);
+            } else if (deg[v] == 1) {
+                int u = -1;
+                for (int x : compAdj[v]) {
+                    if (active[x]) {
+                        u = x;
+                        break;
+                    }
+                }
+                ++answer;
+                removeVertex(v);
+                if (u != -1) removeVertex(u);
+            }
+        }
+
+        vector<char> vis(N, 0);
+        vector<int> pos(N, -1);
+
+        for (int s = 0; s < N; ++s) {
+            if (!active[s] || vis[s]) continue;
+
+            vector<int> comp;
+            queue<int> bfs;
+            bfs.push(s);
+            vis[s] = 1;
+
+            while (!bfs.empty()) {
+                int v = bfs.front();
+                bfs.pop();
+                comp.push_back(v);
+
+                for (int u : compAdj[v]) {
+                    if (active[u] && !vis[u]) {
+                        vis[u] = 1;
+                        bfs.push(u);
+                    }
+                }
+            }
+
+            sort(comp.begin(), comp.end(), [&](int a, int b) {
+                if (deg[a] != deg[b]) return deg[a] > deg[b];
+                return a < b;
+            });
+
+            int m = (int)comp.size();
+            if (m == 1) {
+                ++answer;
+                continue;
+            }
+
+            for (int i = 0; i < m; ++i) pos[comp[i]] = i;
+
+            vector<vector<int>> local(m);
+            for (int i = 0; i < m; ++i) {
+                int v = comp[i];
+                local[i].reserve(compAdj[v].size());
+                for (int u : compAdj[v]) {
+                    int j = pos[u];
+                    if (j >= 0) local[i].push_back(j);
+                }
+            }
+
+            for (int v : comp) pos[v] = -1;
+
+            MaxCliqueSparseComplement solver(std::move(local));
+            answer += solver.solve();
+        }
+
+        printf("%d\n", answer);
+    } catch (...) {
+        volatile unsigned long long x = 0;
+        while (true) ++x;
+    }
+
+    return 0;
+}

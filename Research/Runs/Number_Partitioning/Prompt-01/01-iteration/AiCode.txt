@@ -1,0 +1,229 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <bit>
+#include <new>
+
+using ull = unsigned long long;
+
+ull solve_bitset(const std::vector<ull>& a, ull total) {
+    ull target = total / 2;
+    size_t words = static_cast<size_t>(target / 64 + 1);
+    std::vector<ull> bits(words, 0);
+    bits[0] = 1ULL;
+
+    for (ull x : a) {
+        if (x > target) continue;
+        size_t ws = static_cast<size_t>(x / 64);
+        unsigned bs = static_cast<unsigned>(x & 63ULL);
+
+        for (size_t i = words; i-- > ws;) {
+            ull v = bits[i - ws] << bs;
+            if (bs && i > ws) v |= bits[i - ws - 1] >> (64 - bs);
+            bits[i] |= v;
+        }
+
+        if ((bits[target >> 6] >> (target & 63ULL)) & 1ULL) {
+            return total - 2 * target;
+        }
+    }
+
+    size_t last = static_cast<size_t>(target >> 6);
+    unsigned keep = static_cast<unsigned>((target & 63ULL) + 1);
+    if (keep < 64) bits[last] &= ((1ULL << keep) - 1ULL);
+
+    for (size_t i = last + 1; i-- > 0;) {
+        ull v = bits[i];
+        if (v) {
+            ull best = static_cast<ull>(i) * 64ULL + static_cast<ull>(std::bit_width(v) - 1);
+            return total - 2 * best;
+        }
+    }
+
+    return total;
+}
+
+ull solve_mitm(std::vector<ull> a, ull total) {
+    ull target = total / 2;
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    int n = static_cast<int>(a.size());
+    int n1 = std::min(22, n / 2);
+    int n2 = n - n1;
+
+    std::vector<ull> left;
+    left.reserve(1ULL << n1);
+    left.push_back(0);
+
+    for (int i = 0; i < n1; ++i) {
+        ull x = a[i];
+        size_t sz = left.size();
+        for (size_t j = 0; j < sz; ++j) {
+            if (left[j] <= target - x) left.push_back(left[j] + x);
+        }
+    }
+
+    std::sort(left.begin(), left.end());
+    left.erase(std::unique(left.begin(), left.end()), left.end());
+
+    ull best = 0;
+    ull sum = 0;
+    ull prev_gray = 0;
+    ull limit = 1ULL << n2;
+
+    for (ull mask = 0; mask < limit; ++mask) {
+        if (mask) {
+            ull gray = mask ^ (mask >> 1);
+            ull diff = gray ^ prev_gray;
+            int bit = std::countr_zero(diff);
+            ull val = a[n1 + bit];
+            if ((gray >> bit) & 1ULL) sum += val;
+            else sum -= val;
+            prev_gray = gray;
+        }
+
+        if (sum <= target) {
+            ull rem = target - sum;
+            auto it = std::upper_bound(left.begin(), left.end(), rem);
+            if (it != left.begin()) {
+                --it;
+                ull cand = sum + *it;
+                if (cand > best) {
+                    best = cand;
+                    if (best == target) return total - 2 * target;
+                }
+            }
+        }
+    }
+
+    return total - 2 * best;
+}
+
+ull solve_dfs(std::vector<ull> a, ull total) {
+    ull target = total / 2;
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    int n = static_cast<int>(a.size());
+    ull best = 0;
+    for (ull x : a) {
+        if (best <= target - x) best += x;
+        if (best == target) return total - 2 * target;
+    }
+
+    std::vector<ull> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) {
+        if (suffix[i + 1] > target - a[i]) suffix[i] = target;
+        else suffix[i] = suffix[i + 1] + a[i];
+    }
+
+    std::vector<int> next_diff(n);
+    for (int i = n - 1; i >= 0;) {
+        int j = i + 1;
+        while (j < n && a[j] == a[i]) ++j;
+        for (int k = i; k < j; ++k) next_diff[k] = j;
+        i--;
+    }
+
+    struct State {
+        int i;
+        ull cur;
+    };
+
+    std::vector<State> st;
+    st.reserve(static_cast<size_t>(n) + 1);
+    st.push_back({0, 0});
+
+    while (!st.empty()) {
+        State s = st.back();
+        st.pop_back();
+
+        if (s.cur > best) {
+            best = s.cur;
+            if (best == target) return total - 2 * target;
+        }
+
+        if (s.i >= n) continue;
+        if (s.cur + suffix[s.i] <= best) continue;
+
+        int nd = next_diff[s.i];
+        if (s.cur + suffix[nd] > best) st.push_back({nd, s.cur});
+
+        ull x = a[s.i];
+        if (s.cur <= target - x) {
+            ull nc = s.cur + x;
+            if (nc + suffix[s.i + 1] > best) st.push_back({s.i + 1, nc});
+            else if (nc > best) {
+                best = nc;
+                if (best == target) return total - 2 * target;
+            }
+        }
+    }
+
+    return total - 2 * best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> raw(N);
+    ull total_raw = 0;
+    ull g = 0;
+
+    for (int i = 0; i < N; ++i) {
+        std::cin >> raw[i];
+        total_raw += raw[i];
+        g = std::gcd(g, raw[i]);
+    }
+
+    if (N == 0 || total_raw == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    ull total = total_raw / g;
+    ull target = total / 2;
+
+    std::vector<ull> a;
+    a.reserve(N);
+
+    for (ull x : raw) {
+        ull v = x / g;
+        if (v == target) {
+            std::cout << (total - 2 * target) * g << '\n';
+            return 0;
+        }
+        if (v < target) a.push_back(v);
+    }
+
+    if (a.empty()) {
+        std::cout << total * g << '\n';
+        return 0;
+    }
+
+    ull ans;
+    ull words = target / 64 + 1;
+    constexpr ull WORD_CAP = 4000000ULL;
+    long double ops = static_cast<long double>(words) * static_cast<long double>(a.size());
+
+    try {
+        if (words <= WORD_CAP && ops <= 250000000.0L) {
+            ans = solve_bitset(a, total);
+        } else if (a.size() <= 46) {
+            ans = solve_mitm(a, total);
+        } else if (words <= WORD_CAP) {
+            ans = solve_bitset(a, total);
+        } else {
+            ans = solve_dfs(a, total);
+        }
+    } catch (const std::bad_alloc&) {
+        ans = solve_dfs(a, total);
+    }
+
+    std::cout << ans * g << '\n';
+    return 0;
+}

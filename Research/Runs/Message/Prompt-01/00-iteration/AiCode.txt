@@ -1,0 +1,306 @@
+#include <vector>
+#include <cstdint>
+#include <algorithm>
+#include <unordered_map>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+using u64 = std::uint64_t;
+using u128 = unsigned __int128;
+
+static constexpr int NIDX = 31;
+static constexpr int KCTRL = 15;
+static constexpr int QLEN = 92;
+static constexpr u64 NCOMB = 155117520ULL;
+
+static u64 COMB[31][16];
+static bool COMB_INIT = false;
+
+static void init_comb() {
+    if (COMB_INIT) return;
+    COMB_INIT = true;
+    for (int n = 0; n <= 30; ++n) {
+        COMB[n][0] = 1;
+        for (int k = 1; k <= 15; ++k) {
+            if (k > n) COMB[n][k] = 0;
+            else if (k == n) COMB[n][k] = 1;
+            else COMB[n][k] = COMB[n - 1][k - 1] + COMB[n - 1][k];
+        }
+    }
+}
+
+static u128 BASE() {
+    return (u128(1) << QLEN) / NCOMB;
+}
+
+static u64 rank_mask_for_index(std::uint32_t mask, int protected_index) {
+    init_comb();
+    u64 rank = 0;
+    int rem = KCTRL;
+    int pos = 0;
+    for (int j = 0; j < NIDX; ++j) {
+        if (j == protected_index) continue;
+        if ((mask >> j) & 1U) {
+            rank += COMB[30 - pos - 1][rem];
+            --rem;
+        }
+        ++pos;
+    }
+    return rank;
+}
+
+static std::uint32_t unrank_mask_for_index(u64 rank, int protected_index) {
+    init_comb();
+    std::uint32_t mask = 0;
+    int rem = KCTRL;
+    int pos = 0;
+    for (int j = 0; j < NIDX; ++j) {
+        if (j == protected_index) continue;
+        if (rem == 0) {
+            ++pos;
+            continue;
+        }
+        u64 cnt0 = COMB[30 - pos - 1][rem];
+        if (rank >= cnt0) {
+            rank -= cnt0;
+            mask |= (1U << j);
+            --rem;
+        }
+        ++pos;
+    }
+    return mask;
+}
+
+struct Big {
+    std::vector<u64> a;
+
+    void norm() {
+        while (!a.empty() && a.back() == 0) a.pop_back();
+    }
+
+    bool empty() const {
+        return a.empty();
+    }
+
+    void ensure(int n) {
+        if ((int)a.size() < n) a.resize(n, 0);
+    }
+
+    void setBit(int p) {
+        ensure(p / 64 + 1);
+        a[p / 64] |= (1ULL << (p % 64));
+    }
+
+    void clearBit(int p) {
+        if (p / 64 < (int)a.size()) {
+            a[p / 64] &= ~(1ULL << (p % 64));
+            norm();
+        }
+    }
+
+    bool getBit(int p) const {
+        if (p / 64 >= (int)a.size()) return false;
+        return (a[p / 64] >> (p % 64)) & 1ULL;
+    }
+
+    int bitLength() const {
+        if (a.empty()) return 0;
+        u64 x = a.back();
+        return int((a.size() - 1) * 64 + (64 - __builtin_clzll(x)));
+    }
+
+    void subSmall(u64 x) {
+        int i = 0;
+        u64 borrow = x;
+        while (borrow) {
+            ensure(i + 1);
+            if (a[i] >= borrow) {
+                a[i] -= borrow;
+                borrow = 0;
+            } else {
+                a[i] = (u64)((u128(1) << 64) + a[i] - borrow);
+                borrow = 1;
+            }
+            ++i;
+        }
+        norm();
+    }
+
+    void addSmall128(u128 x) {
+        u64 lo = (u64)x;
+        u64 hi = (u64)(x >> 64);
+        ensure(2);
+        u128 s = (u128)a[0] + lo;
+        a[0] = (u64)s;
+        u64 carry = (u64)(s >> 64);
+
+        s = (u128)a[1] + hi + carry;
+        a[1] = (u64)s;
+        carry = (u64)(s >> 64);
+
+        int i = 2;
+        while (carry) {
+            ensure(i + 1);
+            s = (u128)a[i] + carry;
+            a[i] = (u64)s;
+            carry = (u64)(s >> 64);
+            ++i;
+        }
+        norm();
+    }
+
+    void addShifted(const std::vector<u64>& v, int sh) {
+        ensure((int)v.size() + sh + 1);
+        u64 carry = 0;
+        for (int i = 0; i < (int)v.size(); ++i) {
+            u128 s = (u128)a[i + sh] + v[i] + carry;
+            a[i + sh] = (u64)s;
+            carry = (u64)(s >> 64);
+        }
+        int p = (int)v.size() + sh;
+        while (carry) {
+            ensure(p + 1);
+            u128 s = (u128)a[p] + carry;
+            a[p] = (u64)s;
+            carry = (u64)(s >> 64);
+            ++p;
+        }
+        norm();
+    }
+
+    void mulSmall(u128 m) {
+        if (a.empty() || m == 0) {
+            a.clear();
+            return;
+        }
+
+        std::vector<u64> orig = a;
+        u64 lo = (u64)m;
+        u64 hi = (u64)(m >> 64);
+
+        std::vector<u64> res(orig.size() + 2, 0);
+        u128 carry = 0;
+        for (int i = 0; i < (int)orig.size(); ++i) {
+            u128 prod = (u128)orig[i] * lo + carry;
+            res[i] = (u64)prod;
+            carry = prod >> 64;
+        }
+        res[orig.size()] = (u64)carry;
+
+        a.swap(res);
+        norm();
+
+        if (hi) addShifted(orig, 1);
+        norm();
+    }
+
+    u128 divmod(u128 d) {
+        Big q;
+        u128 rem = 0;
+        int bl = bitLength();
+        for (int b = bl - 1; b >= 0; --b) {
+            rem = (rem << 1) | (getBit(b) ? 1 : 0);
+            if (rem >= d) {
+                rem -= d;
+                q.setBit(b);
+            }
+        }
+        a.swap(q.a);
+        norm();
+        return rem;
+    }
+};
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    init_comb();
+    const u128 B = BASE();
+
+    std::uint32_t mask = 0;
+    std::vector<int> prot;
+    for (int i = 0; i < NIDX; ++i) {
+        if (C[i]) mask |= (1U << i);
+        else prot.push_back(i);
+    }
+
+    int S = (int)M.size();
+
+    Big T;
+    T.setBit(S);
+    for (int i = 0; i < S; ++i) {
+        if (M[i]) T.setBit(i);
+    }
+    T.subSmall(2);
+
+    std::vector<u128> digit(16);
+    for (int i = 0; i < 16; ++i) {
+        digit[i] = T.divmod(B);
+    }
+
+    std::vector<u128> word(16);
+    for (int k = 0; k < 16; ++k) {
+        u64 r = rank_mask_for_index(mask, prot[k]);
+        word[k] = digit[k] * (u128)NCOMB + (u128)r;
+    }
+
+    for (int t = 0; t < QLEN; ++t) {
+        std::vector<bool> A(NIDX, false);
+        for (int k = 0; k < 16; ++k) {
+            A[prot[k]] = ((word[k] >> t) & 1) != 0;
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    init_comb();
+    const u128 B = BASE();
+
+    std::vector<u128> colword(NIDX, 0);
+    for (int i = 0; i < NIDX; ++i) {
+        u128 y = 0;
+        for (int t = 0; t < QLEN && t < (int)R.size(); ++t) {
+            if (R[t][i]) y |= (u128(1) << t);
+        }
+        colword[i] = y;
+    }
+
+    std::unordered_map<std::uint32_t, int> cnt;
+    std::uint32_t best_mask = 0;
+    int best_cnt = -1;
+
+    for (int i = 0; i < NIDX; ++i) {
+        u128 y = colword[i];
+        u128 d = y / (u128)NCOMB;
+        if (d >= B) continue;
+        u64 r = (u64)(y % (u128)NCOMB);
+        std::uint32_t cand = unrank_mask_for_index(r, i);
+        int c = ++cnt[cand];
+        if (c > best_cnt) {
+            best_cnt = c;
+            best_mask = cand;
+        }
+    }
+
+    std::vector<int> prot;
+    for (int i = 0; i < NIDX; ++i) {
+        if (((best_mask >> i) & 1U) == 0) prot.push_back(i);
+    }
+
+    Big T;
+    for (int k = 15; k >= 0; --k) {
+        T.mulSmall(B);
+        u128 d = colword[prot[k]] / (u128)NCOMB;
+        T.addSmall128(d);
+    }
+
+    Big U = T;
+    U.addSmall128(2);
+    int S = U.bitLength() - 1;
+    U.clearBit(S);
+
+    std::vector<bool> M(S);
+    for (int i = 0; i < S; ++i) {
+        M[i] = U.getBit(i);
+    }
+    return M;
+}

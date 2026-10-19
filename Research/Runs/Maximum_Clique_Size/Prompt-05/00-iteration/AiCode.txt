@@ -1,0 +1,259 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+struct FastInput {
+    static const int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+
+    inline int get() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (size == 0) return EOF;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        int c;
+        do c = get(); while (c != EOF && c <= ' ');
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = get();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        int c;
+        do c = get(); while (c != EOF && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+int bestAns = 0;
+ull lastMask;
+vector<ull> adjMat;
+
+inline ull* adjRow(int v) {
+    return &adjMat[(size_t)v * W];
+}
+
+inline bool emptyBits(const vector<ull>& b) {
+    for (ull x : b) if (x) return false;
+    return true;
+}
+
+inline int countBits(const vector<ull>& b) {
+    int s = 0;
+    for (ull x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline int firstBit(const vector<ull>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return i * 64 + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+void colorSort(const vector<ull>& P, vector<int>& order, vector<int>& color) {
+    vector<ull> U = P;
+    int c = 0;
+
+    while (!emptyBits(U)) {
+        ++c;
+        vector<ull> Q = U;
+
+        while (!emptyBits(Q)) {
+            int v = firstBit(Q);
+            order.push_back(v);
+            color.push_back(c);
+
+            ull bit = 1ULL << (v & 63);
+            int word = v >> 6;
+            U[word] &= ~bit;
+            Q[word] &= ~bit;
+
+            ull* av = adjRow(v);
+            for (int i = 0; i < W; ++i) Q[i] &= ~av[i];
+        }
+    }
+}
+
+void expand(vector<ull>& P, int sz) {
+    int pc = countBits(P);
+    if (pc == 0) {
+        if (sz > bestAns) bestAns = sz;
+        return;
+    }
+    if (sz + pc <= bestAns) return;
+
+    vector<int> order;
+    vector<int> color;
+    order.reserve(pc);
+    color.reserve(pc);
+    colorSort(P, order, color);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (sz + color[i] <= bestAns) return;
+
+        int v = order[i];
+        ull bit = 1ULL << (v & 63);
+        int word = v >> 6;
+        if ((P[word] & bit) == 0) continue;
+
+        vector<ull> P2(W);
+        ull* av = adjRow(v);
+        int cnt = 0;
+        for (int j = 0; j < W; ++j) {
+            ull x = P[j] & av[j];
+            P2[j] = x;
+            cnt += __builtin_popcountll(x);
+        }
+
+        if (sz + 1 + cnt > bestAns) {
+            if (cnt == 0) {
+                bestAns = sz + 1;
+            } else {
+                expand(P2, sz + 1);
+            }
+        }
+
+        P[word] &= ~bit;
+    }
+}
+
+int greedyComplementMIS(const vector<vector<int>>& comp) {
+    vector<int> deg(N);
+    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)comp[i].size();
+        pq.push({deg[i], i});
+    }
+
+    vector<unsigned char> active(N, 1);
+    int remaining = N;
+    int res = 0;
+
+    while (remaining > 0) {
+        while (!pq.empty()) {
+            auto [d, v] = pq.top();
+            if (active[v] && d == deg[v]) break;
+            pq.pop();
+        }
+        if (pq.empty()) break;
+
+        int v = pq.top().second;
+        pq.pop();
+
+        ++res;
+
+        vector<int> rem;
+        rem.push_back(v);
+        for (int u : comp[v]) {
+            if (active[u]) rem.push_back(u);
+        }
+
+        for (int x : rem) {
+            if (!active[x]) continue;
+            active[x] = 0;
+            --remaining;
+
+            for (int y : comp[x]) {
+                if (active[y]) {
+                    --deg[y];
+                    pq.push({deg[y], y});
+                }
+            }
+        }
+    }
+
+    return res;
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    vector<ull> oldAdj((size_t)N * W, 0);
+    vector<vector<int>> comp(N);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = in.nextBit();
+            if (i == j) continue;
+
+            if (b) {
+                oldAdj[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+            } else {
+                comp[i].push_back(j);
+            }
+        }
+    }
+
+    bestAns = greedyComplementMIS(comp);
+    if (bestAns == N) {
+        printf("%d\n", bestAns);
+        return 0;
+    }
+
+    vector<int> deg(N);
+    for (int i = 0; i < N; ++i) {
+        int d = 0;
+        for (int w = 0; w < W; ++w) d += __builtin_popcountll(oldAdj[(size_t)i * W + w]);
+        deg[i] = d;
+    }
+
+    vector<int> perm(N), inv(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    for (int i = 0; i < N; ++i) inv[perm[i]] = i;
+
+    adjMat.assign((size_t)N * W, 0);
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        for (int w = 0; w < W; ++w) {
+            ull x = oldAdj[(size_t)oi * W + w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = w * 64 + b;
+                if (oj < N) {
+                    int nj = inv[oj];
+                    adjMat[(size_t)ni * W + (nj >> 6)] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+    }
+
+    oldAdj.clear();
+    comp.clear();
+
+    vector<ull> P(W, ~0ULL);
+    P[W - 1] = lastMask;
+
+    expand(P, 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

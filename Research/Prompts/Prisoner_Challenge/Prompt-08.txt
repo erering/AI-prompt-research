@@ -1,0 +1,16 @@
+Output only valid C++20 code defining vector<vector<int>> devise_strategy(int N). Do not output markdown, explanation, input code, output code, or a main function.
+
+Before coding, internally identify the strongest compact strategy you can: the core algorithm for comparing two unequal integers in [1,N] using alternating single-bag observations, the state encoding placed on the whiteboard, the transition rules for every observed value, the invariant that makes each declaration safe, and the bound on the number of states and visits. Then implement only the resulting table generator.
+
+Formal interface and semantics:
+- N is in [2,5000].
+- Return s with x+1 rows and N+1 columns; x=s.size()-1.
+- State 0 is the initial whiteboard value; all written values must be in [0,x].
+- For state i, s[i][0]=0 means inspect A, and s[i][0]=1 means inspect B.
+- If the inspected bag contains j coins, 1≤j≤N, action s[i][j] is interpreted as follows: -1 declares A smaller, -2 declares B smaller, otherwise it must be a next state in [0,x].
+
+Correctness invariant required by the grader:
+For every a,b with 1≤a,b≤N and a≠b, simulate the deterministic protocol from state 0. Observations equal a on A-inspection states and b on B-inspection states. The simulation must terminate in no more than 500 transitions with -1 exactly when a<b and with -2 exactly when b<a. No other behavior is accepted.
+
+Optimization target:
+Choose the asymptotically and practically smallest state count. x≤60 is required for full input range viability, while x≤20 is the highest-scoring goal. Easier N≤500 thresholds are x≤500 and x≤70. Full-range scoring by maximum x=m: 40..60 gives 20, 26..39 gives 25+1.5*(40-m), 25 gives 50, 24 gives 55, 23 gives 62, 22 gives 70, 21 gives 80, and ≤20 gives 90.

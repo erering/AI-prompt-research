@@ -1,0 +1,343 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ULL = unsigned long long;
+
+static inline void setBit(vector<ULL>& b, int i) {
+    b[i >> 6] |= 1ULL << (i & 63);
+}
+
+static inline void resetBit(vector<ULL>& b, int i) {
+    b[i >> 6] &= ~(1ULL << (i & 63));
+}
+
+static inline bool testBit(const vector<ULL>& b, int i) {
+    return (b[i >> 6] >> (i & 63)) & 1ULL;
+}
+
+static inline int popcountBits(const vector<ULL>& b) {
+    int s = 0;
+    for (ULL x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+static inline int firstBit(const vector<ULL>& b) {
+    for (int i = 0; i < (int)b.size(); ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+struct HopcroftKarp {
+    int L, R;
+    vector<vector<int>> g;
+    vector<int> pairU, pairV, dist;
+
+    HopcroftKarp(int l, int r, vector<vector<int>> graph)
+        : L(l), R(r), g(std::move(graph)), pairU(l, -1), pairV(r, -1), dist(l) {}
+
+    bool bfs() {
+        queue<int> q;
+        bool found = false;
+        for (int u = 0; u < L; ++u) {
+            if (pairU[u] == -1) {
+                dist[u] = 0;
+                q.push(u);
+            } else {
+                dist[u] = -1;
+            }
+        }
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            for (int v : g[u]) {
+                int pu = pairV[v];
+                if (pu == -1) {
+                    found = true;
+                } else if (dist[pu] == -1) {
+                    dist[pu] = dist[u] + 1;
+                    q.push(pu);
+                }
+            }
+        }
+        return found;
+    }
+
+    bool dfs(int u) {
+        for (int v : g[u]) {
+            int pu = pairV[v];
+            if (pu == -1 || (dist[pu] == dist[u] + 1 && dfs(pu))) {
+                pairU[u] = v;
+                pairV[v] = u;
+                return true;
+            }
+        }
+        dist[u] = -1;
+        return false;
+    }
+
+    int matching() {
+        int m = 0;
+        while (bfs()) {
+            for (int u = 0; u < L; ++u) {
+                if (pairU[u] == -1 && dfs(u)) ++m;
+            }
+        }
+        return m;
+    }
+};
+
+struct MaxCliqueSolver {
+    int n, W, best;
+    vector<vector<ULL>> adj;
+    ULL lastMask;
+
+    MaxCliqueSolver(int n_, vector<vector<ULL>> a) : n(n_), W((n_ + 63) >> 6), best(0), adj(std::move(a)) {
+        int r = n & 63;
+        lastMask = r ? ((1ULL << r) - 1ULL) : ~0ULL;
+        reorder();
+    }
+
+    void reorder() {
+        vector<int> deg(n), p(n), inv(n);
+        for (int i = 0; i < n; ++i) {
+            deg[i] = popcountBits(adj[i]);
+            p[i] = i;
+        }
+        sort(p.begin(), p.end(), [&](int a, int b) {
+            if (deg[a] != deg[b]) return deg[a] > deg[b];
+            return a < b;
+        });
+        for (int i = 0; i < n; ++i) inv[p[i]] = i;
+
+        vector<vector<ULL>> na(n, vector<ULL>(W, 0));
+        for (int ni = 0; ni < n; ++ni) {
+            int oi = p[ni];
+            for (int w = 0; w < W; ++w) {
+                ULL x = adj[oi][w];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int oj = (w << 6) + b;
+                    if (oj < n) setBit(na[ni], inv[oj]);
+                    x &= x - 1;
+                }
+            }
+        }
+        adj.swap(na);
+    }
+
+    int greedyClique() {
+        vector<ULL> P(W, ~0ULL);
+        if (W) P[W - 1] &= lastMask;
+        int sz = 0;
+        while (true) {
+            int v = firstBit(P);
+            if (v < 0 || v >= n) break;
+            ++sz;
+            for (int i = 0; i < W; ++i) P[i] &= adj[v][i];
+        }
+        return sz;
+    }
+
+    void colorSort(const vector<ULL>& P, vector<int>& verts, vector<int>& colors) {
+        verts.clear();
+        colors.clear();
+        vector<ULL> U = P;
+        vector<ULL> Q(W);
+        int color = 0;
+
+        while (firstBit(U) >= 0) {
+            ++color;
+            Q = U;
+            while (true) {
+                int v = firstBit(Q);
+                if (v < 0 || v >= n) break;
+
+                verts.push_back(v);
+                colors.push_back(color);
+
+                resetBit(U, v);
+                resetBit(Q, v);
+                for (int i = 0; i < W; ++i) Q[i] &= ~adj[v][i];
+                if (W) Q[W - 1] &= lastMask;
+            }
+        }
+    }
+
+    void expand(vector<ULL> P, int depth) {
+        int pc = popcountBits(P);
+        if (depth + pc <= best) return;
+        if (pc == 0) {
+            if (depth > best) best = depth;
+            return;
+        }
+
+        vector<int> verts, colors;
+        colorSort(P, verts, colors);
+
+        for (int i = (int)verts.size() - 1; i >= 0; --i) {
+            if (depth + colors[i] <= best) return;
+
+            int v = verts[i];
+            if (!testBit(P, v)) continue;
+
+            if (depth + 1 > best) best = depth + 1;
+
+            vector<ULL> NP(W);
+            for (int j = 0; j < W; ++j) NP[j] = P[j] & adj[v][j];
+
+            int npc = popcountBits(NP);
+            if (depth + 1 + npc > best) {
+                expand(std::move(NP), depth + 1);
+            }
+
+            resetBit(P, v);
+            if (depth + popcountBits(P) <= best) return;
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        if (n == 1) return 1;
+        best = greedyClique();
+
+        vector<ULL> P(W, ~0ULL);
+        P[W - 1] &= lastMask;
+
+        expand(std::move(P), 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    vector<vector<int>> compAdj(N);
+    string tok;
+
+    for (int i = 0; i < N; ++i) {
+        int j = 0;
+        while (j < N && (cin >> tok)) {
+            for (char c : tok) {
+                if (c != '0' && c != '1') continue;
+                if (i != j && c == '0' && j < i) {
+                    compAdj[i].push_back(j);
+                    compAdj[j].push_back(i);
+                }
+                ++j;
+                if (j == N) break;
+            }
+        }
+    }
+
+    vector<char> vis(N, 0);
+    vector<int> pos(N, -1);
+    int answer = 0;
+
+    for (int s0 = 0; s0 < N; ++s0) {
+        if (vis[s0]) continue;
+
+        vector<int> comp;
+        queue<int> q;
+        q.push(s0);
+        vis[s0] = 1;
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            comp.push_back(u);
+            for (int v : compAdj[u]) {
+                if (!vis[v]) {
+                    vis[v] = 1;
+                    q.push(v);
+                }
+            }
+        }
+
+        int s = (int)comp.size();
+        if (s == 1) {
+            ++answer;
+            continue;
+        }
+
+        for (int i = 0; i < s; ++i) pos[comp[i]] = i;
+
+        vector<int> color(s, -1);
+        bool bip = true;
+        for (int st = 0; st < s && bip; ++st) {
+            if (color[st] != -1) continue;
+            queue<int> bq;
+            color[st] = 0;
+            bq.push(st);
+            while (!bq.empty() && bip) {
+                int u = bq.front();
+                bq.pop();
+                int gu = comp[u];
+                for (int gv : compAdj[gu]) {
+                    int v = pos[gv];
+                    if (v < 0) continue;
+                    if (color[v] == -1) {
+                        color[v] = color[u] ^ 1;
+                        bq.push(v);
+                    } else if (color[v] == color[u]) {
+                        bip = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (bip) {
+            vector<int> lid(s, -1), rid(s, -1);
+            int L = 0, R = 0;
+            for (int i = 0; i < s; ++i) {
+                if (color[i] == 0) lid[i] = L++;
+                else rid[i] = R++;
+            }
+
+            vector<vector<int>> hg(L);
+            for (int i = 0; i < s; ++i) {
+                if (color[i] != 0) continue;
+                int u = comp[i];
+                for (int gv : compAdj[u]) {
+                    int v = pos[gv];
+                    if (v >= 0 && color[v] == 1) hg[lid[i]].push_back(rid[v]);
+                }
+            }
+
+            HopcroftKarp hk(L, R, std::move(hg));
+            answer += s - hk.matching();
+
+            for (int v : comp) pos[v] = -1;
+            continue;
+        }
+
+        int W = (s + 63) >> 6;
+        ULL lastMask = (s & 63) ? ((1ULL << (s & 63)) - 1ULL) : ~0ULL;
+        vector<vector<ULL>> adj(s, vector<ULL>(W, ~0ULL));
+        for (int i = 0; i < s; ++i) {
+            adj[i][W - 1] &= lastMask;
+            resetBit(adj[i], i);
+        }
+
+        for (int i = 0; i < s; ++i) {
+            int u = comp[i];
+            for (int gv : compAdj[u]) {
+                int j = pos[gv];
+                if (j >= 0) resetBit(adj[i], j);
+            }
+        }
+
+        MaxCliqueSolver solver(s, std::move(adj));
+        answer += solver.solve();
+
+        for (int v : comp) pos[v] = -1;
+    }
+
+    cout << answer << '\n';
+    return 0;
+}

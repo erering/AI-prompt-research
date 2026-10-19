@@ -1,0 +1,274 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct Bits {
+    int n = 0, w = 0;
+    vector<unsigned long long> a;
+
+    Bits() {}
+    Bits(int n_) : n(n_), w((n_ + 63) >> 6), a(w, 0) {}
+
+    void set(int i) { a[i >> 6] |= 1ULL << (i & 63); }
+    void reset(int i) { a[i >> 6] &= ~(1ULL << (i & 63)); }
+    bool test(int i) const { return (a[i >> 6] >> (i & 63)) & 1ULL; }
+
+    void setAll() {
+        fill(a.begin(), a.end(), ~0ULL);
+        if (n & 63) a.back() &= (1ULL << (n & 63)) - 1ULL;
+    }
+
+    bool empty() const {
+        for (auto x : a) if (x) return false;
+        return true;
+    }
+
+    int first() const {
+        for (int i = 0; i < w; ++i) {
+            if (a[i]) return (i << 6) + __builtin_ctzll(a[i]);
+        }
+        return -1;
+    }
+
+    int count() const {
+        int s = 0;
+        for (auto x : a) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    void andWith(const Bits& o) {
+        for (int i = 0; i < w; ++i) a[i] &= o.a[i];
+    }
+
+    void andNot(const Bits& o) {
+        for (int i = 0; i < w; ++i) a[i] &= ~o.a[i];
+    }
+
+    int countAnd(const Bits& o) const {
+        int s = 0;
+        for (int i = 0; i < w; ++i) s += __builtin_popcountll(a[i] & o.a[i]);
+        return s;
+    }
+};
+
+struct DSU {
+    vector<int> p, sz;
+    DSU(int n = 0) : p(n), sz(n, 1) { iota(p.begin(), p.end(), 0); }
+    int find(int x) {
+        while (p[x] != x) {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        return x;
+    }
+    void unite(int a, int b) {
+        a = find(a); b = find(b);
+        if (a == b) return;
+        if (sz[a] < sz[b]) swap(a, b);
+        p[b] = a;
+        sz[a] += sz[b];
+    }
+};
+
+struct MaxCliqueSolver {
+    int n = 0;
+    vector<Bits> adj;
+    int best = 0;
+
+    MaxCliqueSolver(vector<Bits>&& g) : n((int)g.size()), adj(std::move(g)) {}
+
+    int greedy(Bits P) {
+        int res = 0;
+        while (!P.empty()) {
+            int bv = -1, bd = -1;
+            for (int wi = 0; wi < P.w; ++wi) {
+                unsigned long long x = P.a[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (wi << 6) + b;
+                    x &= x - 1;
+                    if (v >= n) continue;
+                    int d = P.countAnd(adj[v]);
+                    if (d > bd) {
+                        bd = d;
+                        bv = v;
+                    }
+                }
+            }
+            ++res;
+            P.andWith(adj[bv]);
+        }
+        return res;
+    }
+
+    void initBest() {
+        if (n == 0) return;
+        Bits all(n);
+        all.setAll();
+        best = max(best, greedy(all));
+
+        int tries = min(n, 32);
+        for (int s = 0; s < tries; ++s) {
+            Bits P = adj[s];
+            best = max(best, 1 + greedy(P));
+        }
+    }
+
+    void colorSort(const Bits& P, vector<int>& verts, vector<int>& cols) {
+        verts.clear();
+        cols.clear();
+
+        Bits U = P;
+        Bits Q(n);
+        int color = 0;
+
+        while (!U.empty()) {
+            ++color;
+            Q = U;
+            while (!Q.empty()) {
+                int v = Q.first();
+                verts.push_back(v);
+                cols.push_back(color);
+
+                U.reset(v);
+                Q.reset(v);
+                Q.andNot(adj[v]);
+            }
+        }
+    }
+
+    void expand(Bits P, int sz) {
+        if (P.empty()) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        if (sz + P.count() <= best) return;
+
+        vector<int> verts, cols;
+        colorSort(P, verts, cols);
+
+        for (int i = (int)verts.size() - 1; i >= 0; --i) {
+            if (sz + cols[i] <= best) return;
+
+            int v = verts[i];
+            if (!P.test(v)) continue;
+
+            Bits NP = P;
+            NP.andWith(adj[v]);
+
+            if (NP.empty()) {
+                if (sz + 1 > best) best = sz + 1;
+            } else {
+                expand(std::move(NP), sz + 1);
+            }
+
+            P.reset(v);
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        if (n == 1) return 1;
+
+        initBest();
+
+        Bits all(n);
+        all.setAll();
+        expand(std::move(all), 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    vector<Bits> orig(N, Bits(N));
+
+    int cnt = 0;
+    char c;
+    while (cnt < N * N && cin.get(c)) {
+        if (c != '0' && c != '1') continue;
+        int i = cnt / N;
+        int j = cnt % N;
+        if (c == '1' && i != j) orig[i].set(j);
+        ++cnt;
+    }
+
+    for (int i = 0; i < N; ++i) orig[i].reset(i);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool e = orig[i].test(j) || orig[j].test(i);
+            if (e) {
+                orig[i].set(j);
+                orig[j].set(i);
+            } else {
+                orig[i].reset(j);
+                orig[j].reset(i);
+            }
+        }
+    }
+
+    DSU dsu(N);
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            if (!orig[i].test(j)) dsu.unite(i, j);
+        }
+    }
+
+    unordered_map<int, vector<int>> mp;
+    mp.reserve(N * 2 + 1);
+    for (int i = 0; i < N; ++i) mp[dsu.find(i)].push_back(i);
+
+    int answer = 0;
+
+    for (auto& kv : mp) {
+        vector<int>& comp = kv.second;
+        int m = (int)comp.size();
+
+        if (m <= 1) {
+            answer += m;
+            continue;
+        }
+
+        vector<int> deg(m, 0);
+        for (int i = 0; i < m; ++i) {
+            for (int j = i + 1; j < m; ++j) {
+                if (orig[comp[i]].test(comp[j])) {
+                    ++deg[i];
+                    ++deg[j];
+                }
+            }
+        }
+
+        vector<int> ord(m);
+        iota(ord.begin(), ord.end(), 0);
+        sort(ord.begin(), ord.end(), [&](int a, int b) {
+            if (deg[a] != deg[b]) return deg[a] > deg[b];
+            return comp[a] < comp[b];
+        });
+
+        vector<int> perm(m);
+        for (int i = 0; i < m; ++i) perm[i] = comp[ord[i]];
+
+        vector<Bits> g(m, Bits(m));
+        for (int i = 0; i < m; ++i) {
+            for (int j = i + 1; j < m; ++j) {
+                if (orig[perm[i]].test(perm[j])) {
+                    g[i].set(j);
+                    g[j].set(i);
+                }
+            }
+        }
+
+        MaxCliqueSolver solver(std::move(g));
+        answer += solver.solve();
+    }
+
+    cout << answer;
+    return 0;
+}

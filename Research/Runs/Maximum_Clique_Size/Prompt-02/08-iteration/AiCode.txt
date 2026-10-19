@@ -1,0 +1,365 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+int N, W;
+vector<vector<int>> adjc;
+vector<unsigned long long> cbits;
+
+inline bool compEdge(int u, int v) {
+    return (cbits[(size_t)u * W + (v >> 6)] >> (v & 63)) & 1ULL;
+}
+
+vector<unsigned char> activev;
+vector<int> degv;
+int activeCount;
+vector<int> removedStack, degStack;
+int bestCover;
+long long nodesVisited = 0;
+
+void removeVertex(int v) {
+    if (!activev[v]) return;
+    activev[v] = 0;
+    removedStack.push_back(v);
+    --activeCount;
+    for (int u : adjc[v]) {
+        if (activev[u]) {
+            --degv[u];
+            degStack.push_back(u);
+        }
+    }
+}
+
+void restoreState(size_t rs, size_t ds, int ac) {
+    while (degStack.size() > ds) {
+        ++degv[degStack.back()];
+        degStack.pop_back();
+    }
+    while (removedStack.size() > rs) {
+        activev[removedStack.back()] = 1;
+        removedStack.pop_back();
+    }
+    activeCount = ac;
+}
+
+int greedyMatchingLB() {
+    static vector<int> used;
+    static int stamp = 1;
+    if ((int)used.size() != N) used.assign(N, 0);
+    if (++stamp == INT_MAX) {
+        fill(used.begin(), used.end(), 0);
+        stamp = 1;
+    }
+    int m = 0;
+    for (int v = 0; v < N; ++v) {
+        if (!activev[v] || used[v] == stamp) continue;
+        for (int u : adjc[v]) {
+            if (activev[u] && used[u] != stamp) {
+                used[v] = used[u] = stamp;
+                ++m;
+                break;
+            }
+        }
+    }
+    return m;
+}
+
+int triangleMatchingLB() {
+    static vector<int> used;
+    static int stamp = 1000003;
+    if ((int)used.size() != N) used.assign(N, 0);
+    if (++stamp == INT_MAX) {
+        fill(used.begin(), used.end(), 0);
+        stamp = 1000003;
+    }
+
+    int lb = 0;
+
+    for (int v = 0; v < N; ++v) {
+        if (!activev[v] || used[v] == stamp) continue;
+        int a = -1, b = -1;
+        const auto &av = adjc[v];
+        for (size_t i = 0; i < av.size() && a == -1; ++i) {
+            int u = av[i];
+            if (!activev[u] || used[u] == stamp) continue;
+            for (size_t j = i + 1; j < av.size(); ++j) {
+                int w = av[j];
+                if (activev[w] && used[w] != stamp && compEdge(u, w)) {
+                    a = u;
+                    b = w;
+                    break;
+                }
+            }
+        }
+        if (a != -1) {
+            used[v] = used[a] = used[b] = stamp;
+            lb += 2;
+        }
+    }
+
+    for (int v = 0; v < N; ++v) {
+        if (!activev[v] || used[v] == stamp) continue;
+        for (int u : adjc[v]) {
+            if (activev[u] && used[u] != stamp) {
+                used[v] = used[u] = stamp;
+                ++lb;
+                break;
+            }
+        }
+    }
+
+    return lb;
+}
+
+int lowerBoundCover() {
+    int a = greedyMatchingLB();
+    int b = triangleMatchingLB();
+    return max(a, b);
+}
+
+int greedyISHeuristic(unsigned seed) {
+    vector<unsigned char> act(N, 1);
+    vector<int> d(N);
+    for (int i = 0; i < N; ++i) d[i] = (int)adjc[i].size();
+
+    mt19937 rng(seed);
+    int alive = N, alpha = 0;
+
+    while (alive > 0) {
+        int md = INT_MAX;
+        for (int i = 0; i < N; ++i)
+            if (act[i]) md = min(md, d[i]);
+
+        vector<int> cand;
+        cand.reserve(64);
+        for (int i = 0; i < N; ++i) {
+            if (act[i] && d[i] == md) {
+                cand.push_back(i);
+                if ((int)cand.size() >= 128) break;
+            }
+        }
+
+        int v = cand[rng() % cand.size()];
+        ++alpha;
+
+        vector<int> rem;
+        rem.push_back(v);
+        for (int u : adjc[v])
+            if (act[u]) rem.push_back(u);
+
+        for (int x : rem) {
+            if (!act[x]) continue;
+            act[x] = 0;
+            --alive;
+            for (int y : adjc[x])
+                if (act[y]) --d[y];
+        }
+    }
+
+    return alpha;
+}
+
+int greedyVCHeuristic() {
+    vector<unsigned char> act(N, 1);
+    vector<int> d(N);
+    for (int i = 0; i < N; ++i) d[i] = (int)adjc[i].size();
+
+    int cover = 0;
+    while (true) {
+        int v = -1, bd = 0;
+        for (int i = 0; i < N; ++i) {
+            if (act[i] && d[i] > bd) {
+                bd = d[i];
+                v = i;
+            }
+        }
+        if (v == -1) break;
+        ++cover;
+        act[v] = 0;
+        for (int u : adjc[v])
+            if (act[u]) --d[u];
+    }
+    return cover;
+}
+
+void solveVC(int cover) {
+    ++nodesVisited;
+    if (cover >= bestCover) return;
+
+    size_t entryR = removedStack.size();
+    size_t entryD = degStack.size();
+    int entryA = activeCount;
+
+    while (true) {
+        if (cover >= bestCover) {
+            restoreState(entryR, entryD, entryA);
+            return;
+        }
+
+        bool changed = false;
+
+        for (int v = 0; v < N; ++v) {
+            if (activev[v] && degv[v] == 0) {
+                removeVertex(v);
+                changed = true;
+            }
+        }
+        if (changed) continue;
+
+        for (int v = 0; v < N && !changed; ++v) {
+            if (activev[v] && degv[v] == 1) {
+                int u = -1;
+                for (int x : adjc[v]) {
+                    if (activev[x]) {
+                        u = x;
+                        break;
+                    }
+                }
+                if (u != -1) {
+                    ++cover;
+                    removeVertex(u);
+                    changed = true;
+                }
+            }
+        }
+        if (changed) continue;
+
+        for (int v = 0; v < N && !changed; ++v) {
+            if (activev[v] && degv[v] == 2) {
+                int u = -1, w = -1;
+                for (int x : adjc[v]) {
+                    if (activev[x]) {
+                        if (u == -1) u = x;
+                        else {
+                            w = x;
+                            break;
+                        }
+                    }
+                }
+                if (u != -1 && w != -1 && compEdge(u, w)) {
+                    cover += 2;
+                    removeVertex(u);
+                    removeVertex(w);
+                    changed = true;
+                }
+            }
+        }
+        if (!changed) break;
+    }
+
+    if (cover >= bestCover) {
+        restoreState(entryR, entryD, entryA);
+        return;
+    }
+
+    if (activeCount == 0) {
+        bestCover = min(bestCover, cover);
+        restoreState(entryR, entryD, entryA);
+        return;
+    }
+
+    int lb = lowerBoundCover();
+    if (cover + lb >= bestCover) {
+        restoreState(entryR, entryD, entryA);
+        return;
+    }
+
+    int v = -1, bd = -1;
+    for (int i = 0; i < N; ++i) {
+        if (activev[i] && degv[i] > bd) {
+            bd = degv[i];
+            v = i;
+        }
+    }
+
+    if (v == -1 || bd <= 0) {
+        bestCover = min(bestCover, cover);
+        restoreState(entryR, entryD, entryA);
+        return;
+    }
+
+    {
+        size_t rs = removedStack.size();
+        size_t ds = degStack.size();
+        int ac = activeCount;
+        removeVertex(v);
+        solveVC(cover + 1);
+        restoreState(rs, ds, ac);
+    }
+
+    vector<int> neigh;
+    neigh.reserve(bd);
+    for (int u : adjc[v])
+        if (activev[u]) neigh.push_back(u);
+
+    if (cover + (int)neigh.size() < bestCover) {
+        size_t rs = removedStack.size();
+        size_t ds = degStack.size();
+        int ac = activeCount;
+        for (int u : neigh) removeVertex(u);
+        removeVertex(v);
+        solveVC(cover + (int)neigh.size());
+        restoreState(rs, ds, ac);
+    }
+
+    restoreState(entryR, entryD, entryA);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+
+    W = (N + 63) >> 6;
+    adjc.assign(N, {});
+    cbits.assign((size_t)N * W, 0ULL);
+
+    char ch;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            do {
+                if (!cin.get(ch)) return 0;
+            } while (ch != '0' && ch != '1');
+
+            if (i > j && ch == '0') {
+                adjc[i].push_back(j);
+                adjc[j].push_back(i);
+                cbits[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+                cbits[(size_t)j * W + (i >> 6)] |= 1ULL << (i & 63);
+            }
+        }
+    }
+
+    int edges = 0;
+    for (int i = 0; i < N; ++i) edges += (int)adjc[i].size();
+    edges /= 2;
+
+    if (edges == 0) {
+        cout << N << '\n';
+        return 0;
+    }
+
+    bestCover = greedyVCHeuristic();
+
+    int iters = 6;
+    if (N <= 300) iters = 40;
+    else if (N <= 800) iters = 20;
+    else if (N <= 2000) iters = 10;
+
+    for (int t = 0; t < iters; ++t) {
+        int alpha = greedyISHeuristic(1234567u + 1009u * t);
+        bestCover = min(bestCover, N - alpha);
+    }
+
+    activev.assign(N, 1);
+    degv.assign(N, 0);
+    for (int i = 0; i < N; ++i) degv[i] = (int)adjc[i].size();
+    activeCount = N;
+    removedStack.reserve(N * 4);
+    degStack.reserve(max(1, edges * 2));
+
+    solveVC(0);
+
+    cout << (N - bestCover) << '\n';
+    return 0;
+}

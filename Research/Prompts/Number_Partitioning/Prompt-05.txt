@@ -1,0 +1,9 @@
+Checklist for the required C++20 program:
+- Input: first line is N; each of the next N lines is a positive integer Ai.
+- Operation: assign each Ai to one of two groups, using every value exactly once.
+- Objective: minimize the absolute difference between the sums of the two groups.
+- Output: one line containing the exact minimum possible difference.
+- Example: input values 4, then 1, 5, 7, 9; output 0.
+- Environment: standard C++20, standard library only, 1 second time limit.
+- Evaluation behavior: tests are sorted by increasing N and stop at the first failure; TLE gives credit only through the previous successful N; WA or RTE gives total score zero.
+- Solver output restriction: output only valid C++20 source code, no markdown, no explanation, no code fences.

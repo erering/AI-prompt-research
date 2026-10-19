@@ -1,0 +1,11 @@
+Write only valid C++20 code. Do not write explanations, markdown, code fences, or runtime input/output. Define exactly the grader interface functions int send_message(int N, int i, int Pi) and std::pair<int,int> longest_path(std::vector<int> S), plus any helpers or global state you need.
+
+Implement an online communication strategy for this setting. Treat N as exactly 10000. Vertices are 0 through N-1. For each vertex i from 1 to N-1, the hidden parent P[i] satisfies 0<=P[i]<i. The undirected edges between i and P[i] form a tree. Distances are shortest-path edge counts. Your receiver must output any pair of vertices with maximum distance in this tree.
+
+During the first program execution, expect the grader to call send_message(N,i,Pi) for i=1,2,...,N-1 in order, where Pi=P[i]. Store state across these calls if useful. At each call, immediately decide and return S[i]. Return 0 if no message is sent. Return an integer from 1 to 20000 inclusive if a message is sent from site i. Never send more than 50 messages total. Make the decision using only the current call and previously gathered first-run information. Do not assume future parents are fixed independently: the grader is allowed to choose later P values based on earlier returned messages, as long as every P[i]<i and P[i]>=0.
+
+During the second program execution, expect exactly one call longest_path(S). Here S is a vector of length N, S[0]=0, and for i>=1 S[i] is the value returned in the first execution. Assume no global/static data from the first execution exists; recover everything solely from S and the indices where S is nonzero. Return a std::pair<int,int> (U,V) that is a diameter endpoint pair. If multiple diameter pairs exist, return any.
+
+Respect all bounds. Every nonzero S[i] must be in [1,20000]. Let M be the number of nonzero S[i] and Z be max_i S[i]. If an S value is invalid, Z>20000, M>50, or longest_path returns a non-diameter pair, the test score is 0.
+
+Optimize under these scoring rules. Subtask 1 has the extra promise that some pair (0,v), v!=0, is a diameter; valid scores are 10 for 9998<=Z<=20000, 16 for 102<=Z<=9997, 23 for 5<=Z<=101, and 30 for Z<=4. Subtask 2 has no extra promise; valid scores are 35-25*log_{4000}(Z/5) for 5<=Z<=20000 with M<=50, 40 for Z<=4 with 32<=M<=50, 70-30*log_4(M/8) for Z<=4 with 9<=M<=31, and 70 for Z<=4 with M<=8.

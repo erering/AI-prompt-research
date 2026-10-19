@@ -1,0 +1,158 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+extern vector<bool> send_packet(vector<bool> A);
+
+namespace {
+    constexpr int N = 31;
+    constexpr int BAD = 15;
+    constexpr int GOOD = 16;
+    constexpr int MASK_BITS = 29;
+    constexpr int LEN_BITS = 10;
+    constexpr uint32_t MASK_LIMIT = (1u << MASK_BITS) - 1u;
+
+    unsigned long long combs[32][16];
+    bool combs_ready = false;
+
+    void init_combs() {
+        if (combs_ready) return;
+        memset(combs, 0, sizeof(combs));
+        for (int n = 0; n <= 31; ++n) {
+            combs[n][0] = 1;
+            for (int k = 1; k <= min(n, 15); ++k) {
+                combs[n][k] = combs[n - 1][k - 1] + combs[n - 1][k];
+            }
+        }
+        combs_ready = true;
+    }
+
+    uint32_t salt_for_index(int i) {
+        uint32_t x = 0x1a2b3c5u * uint32_t(i + 1) + 0x12345u;
+        x ^= x >> 16;
+        x *= 0x45d9f3bu;
+        x ^= x >> 15;
+        return x & MASK_LIMIT;
+    }
+
+    uint32_t rank_mask(const vector<bool>& C) {
+        init_combs();
+        unsigned long long rank = 0;
+        int rem = BAD;
+        for (int i = 0; i < N; ++i) {
+            if (C[i]) {
+                rank += combs[N - 1 - i][rem];
+                --rem;
+            }
+        }
+        return uint32_t(rank);
+    }
+
+    vector<bool> unrank_mask(uint32_t rank) {
+        init_combs();
+        vector<bool> C(N, false);
+        int rem = BAD;
+        for (int i = 0; i < N; ++i) {
+            if (rem == 0) break;
+            unsigned long long cnt_false = combs[N - 1 - i][rem];
+            if (rank >= cnt_false) {
+                C[i] = true;
+                rank -= uint32_t(cnt_false);
+                --rem;
+            }
+        }
+        return C;
+    }
+
+    vector<int> reliable_indices(const vector<bool>& C) {
+        vector<int> g;
+        for (int i = 0; i < N; ++i) {
+            if (!C[i]) g.push_back(i);
+        }
+        return g;
+    }
+
+    uint32_t decode_mask_id(const vector<vector<bool>>& R) {
+        unordered_map<uint32_t, int> freq;
+        uint32_t best = 0;
+        int best_count = -1;
+
+        int usable_rows = min<int>(MASK_BITS, R.size());
+        for (int i = 0; i < N; ++i) {
+            uint32_t sym = 0;
+            for (int t = 0; t < usable_rows; ++t) {
+                if (i < (int)R[t].size() && R[t][i]) sym |= (1u << t);
+            }
+            uint32_t cand = (sym ^ salt_for_index(i)) & MASK_LIMIT;
+            int c = ++freq[cand];
+            if (c > best_count) {
+                best_count = c;
+                best = cand;
+            }
+        }
+        return best;
+    }
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    uint32_t id = rank_mask(C);
+
+    for (int t = 0; t < MASK_BITS; ++t) {
+        vector<bool> A(N, false);
+        for (int i = 0; i < N; ++i) {
+            if (!C[i]) {
+                uint32_t sym = (id ^ salt_for_index(i)) & MASK_LIMIT;
+                A[i] = ((sym >> t) & 1u) != 0;
+            }
+        }
+        send_packet(A);
+    }
+
+    vector<int> good = reliable_indices(C);
+
+    vector<bool> stream;
+    int L = (int)M.size();
+    int encoded_len = L - 1;
+    for (int b = 0; b < LEN_BITS; ++b) {
+        stream.push_back(((encoded_len >> b) & 1) != 0);
+    }
+    for (bool bit : M) stream.push_back(bit);
+
+    int data_packets = (int)((stream.size() + GOOD - 1) / GOOD);
+    for (int p = 0; p < data_packets; ++p) {
+        vector<bool> A(N, false);
+        for (int k = 0; k < GOOD; ++k) {
+            int pos = p * GOOD + k;
+            if (pos < (int)stream.size()) A[good[k]] = stream[pos];
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    uint32_t id = decode_mask_id(R);
+    vector<bool> C = unrank_mask(id);
+    vector<int> good = reliable_indices(C);
+
+    vector<bool> stream;
+    for (int p = MASK_BITS; p < (int)R.size(); ++p) {
+        for (int k = 0; k < GOOD; ++k) {
+            int idx = good[k];
+            stream.push_back(idx < (int)R[p].size() ? R[p][idx] : false);
+        }
+    }
+
+    int encoded_len = 0;
+    for (int b = 0; b < LEN_BITS && b < (int)stream.size(); ++b) {
+        if (stream[b]) encoded_len |= (1 << b);
+    }
+    int L = encoded_len + 1;
+    if (L < 1) L = 1;
+    if (L > 1024) L = 1024;
+
+    vector<bool> M;
+    for (int i = 0; i < L; ++i) {
+        int pos = LEN_BITS + i;
+        M.push_back(pos < (int)stream.size() ? stream[pos] : false);
+    }
+    return M;
+}

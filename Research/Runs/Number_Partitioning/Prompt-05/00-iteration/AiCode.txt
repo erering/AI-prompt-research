@@ -1,0 +1,493 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <queue>
+#include <limits>
+#include <cstdint>
+#include <numeric>
+#include <iomanip>
+#include <sstream>
+
+using namespace std;
+
+struct Big {
+    static const uint32_t BASE = 1000000000;
+    vector<uint32_t> d;
+
+    Big(uint64_t x = 0) {
+        while (x) {
+            d.push_back(uint32_t(x % BASE));
+            x /= BASE;
+        }
+    }
+
+    bool isZero() const { return d.empty(); }
+
+    void trim() {
+        while (!d.empty() && d.back() == 0) d.pop_back();
+    }
+
+    void mulSmall(uint32_t m) {
+        if (isZero() || m == 1) return;
+        if (m == 0) {
+            d.clear();
+            return;
+        }
+        uint64_t carry = 0;
+        for (auto &x : d) {
+            uint64_t cur = uint64_t(x) * m + carry;
+            x = uint32_t(cur % BASE);
+            carry = cur / BASE;
+        }
+        if (carry) d.push_back(uint32_t(carry));
+    }
+
+    void addSmall(uint32_t a) {
+        uint64_t carry = a;
+        size_t i = 0;
+        while (carry) {
+            if (i == d.size()) d.push_back(0);
+            uint64_t cur = uint64_t(d[i]) + carry;
+            d[i] = uint32_t(cur % BASE);
+            carry = cur / BASE;
+            ++i;
+        }
+    }
+
+    static Big fromString(const string &s) {
+        Big r;
+        for (char c : s) {
+            if (c >= '0' && c <= '9') {
+                r.mulSmall(10);
+                r.addSmall(uint32_t(c - '0'));
+            }
+        }
+        r.trim();
+        return r;
+    }
+
+    string toString() const {
+        if (d.empty()) return "0";
+        stringstream ss;
+        ss << d.back();
+        for (int i = int(d.size()) - 2; i >= 0; --i) {
+            ss << setw(9) << setfill('0') << d[i];
+        }
+        return ss.str();
+    }
+
+    friend bool operator<(const Big &a, const Big &b) {
+        if (a.d.size() != b.d.size()) return a.d.size() < b.d.size();
+        for (int i = int(a.d.size()) - 1; i >= 0; --i) {
+            if (a.d[i] != b.d[i]) return a.d[i] < b.d[i];
+        }
+        return false;
+    }
+
+    friend bool operator==(const Big &a, const Big &b) {
+        return a.d == b.d;
+    }
+
+    friend bool operator!=(const Big &a, const Big &b) { return !(a == b); }
+    friend bool operator>(const Big &a, const Big &b) { return b < a; }
+    friend bool operator<=(const Big &a, const Big &b) { return !(b < a); }
+    friend bool operator>=(const Big &a, const Big &b) { return !(a < b); }
+
+    friend Big operator+(const Big &a, const Big &b) {
+        Big r;
+        size_t n = max(a.d.size(), b.d.size());
+        r.d.assign(n, 0);
+        uint64_t carry = 0;
+        for (size_t i = 0; i < n; ++i) {
+            uint64_t cur = carry;
+            if (i < a.d.size()) cur += a.d[i];
+            if (i < b.d.size()) cur += b.d[i];
+            r.d[i] = uint32_t(cur % BASE);
+            carry = cur / BASE;
+        }
+        if (carry) r.d.push_back(uint32_t(carry));
+        return r;
+    }
+
+    friend Big operator-(const Big &a, const Big &b) {
+        Big r;
+        r.d.assign(a.d.size(), 0);
+        int64_t carry = 0;
+        for (size_t i = 0; i < a.d.size(); ++i) {
+            int64_t cur = int64_t(a.d[i]) - carry - (i < b.d.size() ? b.d[i] : 0);
+            if (cur < 0) {
+                cur += BASE;
+                carry = 1;
+            } else {
+                carry = 0;
+            }
+            r.d[i] = uint32_t(cur);
+        }
+        r.trim();
+        return r;
+    }
+
+    Big& operator+=(const Big &o) {
+        *this = *this + o;
+        return *this;
+    }
+};
+
+static bool parseULL(const string &s, unsigned long long &v) {
+    v = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9') continue;
+        unsigned digit = unsigned(c - '0');
+        if (v > (numeric_limits<unsigned long long>::max() - digit) / 10) return false;
+        v = v * 10 + digit;
+    }
+    return true;
+}
+
+static unsigned long long greedyULL(vector<unsigned long long> a) {
+    sort(a.begin(), a.end(), greater<unsigned long long>());
+    unsigned long long x = 0, y = 0;
+    for (auto v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return x >= y ? x - y : y - x;
+}
+
+static unsigned long long kkULL(const vector<unsigned long long> &a) {
+    priority_queue<unsigned long long> pq;
+    for (auto x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        auto x = pq.top(); pq.pop();
+        auto y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static bool dpULL(const vector<unsigned long long> &a, unsigned long long sum, unsigned long long &ans) {
+    unsigned long long target = sum / 2;
+    if (target > 200000000ULL) return false;
+
+    unsigned long long words64 = target / 64 + 1;
+    unsigned long long cnt = 0;
+    for (auto x : a) if (x <= target) ++cnt;
+    if (words64 * max(1ULL, cnt) > 120000000ULL) return false;
+
+    size_t words = size_t(words64);
+    vector<uint64_t> dp(words, 0);
+    dp[0] = 1;
+
+    size_t last = size_t(target / 64);
+    unsigned rem = unsigned(target & 63);
+    uint64_t lastMask = rem == 63 ? ~0ULL : ((1ULL << (rem + 1)) - 1);
+
+    for (auto x : a) {
+        if (x > target) continue;
+        size_t w = size_t(x >> 6);
+        unsigned b = unsigned(x & 63);
+        if (b == 0) {
+            for (size_t i = words; i-- > w;) {
+                dp[i] |= dp[i - w];
+            }
+        } else {
+            for (size_t i = words; i-- > w;) {
+                uint64_t val = dp[i - w] << b;
+                if (i > w) val |= dp[i - w - 1] >> (64 - b);
+                dp[i] |= val;
+            }
+        }
+        dp[last] &= lastMask;
+    }
+
+    for (size_t wi = last + 1; wi-- > 0;) {
+        uint64_t word = dp[wi];
+        if (wi == last) word &= lastMask;
+        if (word) {
+            int bit = 63 - __builtin_clzll(word);
+            unsigned long long s = unsigned long long(wi) * 64ULL + unsigned(bit);
+            ans = sum - 2ULL * s;
+            return true;
+        }
+        if (wi == 0) break;
+    }
+    return false;
+}
+
+static vector<unsigned long long> genSumsULL(const vector<unsigned long long> &a, int l, int r, unsigned long long target) {
+    vector<unsigned long long> sums;
+    sums.reserve(size_t(1) << min(22, r - l));
+    sums.push_back(0);
+    for (int i = l; i < r; ++i) {
+        unsigned long long x = a[i];
+        size_t sz = sums.size();
+        if (x > target) continue;
+        for (size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= target - x) sums.push_back(sums[j] + x);
+        }
+    }
+    return sums;
+}
+
+struct MITMSearch {
+    const vector<unsigned long long> *vals;
+    const vector<unsigned long long> *other;
+    unsigned long long target;
+    unsigned long long bestS = 0;
+
+    void dfs(int idx, int end, unsigned long long cur) {
+        if (bestS == target) return;
+        if (idx == end) {
+            auto it = upper_bound(other->begin(), other->end(), target - cur);
+            if (it != other->begin()) {
+                --it;
+                unsigned long long s = cur + *it;
+                if (s > bestS) bestS = s;
+            }
+            return;
+        }
+        unsigned long long x = (*vals)[idx];
+        if (x <= target - cur) dfs(idx + 1, end, cur + x);
+        dfs(idx + 1, end, cur);
+    }
+};
+
+static unsigned long long mitmULL(const vector<unsigned long long> &a, unsigned long long sum) {
+    unsigned long long target = sum / 2;
+    int n = int(a.size());
+    int m = n / 2;
+    vector<unsigned long long> right = genSumsULL(a, 0, m, target);
+    sort(right.begin(), right.end());
+
+    MITMSearch s;
+    s.vals = &a;
+    s.other = &right;
+    s.target = target;
+    s.dfs(m, n, 0);
+
+    return sum - 2ULL * s.bestS;
+}
+
+struct CKKULL {
+    unsigned long long best;
+
+    vector<unsigned long long> insertVal(const vector<unsigned long long> &a, unsigned long long val) {
+        vector<unsigned long long> b;
+        b.reserve(a.size() - 1);
+        bool ins = (val == 0);
+        for (size_t i = 2; i < a.size(); ++i) {
+            if (!ins && val >= a[i]) {
+                b.push_back(val);
+                ins = true;
+            }
+            if (a[i]) b.push_back(a[i]);
+        }
+        if (!ins) b.push_back(val);
+        return b;
+    }
+
+    void dfs(const vector<unsigned long long> &a, unsigned long long sum) {
+        if (best == 0) return;
+        size_t n = a.size();
+        if (n == 0) {
+            best = 0;
+            return;
+        }
+        if (n == 1) {
+            if (a[0] < best) best = a[0];
+            return;
+        }
+
+        unsigned long long x = a[0], y = a[1];
+        unsigned long long rest = sum - x;
+        if (x >= rest) {
+            unsigned long long low = x - rest;
+            if (low < best) best = low;
+            return;
+        }
+
+        auto d = insertVal(a, x - y);
+        dfs(d, sum - y - y);
+        if (best == 0) return;
+
+        auto s = insertVal(a, x + y);
+        dfs(s, sum);
+    }
+};
+
+static Big greedyBig(vector<Big> a) {
+    sort(a.begin(), a.end(), [](const Big &x, const Big &y) { return y < x; });
+    Big x(0), y(0);
+    for (const auto &v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return x >= y ? x - y : y - x;
+}
+
+static Big kkBig(const vector<Big> &a) {
+    priority_queue<Big> pq;
+    for (const auto &x : a) if (!x.isZero()) pq.push(x);
+    while (pq.size() > 1) {
+        Big x = pq.top(); pq.pop();
+        Big y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    return pq.empty() ? Big(0) : pq.top();
+}
+
+struct CKKBig {
+    Big best;
+
+    vector<Big> insertVal(const vector<Big> &a, const Big &val) {
+        vector<Big> b;
+        b.reserve(a.size() - 1);
+        bool ins = val.isZero();
+        for (size_t i = 2; i < a.size(); ++i) {
+            if (!ins && val >= a[i]) {
+                b.push_back(val);
+                ins = true;
+            }
+            if (!a[i].isZero()) b.push_back(a[i]);
+        }
+        if (!ins) b.push_back(val);
+        return b;
+    }
+
+    void dfs(const vector<Big> &a, const Big &sum) {
+        if (best.isZero()) return;
+        size_t n = a.size();
+        if (n == 0) {
+            best = Big(0);
+            return;
+        }
+        if (n == 1) {
+            if (a[0] < best) best = a[0];
+            return;
+        }
+
+        const Big &x = a[0];
+        const Big &y = a[1];
+        Big rest = sum - x;
+        if (x >= rest) {
+            Big low = x - rest;
+            if (low < best) best = low;
+            return;
+        }
+
+        Big diff = x - y;
+        Big yy = y + y;
+        vector<Big> d = insertVal(a, diff);
+        dfs(d, sum - yy);
+        if (best.isZero()) return;
+
+        Big same = x + y;
+        vector<Big> s = insertVal(a, same);
+        dfs(s, sum);
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    vector<string> inputs(N);
+    vector<unsigned long long> valsULL;
+    valsULL.reserve(N);
+
+    bool ullOK = true;
+    unsigned long long sumULL = 0;
+
+    for (int i = 0; i < N; ++i) {
+        cin >> inputs[i];
+        unsigned long long v = 0;
+        if (!parseULL(inputs[i], v)) {
+            ullOK = false;
+        }
+        if (ullOK) {
+            if (sumULL > numeric_limits<unsigned long long>::max() - v) {
+                ullOK = false;
+            } else {
+                sumULL += v;
+                valsULL.push_back(v);
+            }
+        }
+    }
+
+    if (N == 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    if (ullOK) {
+        unsigned long long g = 0;
+        for (auto x : valsULL) g = std::gcd(g, x);
+
+        vector<unsigned long long> a;
+        a.reserve(valsULL.size());
+        unsigned long long sum = 0;
+        for (auto x : valsULL) {
+            unsigned long long y = x / g;
+            if (y) {
+                a.push_back(y);
+                sum += y;
+            }
+        }
+
+        sort(a.begin(), a.end(), greater<unsigned long long>());
+
+        unsigned long long best = min(greedyULL(a), kkULL(a));
+        if (best == 0) {
+            cout << 0 << '\n';
+            return 0;
+        }
+
+        unsigned long long ans;
+        if (dpULL(a, sum, ans)) {
+            cout << ans * g << '\n';
+            return 0;
+        }
+
+        if (a.size() <= 45) {
+            ans = mitmULL(a, sum);
+            cout << ans * g << '\n';
+            return 0;
+        }
+
+        CKKULL solver;
+        solver.best = best;
+        solver.dfs(a, sum);
+        cout << solver.best * g << '\n';
+        return 0;
+    }
+
+    vector<Big> a;
+    a.reserve(N);
+    Big sum(0);
+    for (const auto &s : inputs) {
+        Big v = Big::fromString(s);
+        a.push_back(v);
+        sum += v;
+    }
+
+    sort(a.begin(), a.end(), [](const Big &x, const Big &y) { return y < x; });
+
+    Big best = greedyBig(a);
+    Big kkb = kkBig(a);
+    if (kkb < best) best = kkb;
+
+    if (best.isZero()) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    CKKBig solver;
+    solver.best = best;
+    solver.dfs(a, sum);
+    cout << solver.best.toString() << '\n';
+    return 0;
+}

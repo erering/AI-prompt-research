@@ -1,0 +1,66 @@
+#include <vector>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    for (int t = 0; t < 31; ++t) {
+        std::vector<bool> A(31, C[t]);
+        send_packet(A);
+    }
+
+    std::vector<bool> payload;
+    int S = (int)M.size();
+    int len = S - 1;
+
+    for (int i = 0; i < 10; ++i) {
+        payload.push_back((len >> i) & 1);
+    }
+    for (bool b : M) {
+        payload.push_back(b);
+    }
+
+    int p = 0;
+    while (p < (int)payload.size()) {
+        std::vector<bool> A(31, false);
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i]) {
+                if (p < (int)payload.size()) A[i] = payload[p++];
+                else A[i] = false;
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    std::vector<bool> C(31, false);
+
+    for (int t = 0; t < 31; ++t) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[t][i]) ++ones;
+        }
+        C[t] = (ones >= 16);
+    }
+
+    std::vector<bool> payload;
+    for (int r = 31; r < (int)R.size(); ++r) {
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i]) {
+                payload.push_back(R[r][i]);
+            }
+        }
+    }
+
+    int len = 0;
+    for (int i = 0; i < 10; ++i) {
+        if (payload[i]) len |= (1 << i);
+    }
+    int S = len + 1;
+
+    std::vector<bool> M;
+    for (int i = 0; i < S; ++i) {
+        M.push_back(payload[10 + i]);
+    }
+    return M;
+}

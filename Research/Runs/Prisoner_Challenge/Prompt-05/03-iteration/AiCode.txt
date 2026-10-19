@@ -1,0 +1,87 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    auto max_prod = [](int s) -> long long {
+        if (s == 0) return 1;
+        if (s == 1) return 1;
+        long long res = 1;
+        if (s % 3 == 0) {
+            for (int i = 0; i < s / 3; ++i) res *= 3;
+        } else if (s % 3 == 1) {
+            if (s == 4) return 4;
+            res = 4;
+            for (int i = 0; i < (s - 4) / 3; ++i) res *= 3;
+        } else {
+            res = 2;
+            for (int i = 0; i < (s - 2) / 3; ++i) res *= 3;
+        }
+        return res;
+    };
+
+    int sum = 0;
+    while (max_prod(sum) < N) ++sum;
+
+    vector<int> base;
+    if (sum % 3 == 0) {
+        for (int i = 0; i < sum / 3; ++i) base.push_back(3);
+    } else if (sum % 3 == 1) {
+        if (sum == 4) {
+            base.push_back(4);
+        } else {
+            base.push_back(4);
+            for (int i = 0; i < (sum - 4) / 3; ++i) base.push_back(3);
+        }
+    } else {
+        base.push_back(2);
+        for (int i = 0; i < (sum - 2) / 3; ++i) base.push_back(3);
+    }
+
+    int K = (int)base.size();
+    vector<int> offset(K);
+    int cur = 1;
+    for (int i = 0; i < K; ++i) {
+        offset[i] = cur;
+        cur += base[i];
+    }
+
+    vector<int> suf(K, 1);
+    for (int i = K - 2; i >= 0; --i) suf[i] = suf[i + 1] * base[i + 1];
+
+    auto digit = [&](int v, int lvl) -> int {
+        int y = v - 1;
+        return (y / suf[lvl]) % base[lvl];
+    };
+
+    int x = sum;
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = offset[0] + digit(j, 0);
+    }
+
+    for (int lvl = 0; lvl < K; ++lvl) {
+        int inspect = (lvl % 2 == 0 ? 1 : 0);
+        for (int dprev = 0; dprev < base[lvl]; ++dprev) {
+            int id = offset[lvl] + dprev;
+            s[id][0] = inspect;
+            for (int j = 1; j <= N; ++j) {
+                int dcur = digit(j, lvl);
+                if (dcur < dprev) {
+                    s[id][j] = (inspect == 0 ? -1 : -2);
+                } else if (dcur > dprev) {
+                    s[id][j] = (inspect == 0 ? -2 : -1);
+                } else {
+                    if (lvl == K - 1) {
+                        s[id][j] = -1;
+                    } else {
+                        s[id][j] = offset[lvl + 1] + digit(j, lvl + 1);
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

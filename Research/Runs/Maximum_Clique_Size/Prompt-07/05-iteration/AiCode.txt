@@ -1,0 +1,391 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+struct Solver {
+    int n, W, best;
+    vector<vector<int>> adj;
+    vector<vector<ull>> g;
+
+    Solver(const vector<vector<int>>& a) : n((int)a.size()), adj(a) {
+        W = (n + 63) >> 6;
+        g.assign(n, vector<ull>(W, 0));
+        for (int v = 0; v < n; ++v) {
+            for (int u : adj[v]) {
+                g[v][u >> 6] |= 1ULL << (u & 63);
+            }
+        }
+        best = 0;
+    }
+
+    inline bool testBit(const vector<ull>& b, int i) const {
+        return (b[i >> 6] >> (i & 63)) & 1ULL;
+    }
+
+    inline void clearBit(vector<ull>& b, int i) const {
+        b[i >> 6] &= ~(1ULL << (i & 63));
+    }
+
+    int popcnt(const vector<ull>& b) const {
+        int s = 0;
+        for (ull x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    bool anyBit(const vector<ull>& b) const {
+        for (ull x : b) if (x) return true;
+        return false;
+    }
+
+    int firstBit(const vector<ull>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    int greedyInitial() const {
+        vector<int> deg(n);
+        vector<char> active(n, 1);
+        priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+        for (int i = 0; i < n; ++i) {
+            deg[i] = (int)adj[i].size();
+            pq.push({deg[i], i});
+        }
+
+        int alive = n, res = 0;
+        while (alive > 0) {
+            int v = -1;
+            while (!pq.empty()) {
+                auto [d, x] = pq.top();
+                pq.pop();
+                if (active[x] && deg[x] == d) {
+                    v = x;
+                    break;
+                }
+            }
+            if (v == -1) break;
+
+            ++res;
+            vector<int> rem;
+            rem.push_back(v);
+            for (int u : adj[v]) {
+                if (active[u]) rem.push_back(u);
+            }
+
+            for (int x : rem) {
+                if (!active[x]) continue;
+                active[x] = 0;
+                --alive;
+                for (int y : adj[x]) {
+                    if (active[y]) {
+                        --deg[y];
+                        pq.push({deg[y], y});
+                    }
+                }
+            }
+        }
+        return res;
+    }
+
+    int staticGreedyInitial() const {
+        vector<int> ord(n);
+        iota(ord.begin(), ord.end(), 0);
+        sort(ord.begin(), ord.end(), [&](int a, int b) {
+            if (adj[a].size() != adj[b].size()) return adj[a].size() < adj[b].size();
+            return a < b;
+        });
+
+        vector<char> banned(n, 0);
+        int res = 0;
+        for (int v : ord) {
+            if (banned[v]) continue;
+            ++res;
+            banned[v] = 1;
+            for (int u : adj[v]) banned[u] = 1;
+        }
+        return res;
+    }
+
+    int matchingUpper(const vector<ull>& P) const {
+        int cnt = popcnt(P);
+        vector<ull> unmatched = P;
+        int match = 0;
+
+        for (int wi = 0; wi < W; ++wi) {
+            ull t = P[wi];
+            while (t) {
+                int b = __builtin_ctzll(t);
+                int v = (wi << 6) + b;
+                t &= t - 1;
+                if (v >= n || !testBit(unmatched, v)) continue;
+
+                int u = -1;
+                for (int k = 0; k < W; ++k) {
+                    ull x = g[v][k] & unmatched[k];
+                    if (x) {
+                        u = (k << 6) + __builtin_ctzll(x);
+                        break;
+                    }
+                }
+
+                clearBit(unmatched, v);
+                if (u != -1) {
+                    clearBit(unmatched, u);
+                    ++match;
+                }
+            }
+        }
+
+        return cnt - match;
+    }
+
+    void colorSort(const vector<ull>& P, vector<int>& verts, vector<int>& colors) const {
+        vector<ull> U = P;
+        int color = 0;
+
+        while (anyBit(U)) {
+            ++color;
+            vector<ull> Q = U;
+
+            while (anyBit(Q)) {
+                int v = firstBit(Q);
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                verts.push_back(v);
+                colors.push_back(color);
+
+                for (int k = 0; k < W; ++k) {
+                    Q[k] &= g[v][k];
+                }
+            }
+        }
+    }
+
+    void expand(vector<ull> P, int cur) {
+        int cnt = popcnt(P);
+        if (cnt == 0) {
+            if (cur > best) best = cur;
+            return;
+        }
+
+        if (cur + cnt <= best) return;
+
+        int mub = matchingUpper(P);
+        if (cur + mub <= best) return;
+
+        vector<int> verts;
+        vector<int> colors;
+        verts.reserve(cnt);
+        colors.reserve(cnt);
+        colorSort(P, verts, colors);
+
+        for (int i = (int)verts.size() - 1; i >= 0; --i) {
+            if (cur + colors[i] <= best) return;
+
+            int v = verts[i];
+            if (!testBit(P, v)) continue;
+
+            clearBit(P, v);
+
+            vector<ull> child = P;
+            for (int k = 0; k < W; ++k) {
+                child[k] &= ~g[v][k];
+            }
+
+            if (!anyBit(child)) {
+                if (cur + 1 > best) best = cur + 1;
+            } else {
+                expand(std::move(child), cur + 1);
+            }
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        best = max(greedyInitial(), staticGreedyInitial());
+
+        vector<ull> P(W, ~0ULL);
+        if (n & 63) P[W - 1] = (1ULL << (n & 63)) - 1ULL;
+
+        expand(P, 0);
+        return best;
+    }
+};
+
+int hopcroftKarpComponent(const vector<int>& comp, const vector<int>& color, const vector<vector<int>>& adj) {
+    int N = adj.size();
+    vector<int> lid(N, -1), rid(N, -1);
+    vector<int> L, R;
+
+    for (int v : comp) {
+        if (color[v] == 0) {
+            lid[v] = (int)L.size();
+            L.push_back(v);
+        } else {
+            rid[v] = (int)R.size();
+            R.push_back(v);
+        }
+    }
+
+    vector<vector<int>> ga(L.size());
+    for (int i = 0; i < (int)L.size(); ++i) {
+        int v = L[i];
+        for (int u : adj[v]) {
+            if (rid[u] != -1) ga[i].push_back(rid[u]);
+        }
+    }
+
+    int nl = L.size(), nr = R.size();
+    vector<int> pu(nl, -1), pv(nr, -1), dist(nl);
+
+    auto bfs = [&]() {
+        queue<int> q;
+        bool found = false;
+        fill(dist.begin(), dist.end(), -1);
+
+        for (int i = 0; i < nl; ++i) {
+            if (pu[i] == -1) {
+                dist[i] = 0;
+                q.push(i);
+            }
+        }
+
+        while (!q.empty()) {
+            int v = q.front();
+            q.pop();
+
+            for (int r : ga[v]) {
+                int nxt = pv[r];
+                if (nxt == -1) {
+                    found = true;
+                } else if (dist[nxt] == -1) {
+                    dist[nxt] = dist[v] + 1;
+                    q.push(nxt);
+                }
+            }
+        }
+
+        return found;
+    };
+
+    function<bool(int)> dfs = [&](int v) {
+        for (int r : ga[v]) {
+            int nxt = pv[r];
+            if (nxt == -1 || (dist[nxt] == dist[v] + 1 && dfs(nxt))) {
+                pu[v] = r;
+                pv[r] = v;
+                return true;
+            }
+        }
+        dist[v] = -1;
+        return false;
+    };
+
+    int matching = 0;
+    while (bfs()) {
+        for (int i = 0; i < nl; ++i) {
+            if (pu[i] == -1 && dfs(i)) ++matching;
+        }
+    }
+
+    return matching;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    vector<vector<int>> adj(N);
+
+    int read = 0;
+    char c;
+    while (read < N * N && cin.get(c)) {
+        if (c != '0' && c != '1') continue;
+
+        int i = read / N;
+        int j = read % N;
+        int val = c - '0';
+
+        if (i < j && val == 0) {
+            adj[i].push_back(j);
+            adj[j].push_back(i);
+        }
+
+        ++read;
+    }
+
+    vector<char> vis(N, 0);
+    vector<int> color(N, -1);
+    long long answer = 0;
+    vector<int> pos(N, -1);
+
+    for (int s = 0; s < N; ++s) {
+        if (vis[s]) continue;
+
+        vector<int> comp;
+        queue<int> q;
+        vis[s] = 1;
+        color[s] = 0;
+        q.push(s);
+        bool bip = true;
+
+        while (!q.empty()) {
+            int v = q.front();
+            q.pop();
+            comp.push_back(v);
+
+            for (int u : adj[v]) {
+                if (!vis[u]) {
+                    vis[u] = 1;
+                    color[u] = color[v] ^ 1;
+                    q.push(u);
+                } else if (color[u] == color[v]) {
+                    bip = false;
+                }
+            }
+        }
+
+        int m = comp.size();
+        if (m == 1) {
+            answer += 1;
+            continue;
+        }
+
+        if (bip) {
+            int matching = hopcroftKarpComponent(comp, color, adj);
+            answer += m - matching;
+            continue;
+        }
+
+        sort(comp.begin(), comp.end(), [&](int a, int b) {
+            if (adj[a].size() != adj[b].size()) return adj[a].size() > adj[b].size();
+            return a < b;
+        });
+
+        for (int i = 0; i < m; ++i) pos[comp[i]] = i;
+
+        vector<vector<int>> local(m);
+        for (int i = 0; i < m; ++i) {
+            int v = comp[i];
+            for (int u : adj[v]) {
+                int j = pos[u];
+                if (j != -1) local[i].push_back(j);
+            }
+        }
+
+        for (int v : comp) pos[v] = -1;
+
+        Solver solver(local);
+        answer += solver.solve();
+    }
+
+    cout << answer << '\n';
+    return 0;
+}

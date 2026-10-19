@@ -1,0 +1,359 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <string>
+#include <vector>
+
+static volatile std::uint64_t sink_value = 0;
+
+[[noreturn]] void give_up() {
+    while (true) {
+        sink_value = sink_value + 1;
+    }
+}
+
+bool parse_u64(const std::string& s, std::uint64_t& x) {
+    if (s.empty()) return false;
+    x = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9') return false;
+        std::uint64_t d = static_cast<std::uint64_t>(c - '0');
+        if (x > (std::numeric_limits<std::uint64_t>::max() - d) / 10) return false;
+        x = x * 10 + d;
+    }
+    return true;
+}
+
+void shift_or(std::vector<std::uint64_t>& bits, std::uint64_t sh, std::uint64_t target) {
+    if (sh == 0 || sh > target) return;
+    const std::size_t words = bits.size();
+    std::size_t ws = static_cast<std::size_t>(sh >> 6);
+    unsigned bs = static_cast<unsigned>(sh & 63);
+    if (ws >= words) return;
+
+    for (std::size_t i = words - 1;; --i) {
+        if (i < ws) break;
+        std::uint64_t v = bits[i - ws] << bs;
+        if (bs != 0 && i > ws) {
+            v |= bits[i - ws - 1] >> (64 - bs);
+        }
+        bits[i] |= v;
+        if (i == ws) break;
+    }
+
+    unsigned valid = static_cast<unsigned>((target & 63) + 1);
+    if (valid < 64) {
+        bits.back() &= ((1ULL << valid) - 1ULL);
+    }
+}
+
+std::uint64_t solve_bitset_dp(const std::vector<std::uint64_t>& a, std::uint64_t total) {
+    std::uint64_t target = total / 2;
+    std::size_t words = static_cast<std::size_t>(target / 64 + 1);
+    std::vector<std::uint64_t> bits(words, 0);
+    bits[0] = 1;
+
+    for (std::size_t i = 0; i < a.size();) {
+        std::uint64_t v = a[i];
+        std::size_t j = i;
+        while (j < a.size() && a[j] == v) ++j;
+        std::uint64_t cnt = static_cast<std::uint64_t>(j - i);
+
+        for (std::uint64_t k = 1; cnt > 0; k <<= 1) {
+            std::uint64_t take = std::min(k, cnt);
+            cnt -= take;
+            shift_or(bits, v * take, target);
+            if (bits[static_cast<std::size_t>(target >> 6)] & (1ULL << (target & 63))) {
+                return total - 2 * target;
+            }
+        }
+        i = j;
+    }
+
+    std::size_t idx = static_cast<std::size_t>(target >> 6);
+    unsigned off = static_cast<unsigned>(target & 63);
+    std::uint64_t mask = (off == 63) ? ~0ULL : ((1ULL << (off + 1)) - 1ULL);
+
+    while (true) {
+        std::uint64_t x = bits[idx] & mask;
+        if (x != 0) {
+            unsigned p = 63U - static_cast<unsigned>(std::countl_zero(x));
+            std::uint64_t best = static_cast<std::uint64_t>(idx) * 64ULL + p;
+            return total - 2 * best;
+        }
+        if (idx == 0) break;
+        --idx;
+        mask = ~0ULL;
+    }
+    return total;
+}
+
+std::uint64_t solve_mitm(const std::vector<std::uint64_t>& a, std::uint64_t total) {
+    std::uint64_t target = total / 2;
+    std::size_t n = a.size();
+    std::size_t n1 = n / 2;
+    std::size_t n2 = n - n1;
+
+    std::size_t lim2 = 1ULL << n2;
+    std::vector<std::uint64_t> right;
+    right.reserve(lim2);
+
+    std::uint64_t sum = 0;
+    std::size_t prev = 0;
+    for (std::size_t k = 0; k < lim2; ++k) {
+        std::size_t g = k ^ (k >> 1);
+        if (k != 0) {
+            std::size_t d = g ^ prev;
+            unsigned b = static_cast<unsigned>(std::countr_zero(d));
+            if (g & d) sum += a[n1 + b];
+            else sum -= a[n1 + b];
+        }
+        if (sum <= target) right.push_back(sum);
+        prev = g;
+    }
+
+    std::sort(right.begin(), right.end());
+
+    std::uint64_t best = 0;
+    std::size_t lim1 = 1ULL << n1;
+    sum = 0;
+    prev = 0;
+
+    for (std::size_t k = 0; k < lim1; ++k) {
+        std::size_t g = k ^ (k >> 1);
+        if (k != 0) {
+            std::size_t d = g ^ prev;
+            unsigned b = static_cast<unsigned>(std::countr_zero(d));
+            if (g & d) sum += a[b];
+            else sum -= a[b];
+        }
+
+        if (sum <= target) {
+            std::uint64_t rem = target - sum;
+            auto it = std::upper_bound(right.begin(), right.end(), rem);
+            if (it != right.begin()) {
+                --it;
+                std::uint64_t cand = sum + *it;
+                if (cand > best) {
+                    best = cand;
+                    if (best == target) return total - 2 * target;
+                }
+            }
+        }
+        prev = g;
+    }
+
+    return total - 2 * best;
+}
+
+bool solve_sparse_dp(const std::vector<std::uint64_t>& a, std::uint64_t total, std::uint64_t& diff) {
+    constexpr std::size_t LIMIT = 500000;
+    std::uint64_t target = total / 2;
+
+    std::vector<std::uint64_t> cur, nxt;
+    cur.push_back(0);
+
+    for (std::size_t i = a.size(); i > 0;) {
+        std::size_t j = i - 1;
+        std::uint64_t v = a[j];
+        while (j > 0 && a[j - 1] == v) --j;
+        std::uint64_t cnt = static_cast<std::uint64_t>(i - j);
+
+        for (std::uint64_t k = 1; cnt > 0; k <<= 1) {
+            std::uint64_t take = std::min(k, cnt);
+            cnt -= take;
+            std::uint64_t sh = v * take;
+            if (sh > target) continue;
+
+            std::uint64_t max_base = target - sh;
+            auto end_shift = std::upper_bound(cur.begin(), cur.end(), max_base);
+            std::size_t m = static_cast<std::size_t>(end_shift - cur.begin());
+
+            nxt.clear();
+            std::size_t reserve_size = cur.size() + m;
+            if (reserve_size > LIMIT + 1) reserve_size = LIMIT + 1;
+            nxt.reserve(reserve_size);
+
+            std::size_t p = 0, q = 0;
+            bool have_last = false;
+            std::uint64_t last = 0;
+
+            while (p < cur.size() || q < m) {
+                std::uint64_t val;
+                if (q >= m || (p < cur.size() && cur[p] <= cur[q] + sh)) {
+                    val = cur[p++];
+                } else {
+                    val = cur[q++] + sh;
+                }
+
+                if (!have_last || val != last) {
+                    if (val == target) {
+                        diff = total - 2 * target;
+                        return true;
+                    }
+                    nxt.push_back(val);
+                    if (nxt.size() > LIMIT) return false;
+                    last = val;
+                    have_last = true;
+                }
+            }
+
+            cur.swap(nxt);
+        }
+        i = j;
+    }
+
+    diff = total - 2 * cur.back();
+    return true;
+}
+
+struct BBSolver {
+    std::vector<std::uint64_t> a;
+    std::vector<std::uint64_t> suf;
+    std::uint64_t target = 0;
+    std::uint64_t best = 0;
+    bool done = false;
+
+    void dfs(std::size_t i, std::uint64_t cur) {
+        if (done) return;
+        if (cur > best) {
+            best = cur;
+            if (best == target) {
+                done = true;
+                return;
+            }
+        }
+        if (i >= a.size()) return;
+        if (suf[i] <= best - cur) return;
+
+        std::uint64_t v = a[i];
+        if (v <= target - cur) dfs(i + 1, cur + v);
+
+        std::size_t j = i + 1;
+        while (j < a.size() && a[j] == v) ++j;
+        dfs(j, cur);
+    }
+
+    std::uint64_t solve(std::uint64_t total) {
+        target = total / 2;
+        suf.assign(a.size() + 1, 0);
+        for (std::size_t i = a.size(); i-- > 0;) {
+            suf[i] = suf[i + 1] + a[i];
+        }
+
+        std::uint64_t greedy = 0;
+        for (std::uint64_t v : a) {
+            if (v <= target - greedy) greedy += v;
+        }
+        best = greedy;
+        if (best == target) return total - 2 * target;
+
+        dfs(0, 0);
+        return total - 2 * best;
+    }
+};
+
+int main() {
+    try {
+        std::ios::sync_with_stdio(false);
+        std::cin.tie(nullptr);
+
+        std::string s;
+        if (!(std::cin >> s)) return 0;
+
+        std::uint64_t n64;
+        if (!parse_u64(s, n64)) give_up();
+        if (n64 > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())) give_up();
+        std::size_t n = static_cast<std::size_t>(n64);
+
+        std::vector<std::uint64_t> a;
+        a.reserve(n);
+
+        std::uint64_t total = 0;
+        std::uint64_t g = 0;
+
+        for (std::size_t i = 0; i < n; ++i) {
+            if (!(std::cin >> s)) give_up();
+            std::uint64_t x;
+            if (!parse_u64(s, x)) give_up();
+            if (x == 0) continue;
+            if (x > std::numeric_limits<std::uint64_t>::max() - total) give_up();
+            total += x;
+            g = std::gcd(g, x);
+            a.push_back(x);
+        }
+
+        if (a.empty() || total == 0) {
+            std::cout << 0 << '\n';
+            return 0;
+        }
+
+        for (std::uint64_t& x : a) x /= g;
+        std::uint64_t scaled_total = total / g;
+
+        std::sort(a.begin(), a.end());
+
+        std::uint64_t mn = a.front();
+        std::uint64_t mx = a.back();
+
+        std::uint64_t scaled_diff;
+
+        if (mx >= scaled_total - mx) {
+            scaled_diff = mx - (scaled_total - mx);
+            std::cout << scaled_diff * g << '\n';
+            return 0;
+        }
+
+        if (mn == mx) {
+            scaled_diff = (a.size() & 1) ? mn : 0;
+            std::cout << scaled_diff * g << '\n';
+            return 0;
+        }
+
+        std::uint64_t target = scaled_total / 2;
+        constexpr std::uint64_t MAX_DP_WORDS = 4000000ULL;
+
+        if (target / 64 + 1 <= MAX_DP_WORDS) {
+            scaled_diff = solve_bitset_dp(a, scaled_total);
+            std::cout << scaled_diff * g << '\n';
+            return 0;
+        }
+
+        std::uint64_t greedy = 0;
+        for (auto it = a.rbegin(); it != a.rend(); ++it) {
+            if (*it <= target - greedy) greedy += *it;
+        }
+        if (greedy == target) {
+            scaled_diff = scaled_total - 2 * target;
+            std::cout << scaled_diff * g << '\n';
+            return 0;
+        }
+
+        constexpr std::size_t MITM_HALF = 22;
+        if (a.size() <= 2 * MITM_HALF) {
+            scaled_diff = solve_mitm(a, scaled_total);
+            std::cout << scaled_diff * g << '\n';
+            return 0;
+        }
+
+        if (solve_sparse_dp(a, scaled_total, scaled_diff)) {
+            std::cout << scaled_diff * g << '\n';
+            return 0;
+        }
+
+        if (a.size() <= 1000) {
+            BBSolver bb;
+            bb.a.assign(a.rbegin(), a.rend());
+            scaled_diff = bb.solve(scaled_total);
+            std::cout << scaled_diff * g << '\n';
+            return 0;
+        }
+
+        give_up();
+    } catch (...) {
+        give_up();
+    }
+}

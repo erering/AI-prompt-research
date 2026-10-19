@@ -1,0 +1,279 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastScanner {
+    static constexpr int SZ = 1 << 20;
+    char buf[SZ];
+    int idx = 0, size = 0;
+
+    inline int getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (size == 0) return EOF;
+        }
+        return buf[idx++];
+    }
+
+    int readInt() {
+        int c, sgn = 1, x = 0;
+        do { c = getChar(); } while (c != EOF && (c < '0' || c > '9') && c != '-');
+        if (c == '-') {
+            sgn = -1;
+            c = getChar();
+        }
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x * sgn;
+    }
+
+    int readBit() {
+        int c;
+        do { c = getChar(); } while (c != EOF && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+uint64_t LAST_MASK;
+vector<vector<uint64_t>> adjm;
+int bestAns = 0;
+
+inline bool getBitRow(const vector<uint64_t>& r, int v) {
+    return (r[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void setBitRow(vector<uint64_t>& r, int v) {
+    r[v >> 6] |= 1ULL << (v & 63);
+}
+
+inline void clearBitRow(vector<uint64_t>& r, int v) {
+    r[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline int firstBit(const vector<uint64_t>& b) {
+    for (int i = 0; i < W; ++i) {
+        uint64_t x = b[i];
+        if (x) return (i << 6) + __builtin_ctzll(x);
+    }
+    return -1;
+}
+
+inline bool emptyBits(const vector<uint64_t>& b) {
+    for (uint64_t x : b) if (x) return false;
+    return true;
+}
+
+void colorSort(const vector<uint64_t>& P, int pcnt, vector<int>& order, vector<int>& colors) {
+    order.clear();
+    colors.clear();
+    order.reserve(pcnt);
+    colors.reserve(pcnt);
+
+    vector<uint64_t> U = P, Q(W);
+    int color = 0;
+
+    while (!emptyBits(U)) {
+        ++color;
+        Q = U;
+
+        int v;
+        while ((v = firstBit(Q)) != -1) {
+            order.push_back(v);
+            colors.push_back(color);
+
+            clearBitRow(U, v);
+            clearBitRow(Q, v);
+
+            const vector<uint64_t>& av = adjm[v];
+            for (int i = 0; i < W; ++i) Q[i] &= ~av[i];
+        }
+    }
+}
+
+void expand(vector<uint64_t> P, int sz, int pcnt) {
+    if (pcnt == 0) {
+        if (sz > bestAns) bestAns = sz;
+        return;
+    }
+    if (sz + pcnt <= bestAns) return;
+
+    vector<int> order, colors;
+    colorSort(P, pcnt, order, colors);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (sz + colors[i] <= bestAns) return;
+
+        int v = order[i];
+        if (!getBitRow(P, v)) continue;
+
+        vector<uint64_t> P2(W);
+        int cnt = 0;
+        const vector<uint64_t>& av = adjm[v];
+
+        for (int j = 0; j < W; ++j) {
+            uint64_t x = P[j] & av[j];
+            P2[j] = x;
+            cnt += __builtin_popcountll(x);
+        }
+
+        if (sz + 1 + cnt > bestAns) {
+            expand(std::move(P2), sz + 1, cnt);
+        } else if (sz + 1 > bestAns) {
+            bestAns = sz + 1;
+        }
+
+        clearBitRow(P, v);
+        --pcnt;
+    }
+}
+
+int greedyMISComplement(const vector<vector<int>>& comp, const vector<int>& tie) {
+    vector<int> deg(N);
+    vector<unsigned char> active(N, 1);
+
+    using T = tuple<int, int, int>;
+    priority_queue<T, vector<T>, greater<T>> pq;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)comp[i].size();
+        pq.emplace(deg[i], tie.empty() ? i : tie[i], i);
+    }
+
+    int rem = N, ans = 0;
+    vector<int> removed;
+    removed.reserve(128);
+
+    while (rem > 0) {
+        int v = -1, d, t;
+        while (!pq.empty()) {
+            tie(d, t, v) = pq.top();
+            pq.pop();
+            if (active[v] && d == deg[v]) break;
+            v = -1;
+        }
+        if (v < 0) break;
+
+        ++ans;
+        removed.clear();
+
+        if (active[v]) removed.push_back(v);
+        for (int u : comp[v]) {
+            if (active[u]) removed.push_back(u);
+        }
+
+        for (int x : removed) {
+            if (active[x]) {
+                active[x] = 0;
+                --rem;
+            }
+        }
+
+        for (int x : removed) {
+            for (int y : comp[x]) {
+                if (active[y]) {
+                    --deg[y];
+                    pq.emplace(deg[y], tie.empty() ? y : tie[y], y);
+                }
+            }
+        }
+    }
+
+    return ans;
+}
+
+int main() {
+    FastScanner fs;
+    N = fs.readInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    LAST_MASK = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    adjm.assign(N, vector<uint64_t>(W, 0));
+    vector<vector<int>> comp(N);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = fs.readBit();
+            if (b) {
+                setBitRow(adjm[i], j);
+            } else if (i > j) {
+                comp[i].push_back(j);
+                comp[j].push_back(i);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        clearBitRow(adjm[i], i);
+        if (W) adjm[i][W - 1] &= LAST_MASK;
+    }
+
+    if (N == 1) {
+        printf("1\n");
+        return 0;
+    }
+
+    bestAns = greedyMISComplement(comp, {});
+
+    int trials = (N <= 3000 ? 7 : 3);
+    uint32_t x = 2463534242u ^ (uint32_t)N;
+    vector<int> rnd(N);
+
+    for (int tr = 0; tr < trials; ++tr) {
+        for (int i = 0; i < N; ++i) {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            rnd[i] = (int)(x & 0x7fffffff);
+        }
+        bestAns = max(bestAns, greedyMISComplement(comp, rnd));
+    }
+
+    if (bestAns >= N) {
+        printf("%d\n", N);
+        return 0;
+    }
+
+    vector<int> deg(N);
+    for (int i = 0; i < N; ++i) {
+        int d = 0;
+        for (uint64_t z : adjm[i]) d += __builtin_popcountll(z);
+        deg[i] = d;
+    }
+
+    vector<int> perm(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] < deg[b];
+        return a < b;
+    });
+
+    vector<vector<uint64_t>> nadj(N, vector<uint64_t>(W, 0));
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        vector<uint64_t>& row = nadj[ni];
+        for (int nj = 0; nj < N; ++nj) {
+            if (ni != nj && getBitRow(adjm[oi], perm[nj])) {
+                setBitRow(row, nj);
+            }
+        }
+        if (W) row[W - 1] &= LAST_MASK;
+    }
+    adjm.swap(nadj);
+
+    vector<uint64_t> P(W, ~0ULL);
+    if (W) P[W - 1] = LAST_MASK;
+
+    expand(std::move(P), 0, N);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

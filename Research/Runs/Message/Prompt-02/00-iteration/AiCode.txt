@@ -1,0 +1,73 @@
+#include <vector>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> safe;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) safe.push_back(i);
+    }
+
+    for (int k = 0; k < 31; ++k) {
+        std::vector<bool> A(31, false);
+        bool bit = !C[k];
+        for (int idx : safe) A[idx] = bit;
+        send_packet(A);
+    }
+
+    int S = (int)M.size();
+    int x = S - 1;
+    std::vector<bool> payload;
+    payload.reserve(10 + S);
+
+    for (int i = 0; i < 10; ++i) {
+        payload.push_back((x >> i) & 1);
+    }
+    for (bool b : M) payload.push_back(b);
+
+    int p = 0;
+    while (p < (int)payload.size()) {
+        std::vector<bool> A(31, false);
+        for (int idx : safe) {
+            if (p < (int)payload.size()) {
+                A[idx] = payload[p++];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    std::vector<int> safe;
+
+    for (int k = 0; k < 31; ++k) {
+        int cnt = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[k][i]) ++cnt;
+        }
+        if (cnt >= 16) safe.push_back(k);
+    }
+
+    std::vector<bool> payload;
+    for (int r = 31; r < (int)R.size(); ++r) {
+        for (int idx : safe) {
+            payload.push_back(R[r][idx]);
+        }
+    }
+
+    int x = 0;
+    for (int i = 0; i < 10; ++i) {
+        if (payload[i]) x |= (1 << i);
+    }
+
+    int S = x + 1;
+    std::vector<bool> M;
+    M.reserve(S);
+
+    for (int i = 0; i < S; ++i) {
+        M.push_back(payload[10 + i]);
+    }
+
+    return M;
+}

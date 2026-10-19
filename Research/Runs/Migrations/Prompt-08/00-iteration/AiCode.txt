@@ -1,0 +1,123 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int LOG = 15;
+    constexpr int BASE = 3661;
+
+    int gN = 0;
+    vector<array<int, LOG>> up;
+    vector<int> dep;
+    int diaA = 0, diaB = 0, diaD = 0;
+
+    void reset_encoder(int N) {
+        gN = N;
+        up.assign(N, {});
+        dep.assign(N, 0);
+        if (N > 0) {
+            for (int k = 0; k < LOG; ++k) up[0][k] = 0;
+        }
+        diaA = diaB = 0;
+        diaD = 0;
+    }
+
+    int lca_enc(int a, int b) {
+        if (dep[a] < dep[b]) swap(a, b);
+        int diff = dep[a] - dep[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[a][k] != up[b][k]) {
+                a = up[a][k];
+                b = up[b][k];
+            }
+        }
+        return up[a][0];
+    }
+
+    int dist_enc(int a, int b) {
+        int c = lca_enc(a, b);
+        return dep[a] + dep[b] - 2 * dep[c];
+    }
+
+    long long rank_pair(int N, int u, int v) {
+        if (u > v) swap(u, v);
+        long long before = 1LL * u * (2LL * N - u - 1) / 2;
+        return before + (v - u - 1);
+    }
+
+    pair<int, int> unrank_pair(int N, long long code) {
+        for (int u = 0; u + 1 < N; ++u) {
+            long long cnt = N - u - 1;
+            if (code < cnt) return {u, int(u + 1 + code)};
+            code -= cnt;
+        }
+        return {0, 0};
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || N != gN || (int)up.size() != N) reset_encoder(N);
+
+    up[i][0] = Pi;
+    dep[i] = dep[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) up[i][k] = up[up[i][k - 1]][k - 1];
+
+    int oldA = diaA, oldB = diaB, oldD = diaD;
+    int da = dist_enc(i, oldA);
+    int db = dist_enc(i, oldB);
+
+    bool changed = false;
+    int other = -1;
+
+    if (da > oldD || db > oldD) {
+        changed = true;
+        if (da >= db) {
+            diaA = oldA;
+            diaB = i;
+            diaD = da;
+            other = oldA;
+        } else {
+            diaA = oldB;
+            diaB = i;
+            diaD = db;
+            other = oldB;
+        }
+    }
+
+    if (N >= 3 && i == N - 2) {
+        long long code = rank_pair(N, diaA, diaB);
+        return int(code / BASE) + 1;
+    }
+
+    if (i == N - 1) {
+        if (changed) {
+            return BASE + 1 + other;
+        } else {
+            long long code = rank_pair(N, diaA, diaB);
+            return int(code % BASE) + 1;
+        }
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    if (N <= 1) return {0, 0};
+
+    if (S[N - 1] > BASE) {
+        return {N - 1, S[N - 1] - BASE - 1};
+    }
+
+    if (N == 2) return {0, 1};
+
+    long long high = S[N - 2] - 1;
+    long long low = S[N - 1] - 1;
+    long long code = high * BASE + low;
+
+    return unrank_pair(N, code);
+}

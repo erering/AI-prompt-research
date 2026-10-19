@@ -1,0 +1,105 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    int T = (N + 1) / 2;
+
+    if (T <= 1) {
+        vector<vector<int>> s(2, vector<int>(N + 1, 0));
+        s[0][0] = 0;
+        for (int j = 1; j <= N; ++j) s[0][j] = 1;
+
+        s[1][0] = 1;
+        for (int j = 1; j <= N; ++j) {
+            int rem = (j - 1) & 1;
+            s[1][j] = (rem == 0 ? -2 : -1);
+        }
+        return s;
+    }
+
+    const int INF = 1e9;
+    vector<int> dp(T + 1, INF), parP(T + 1, -1), parK(T + 1, -1);
+    dp[1] = 0;
+
+    for (int p = 1; p <= T; ++p) {
+        if (dp[p] == INF) continue;
+        for (int k = 2; k <= T; ++k) {
+            long long prod = 1LL * p * k;
+            int np = (prod >= T ? T : (int)prod);
+            if (dp[p] + k < dp[np]) {
+                dp[np] = dp[p] + k;
+                parP[np] = p;
+                parK[np] = k;
+            }
+        }
+    }
+
+    vector<int> rad;
+    for (int cur = T; cur != 1; cur = parP[cur]) {
+        rad.push_back(parK[cur]);
+    }
+    reverse(rad.begin(), rad.end());
+
+    int L = (int)rad.size();
+
+    vector<long long> tail(L);
+    long long curTail = 2;
+    for (int i = L - 1; i >= 0; --i) {
+        tail[i] = curTail;
+        curTail *= rad[i];
+    }
+
+    vector<int> off(L);
+    int x = 0;
+    for (int i = 0; i < L; ++i) {
+        off[i] = x + 1;
+        x += rad[i];
+    }
+
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, 0));
+
+    auto digit = [&](int level, int coins) -> int {
+        long long v = coins - 1;
+        return (int)((v / tail[level]) % rad[level]);
+    };
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = off[0] + digit(0, j);
+    }
+
+    for (int level = 0; level < L; ++level) {
+        for (int d = 0; d < rad[level]; ++d) {
+            int id = off[level] + d;
+
+            bool inspectB = (level % 2 == 0);
+            bool currentIsA = !inspectB;
+            bool storedIsA = inspectB;
+
+            s[id][0] = inspectB ? 1 : 0;
+
+            for (int j = 1; j <= N; ++j) {
+                int cd = digit(level, j);
+
+                if (cd < d) {
+                    s[id][j] = currentIsA ? -1 : -2;
+                } else if (cd > d) {
+                    s[id][j] = storedIsA ? -1 : -2;
+                } else {
+                    if (level + 1 < L) {
+                        s[id][j] = off[level + 1] + digit(level + 1, j);
+                    } else {
+                        int rem = (j - 1) & 1;
+                        if (rem == 0) {
+                            s[id][j] = currentIsA ? -1 : -2;
+                        } else {
+                            s[id][j] = storedIsA ? -1 : -2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

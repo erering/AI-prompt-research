@@ -1,0 +1,113 @@
+#include <vector>
+#include <utility>
+#include <algorithm>
+
+namespace {
+    constexpr int LOG = 20;
+
+    int encN = 0;
+    std::vector<std::vector<int>> up;
+    std::vector<int> depthArr;
+    int diamA = 0, diamB = 0, diamLen = 0;
+
+    void reset_encoder(int N) {
+        encN = N;
+        up.assign(LOG, std::vector<int>(N, 0));
+        depthArr.assign(N, 0);
+        diamA = diamB = 0;
+        diamLen = 0;
+    }
+
+    int lca_enc(int a, int b) {
+        if (depthArr[a] < depthArr[b]) std::swap(a, b);
+        int diff = depthArr[a] - depthArr[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[k][a];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[k][a] != up[k][b]) {
+                a = up[k][a];
+                b = up[k][b];
+            }
+        }
+        return up[0][a];
+    }
+
+    int dist_enc(int a, int b) {
+        int c = lca_enc(a, b);
+        return depthArr[a] + depthArr[b] - 2 * depthArr[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || N != encN || (int)depthArr.size() != N) {
+        reset_encoder(N);
+    }
+
+    up[0][i] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up[k][i] = up[k - 1][up[k - 1][i]];
+    }
+    depthArr[i] = depthArr[Pi] + 1;
+
+    bool updated = false;
+
+    int dA = dist_enc(i, diamA);
+    int dB = dist_enc(i, diamB);
+
+    if (dA > diamLen) {
+        diamLen = dA;
+        diamB = diamA;
+        diamA = i;
+        updated = true;
+    } else if (dB > diamLen) {
+        diamLen = dB;
+        diamA = i;
+        updated = true;
+    }
+
+    int start = std::max(1, N - 50);
+    if (i < start) return 0;
+
+    if (i == start) {
+        return diamA + 1;
+    }
+
+    if (i == start + 1 && !updated) {
+        return diamB + 1;
+    }
+
+    if (updated) {
+        return diamB + 10001;
+    }
+
+    return 1;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+
+    int start = std::max(1, N - 50);
+
+    int lastSignal = -1;
+    int opposite = -1;
+
+    for (int i = start + 1; i < N; ++i) {
+        if (S[i] > 10000) {
+            lastSignal = i;
+            opposite = S[i] - 10001;
+        }
+    }
+
+    if (lastSignal != -1) {
+        return {lastSignal, opposite};
+    }
+
+    if (start + 1 < N) {
+        return {S[start] - 1, S[start + 1] - 1};
+    }
+
+    return {S[start] - 1, 0};
+}

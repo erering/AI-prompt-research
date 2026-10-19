@@ -1,0 +1,11 @@
+Output ONLY valid C++20 code, no markdown, no explanation, implementing vector<vector<int>> devise_strategy(int N).
+
+Think of the whiteboard number as the only memory shared by the prisoners. Before the process starts, they must prepare a rulebook. Each rule says: if the board shows this number, inspect this bag; after seeing this many coins in that bag, either answer or change the memory number. Your function must build that rulebook.
+
+The hidden situation is: bag A contains a coins and bag B contains b coins, where both are between 1 and N, they are different, and 2 <= N <= 5000. The board begins at 0. At most 500 prisoners act, one after another, and no prisoner acts twice. They cannot communicate except through the board. They win only if some prisoner correctly identifies the bag with fewer coins. They lose if anyone identifies the wrong bag, or if all 500 prisoners leave without a declaration.
+
+Represent the rulebook as the returned vector s. If s has x+1 rows, then x is the largest board number you allow. Each row corresponds to one board number i from 0 to x and must contain N+1 integers. The first entry, s[i][0], tells which bag to inspect: 0 means A, 1 means B. The remaining entries describe what to do after seeing a coin count j from 1 to N: use -1 to declare that A has fewer coins, use -2 to declare that B has fewer coins, or use a value k between 0 and x to write k on the board and let the next prisoner continue.
+
+For correctness, imagine trying every possible pair (a,b) with a != b. Start at board value 0 and follow your table exactly. The observed j is a whenever the table says to inspect A, and b whenever it says to inspect B. The run must always reach the right declaration within 500 steps: declare A exactly when a < b, and declare B exactly when b < a.
+
+The goal is not just to be correct but to use few board values. The main cap is x <= 60 for all N up to 5000, while the best target is x <= 20. Smaller settings allow N <= 500 with x <= 500 or x <= 70. Main scoring depends on the maximum x: 40..60 gives 20, 26..39 gives 25+1.5*(40-m), 25 gives 50, 24 gives 55, 23 gives 62, 22 gives 70, 21 gives 80, and <=20 gives 90.

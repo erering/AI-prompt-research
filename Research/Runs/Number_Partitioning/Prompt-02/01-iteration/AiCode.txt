@@ -1,0 +1,337 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <unordered_set>
+#include <vector>
+
+using ull = unsigned long long;
+
+[[noreturn]] void give_up() {
+    static volatile ull x = 0;
+    while (true) {
+        x = x + 1;
+    }
+}
+
+ull solve_dp(const std::vector<ull>& a, ull total) {
+    ull target = total / 2;
+    std::size_t last = static_cast<std::size_t>(target / 64);
+    std::vector<ull> bits(last + 1, 0);
+    bits[0] = 1;
+
+    for (ull x : a) {
+        if (x > target) continue;
+        std::size_t ws = static_cast<std::size_t>(x / 64);
+        unsigned bs = static_cast<unsigned>(x % 64);
+
+        for (std::size_t i = last + 1; i-- > ws;) {
+            ull v = bits[i - ws] << bs;
+            if (bs != 0 && i > ws) {
+                v |= bits[i - ws - 1] >> (64 - bs);
+            }
+            bits[i] |= v;
+        }
+    }
+
+    unsigned rem = static_cast<unsigned>(target % 64);
+    for (std::size_t wi = last + 1; wi-- > 0;) {
+        ull word = bits[wi];
+        if (wi == last && rem != 63) {
+            word &= ((1ULL << (rem + 1)) - 1);
+        }
+        if (word != 0) {
+            int pos = 63 - std::countl_zero(word);
+            ull best = static_cast<ull>(wi) * 64 + static_cast<ull>(pos);
+            return total - 2 * best;
+        }
+    }
+    return total;
+}
+
+std::vector<ull> make_sums(const std::vector<ull>& a, int l, int r, ull target) {
+    std::vector<ull> sums;
+    int len = r - l;
+    if (len < 23) sums.reserve(1ULL << len);
+    sums.push_back(0);
+
+    for (int i = l; i < r; ++i) {
+        ull x = a[i];
+        std::size_t sz = sums.size();
+        for (std::size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= target && x <= target - sums[j]) {
+                sums.push_back(sums[j] + x);
+            }
+        }
+    }
+    return sums;
+}
+
+ull solve_mitm_two_vectors(const std::vector<ull>& a, ull total) {
+    int n = static_cast<int>(a.size());
+    int m = n / 2;
+    ull target = total / 2;
+
+    auto left = make_sums(a, 0, m, target);
+    auto right = make_sums(a, m, n, target);
+
+    std::sort(left.begin(), left.end());
+    left.erase(std::unique(left.begin(), left.end()), left.end());
+    std::sort(right.begin(), right.end());
+    right.erase(std::unique(right.begin(), right.end()), right.end());
+
+    ull best = 0;
+    std::size_t i = 0;
+    std::size_t j = right.size();
+
+    while (i < left.size() && j > 0) {
+        ull s = left[i] + right[j - 1];
+        if (s <= target) {
+            if (s > best) best = s;
+            ++i;
+        } else {
+            --j;
+        }
+    }
+
+    return total - 2 * best;
+}
+
+ull solve_mitm_one_vector(const std::vector<ull>& a, ull total) {
+    int n = static_cast<int>(a.size());
+    int m = n / 2;
+    ull target = total / 2;
+
+    auto stored = make_sums(a, 0, m, target);
+    std::sort(stored.begin(), stored.end());
+    stored.erase(std::unique(stored.begin(), stored.end()), stored.end());
+
+    ull best = 0;
+
+    auto dfs = [&](auto&& self, int idx, ull sum) -> void {
+        if (best == target) return;
+        if (idx == n) {
+            auto it = std::upper_bound(stored.begin(), stored.end(), target - sum);
+            if (it != stored.begin()) {
+                --it;
+                ull s = sum + *it;
+                if (s > best) best = s;
+            }
+            return;
+        }
+
+        self(self, idx + 1, sum);
+        if (a[idx] <= target - sum) {
+            self(self, idx + 1, sum + a[idx]);
+        }
+    };
+
+    dfs(dfs, m, 0);
+    return total - 2 * best;
+}
+
+struct Key {
+    int i;
+    long long d;
+
+    bool operator==(const Key& other) const {
+        return i == other.i && d == other.d;
+    }
+};
+
+struct KeyHash {
+    static std::uint64_t splitmix64(std::uint64_t x) {
+        x += 0x9e3779b97f4a7c15ULL;
+        x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+        return x ^ (x >> 31);
+    }
+
+    std::size_t operator()(const Key& k) const {
+        return static_cast<std::size_t>(splitmix64(static_cast<std::uint64_t>(k.d)) ^ splitmix64(static_cast<std::uint64_t>(k.i)));
+    }
+};
+
+ull kk_heuristic(const std::vector<ull>& a) {
+    std::priority_queue<ull> pq;
+    for (ull x : a) pq.push(x);
+
+    while (pq.size() > 1) {
+        ull x = pq.top(); pq.pop();
+        ull y = pq.top(); pq.pop();
+        pq.push(x - y);
+    }
+
+    return pq.empty() ? 0 : pq.top();
+}
+
+ull greedy_heuristic(const std::vector<ull>& a) {
+    ull x = 0, y = 0;
+    for (ull v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return x > y ? x - y : y - x;
+}
+
+ull solve_branch_bound(const std::vector<ull>& a, ull total, ull initial_best) {
+    int n = static_cast<int>(a.size());
+    std::vector<long long> v(n);
+    for (int i = 0; i < n; ++i) v[i] = static_cast<long long>(a[i]);
+
+    std::vector<long long> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) suffix[i] = suffix[i + 1] + v[i];
+
+    long long best = static_cast<long long>(initial_best);
+    long long global_lower = static_cast<long long>(total & 1ULL);
+
+    std::unordered_set<Key, KeyHash> memo;
+    memo.reserve(600000);
+    constexpr std::size_t MEMO_LIMIT = 500000;
+
+    auto absll = [](long long x) -> long long {
+        return x >= 0 ? x : -x;
+    };
+
+    auto dfs = [&](auto&& self, int i, long long d) -> void {
+        if (best == global_lower) return;
+
+        long long ad = absll(d);
+        long long lb = ad > suffix[i] ? ad - suffix[i] : 0;
+        if (lb < global_lower) lb = global_lower;
+        if (lb >= best) return;
+
+        Key key{i, d};
+        auto found = memo.find(key);
+        if (found != memo.end()) return;
+        if (memo.size() < MEMO_LIMIT) memo.insert(key);
+
+        if (i == n) {
+            if (ad < best) best = ad;
+            return;
+        }
+
+        long long x = v[i];
+        long long d1 = d + x;
+        long long d2 = d - x;
+
+        if (absll(d1) < absll(d2)) {
+            self(self, i + 1, d1);
+            self(self, i + 1, d2);
+        } else {
+            self(self, i + 1, d2);
+            self(self, i + 1, d1);
+        }
+    };
+
+    dfs(dfs, 0, 0);
+    return static_cast<ull>(best);
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    if (N <= 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::vector<ull> a(N);
+    ull total = 0;
+    ull g = 0;
+    bool overflow = false;
+    bool all_equal_input = true;
+    ull first = 0;
+
+    for (int i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        if (i == 0) first = a[i];
+        else if (a[i] != first) all_equal_input = false;
+
+        g = std::gcd(g, a[i]);
+        if (total > std::numeric_limits<ull>::max() - a[i]) overflow = true;
+        else total += a[i];
+    }
+
+    if (overflow) {
+        if (all_equal_input) {
+            std::cout << ((N % 2 == 0) ? 0ULL : first) << '\n';
+            return 0;
+        }
+        give_up();
+    }
+
+    if (N == 1) {
+        std::cout << total << '\n';
+        return 0;
+    }
+
+    for (ull& x : a) x /= g;
+    total /= g;
+
+    bool all_equal = true;
+    for (int i = 1; i < N; ++i) {
+        if (a[i] != a[0]) {
+            all_equal = false;
+            break;
+        }
+    }
+
+    auto print_scaled = [&](ull d) {
+        std::cout << d * g << '\n';
+    };
+
+    if (all_equal) {
+        print_scaled((N % 2 == 0) ? 0ULL : a[0]);
+        return 0;
+    }
+
+    ull mx = *std::max_element(a.begin(), a.end());
+    if (mx >= total - mx) {
+        print_scaled(mx - (total - mx));
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    ull lower = total & 1ULL;
+    ull best_heur = std::min(greedy_heuristic(a), kk_heuristic(a));
+    if (best_heur == lower) {
+        print_scaled(best_heur);
+        return 0;
+    }
+
+    ull target = total / 2;
+    long double words = static_cast<long double>(target / 64 + 1);
+    long double ops = words * static_cast<long double>(N);
+
+    if (target <= 256000000ULL && ops <= 250000000.0L) {
+        print_scaled(solve_dp(a, total));
+        return 0;
+    }
+
+    if (N <= 42) {
+        print_scaled(solve_mitm_two_vectors(a, total));
+        return 0;
+    }
+
+    if (N <= 45) {
+        print_scaled(solve_mitm_one_vector(a, total));
+        return 0;
+    }
+
+    if (N <= 200 && total <= static_cast<ull>(std::numeric_limits<long long>::max())) {
+        ull ans = solve_branch_bound(a, total, best_heur);
+        print_scaled(ans);
+        return 0;
+    }
+
+    give_up();
+}

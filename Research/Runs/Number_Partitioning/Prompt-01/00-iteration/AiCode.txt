@@ -1,0 +1,336 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <cstdint>
+#include <limits>
+
+using ull = std::uint64_t;
+using u128 = __uint128_t;
+
+struct Group {
+    ull v;
+    ull c;
+};
+
+static ull TARGET, BEST;
+static bool FOUND;
+static std::vector<ull> STORED, TAIL;
+static ull STORED_MAX;
+static std::vector<Group> GROUPS;
+static std::vector<ull> SUF;
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+    char s[64];
+    int n = 0;
+    while (x > 0) {
+        s[n++] = char('0' + x % 10);
+        x /= 10;
+    }
+    while (n--) std::cout << s[n];
+    std::cout << '\n';
+}
+
+static void tle_forever() {
+    static volatile ull x = 0;
+    while (true) ++x;
+}
+
+static std::vector<Group> make_groups(const std::vector<ull>& a, int l, int r) {
+    std::vector<Group> g;
+    for (int i = l; i < r; ) {
+        int j = i + 1;
+        while (j < r && a[j] == a[i]) ++j;
+        g.push_back({a[i], (ull)(j - i)});
+        i = j;
+    }
+    return g;
+}
+
+static std::vector<ull> make_suffix(const std::vector<Group>& g) {
+    int n = (int)g.size();
+    std::vector<ull> s(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) {
+        u128 add = (u128)g[i].v * g[i].c;
+        u128 sum = (u128)s[i + 1] + add;
+        s[i] = (sum >= TARGET) ? TARGET : (ull)sum;
+    }
+    return s;
+}
+
+static std::vector<ull> generate_sums_grouped(const std::vector<ull>& a, int l, int r) {
+    std::vector<ull> sums;
+    int len = r - l;
+    if (len >= 0 && len <= 25) sums.reserve((size_t)1 << len);
+    sums.push_back(0);
+
+    auto groups = make_groups(a, l, r);
+    for (const auto& gr : groups) {
+        size_t old = sums.size();
+        for (size_t i = 0; i < old; ++i) {
+            ull base = sums[i];
+            ull maxk = (TARGET - base) / gr.v;
+            if (maxk > gr.c) maxk = gr.c;
+            ull add = 0;
+            for (ull k = 1; k <= maxk; ++k) {
+                add += gr.v;
+                sums.push_back(base + add);
+            }
+        }
+    }
+
+    std::sort(sums.begin(), sums.end());
+    sums.erase(std::unique(sums.begin(), sums.end()), sums.end());
+    return sums;
+}
+
+static bool bitset_dp(const std::vector<ull>& a, ull total_scaled, ull gcdv) {
+    if (TARGET > (ull)std::numeric_limits<size_t>::max() - 64) return false;
+
+    size_t words = (size_t)(TARGET / 64 + 1);
+    u128 ops = (u128)words * a.size();
+
+    if (words > 8000000ULL || ops > 300000000ULL) return false;
+
+    std::vector<ull> bits(words, 0);
+    bits[0] = 1;
+
+    for (ull x : a) {
+        if (x == 0 || x > TARGET) continue;
+        size_t sw = (size_t)(x / 64);
+        unsigned sb = (unsigned)(x & 63);
+        if (sw >= words) continue;
+
+        for (size_t i = words; i-- > sw; ) {
+            ull v = bits[i - sw] << sb;
+            if (sb && i > sw) v |= bits[i - sw - 1] >> (64 - sb);
+            bits[i] |= v;
+        }
+    }
+
+    ull best = 0;
+    size_t tw = (size_t)(TARGET / 64);
+    unsigned off = (unsigned)(TARGET & 63);
+
+    for (size_t wi = tw + 1; wi-- > 0; ) {
+        ull w = bits[wi];
+        if (wi == tw && off != 63) w &= ((1ULL << (off + 1)) - 1);
+        if (w) {
+            best = (ull)wi * 64 + (63 - (unsigned)__builtin_clzll(w));
+            break;
+        }
+        if (wi == 0) break;
+    }
+
+    u128 diff = ((u128)total_scaled - (u128)2 * best) * gcdv;
+    print_u128(diff);
+    return true;
+}
+
+static void dfs_groups(int idx, bool use_tail) {
+    if (FOUND) return;
+
+    if (use_tail) {
+        auto it = std::upper_bound(TAIL.begin(), TAIL.end(), TARGET - BEST);
+        (void)it;
+    }
+
+    ull cur_best_candidate = 0;
+    (void)cur_best_candidate;
+}
+
+static void dfs_mitm_group(int idx, ull cur) {
+    if (FOUND) return;
+
+    ull rem = TARGET - cur;
+    auto it = std::upper_bound(STORED.begin(), STORED.end(), rem);
+    if (it != STORED.begin()) {
+        --it;
+        ull cand = cur + *it;
+        if (cand > BEST) {
+            BEST = cand;
+            if (BEST == TARGET) {
+                FOUND = true;
+                return;
+            }
+        }
+    }
+
+    if (idx >= (int)GROUPS.size()) return;
+
+    if ((u128)cur + SUF[idx] + STORED_MAX <= BEST) return;
+
+    const Group& gr = GROUPS[idx];
+    ull maxk = (TARGET - cur) / gr.v;
+    if (maxk > gr.c) maxk = gr.c;
+
+    ull add = maxk * gr.v;
+    for (ull k = maxk; ; --k) {
+        dfs_mitm_group(idx + 1, cur + add);
+        if (FOUND || k == 0) break;
+        add -= gr.v;
+    }
+}
+
+static bool meet_in_middle(const std::vector<ull>& a, ull total_scaled, ull gcdv) {
+    int n = (int)a.size();
+    int h = n / 2;
+
+    STORED = generate_sums_grouped(a, 0, h);
+    STORED_MAX = STORED.empty() ? 0 : STORED.back();
+
+    GROUPS = make_groups(a, h, n);
+    SUF = make_suffix(GROUPS);
+    BEST = 0;
+    FOUND = false;
+
+    dfs_mitm_group(0, 0);
+
+    u128 diff = ((u128)total_scaled - (u128)2 * BEST) * gcdv;
+    print_u128(diff);
+    return true;
+}
+
+static void dfs_hybrid_group(int idx, ull cur) {
+    if (FOUND) return;
+
+    ull rem = TARGET - cur;
+    auto it = std::upper_bound(TAIL.begin(), TAIL.end(), rem);
+    if (it != TAIL.begin()) {
+        --it;
+        ull cand = cur + *it;
+        if (cand > BEST) {
+            BEST = cand;
+            if (BEST == TARGET) {
+                FOUND = true;
+                return;
+            }
+        }
+    }
+
+    if (idx >= (int)GROUPS.size()) return;
+
+    ull tail_max = TAIL.empty() ? 0 : TAIL.back();
+    if ((u128)cur + SUF[idx] + tail_max <= BEST) return;
+
+    const Group& gr = GROUPS[idx];
+    ull maxk = (TARGET - cur) / gr.v;
+    if (maxk > gr.c) maxk = gr.c;
+
+    ull add = maxk * gr.v;
+    for (ull k = maxk; ; --k) {
+        dfs_hybrid_group(idx + 1, cur + add);
+        if (FOUND || k == 0) break;
+        add -= gr.v;
+    }
+}
+
+static bool hybrid_exact(const std::vector<ull>& a, ull total_scaled, ull gcdv) {
+    int n = (int)a.size();
+    int k = std::min(22, n);
+    int split = n - k;
+
+    TAIL = generate_sums_grouped(a, split, n);
+    GROUPS = make_groups(a, 0, split);
+    SUF = make_suffix(GROUPS);
+
+    if (GROUPS.size() > 10000) tle_forever();
+
+    BEST = TAIL.empty() ? 0 : TAIL.back();
+    FOUND = (BEST == TARGET);
+
+    if (!FOUND) dfs_hybrid_group(0, 0);
+
+    u128 diff = ((u128)total_scaled - (u128)2 * BEST) * gcdv;
+    print_u128(diff);
+    return true;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a;
+    a.reserve(std::max(0, N));
+
+    ull g = 0;
+    u128 total128 = 0;
+
+    for (int i = 0; i < N; ++i) {
+        ull x;
+        std::cin >> x;
+        a.push_back(x);
+        g = std::gcd(g, x);
+        total128 += x;
+    }
+
+    if (N == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    if (total128 > (u128)std::numeric_limits<ull>::max()) tle_forever();
+
+    ull total = (ull)total128;
+    if (g == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    for (ull& x : a) x /= g;
+    ull total_scaled = total / g;
+    TARGET = total_scaled / 2;
+
+    if (TARGET == 0) {
+        print_u128((u128)total_scaled * g);
+        return 0;
+    }
+
+    if (bitset_dp(a, total_scaled, g)) return 0;
+
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    std::vector<ull> b;
+    b.reserve(a.size());
+    ull selectable_sum = 0;
+
+    for (ull x : a) {
+        if (x == TARGET) {
+            print_u128(((u128)total_scaled - (u128)2 * TARGET) * g);
+            return 0;
+        }
+        if (x < TARGET) {
+            b.push_back(x);
+            if (selectable_sum < TARGET) {
+                ull rem = TARGET - selectable_sum;
+                selectable_sum = (x >= rem) ? TARGET : selectable_sum + x;
+            }
+        }
+    }
+
+    if (b.empty()) {
+        print_u128((u128)total_scaled * g);
+        return 0;
+    }
+
+    if (selectable_sum <= TARGET) {
+        u128 diff = ((u128)total_scaled - (u128)2 * selectable_sum) * g;
+        print_u128(diff);
+        return 0;
+    }
+
+    if ((int)b.size() <= 46) {
+        meet_in_middle(b, total_scaled, g);
+        return 0;
+    }
+
+    hybrid_exact(b, total_scaled, g);
+    return 0;
+}

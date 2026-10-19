@@ -1,0 +1,132 @@
+#include <bits/stdc++.h>
+
+static const int ENC_LOG = 16;
+static const int ENC_BITS_PER_VERTEX = 14;
+static const int ENC_DIGITS = 28;
+static const int ENC_WINDOW = 50;
+
+static int encN = -1;
+static int encStart = 0;
+static int encLastI = 0;
+static int encDiaA = 0, encDiaB = 0, encDiam = 0;
+static int encInitA = 0, encInitB = 0;
+static std::vector<int> encDepth;
+static std::vector<std::array<int, ENC_LOG>> encUp;
+
+static void enc_reset(int N) {
+    encN = N;
+    encLastI = 0;
+    encDiaA = encDiaB = 0;
+    encDiam = 0;
+    encInitA = encInitB = 0;
+    encStart = N - std::min(ENC_WINDOW, std::max(0, N - 1));
+    encDepth.assign(N, 0);
+    encUp.assign(N, {});
+}
+
+static int enc_lca(int a, int b) {
+    if (encDepth[a] < encDepth[b]) std::swap(a, b);
+    int diff = encDepth[a] - encDepth[b];
+    for (int k = 0; k < ENC_LOG; ++k) {
+        if (diff & (1 << k)) a = encUp[a][k];
+    }
+    if (a == b) return a;
+    for (int k = ENC_LOG - 1; k >= 0; --k) {
+        if (encUp[a][k] != encUp[b][k]) {
+            a = encUp[a][k];
+            b = encUp[b][k];
+        }
+    }
+    return encUp[a][0];
+}
+
+static int enc_dist(int a, int b) {
+    int c = enc_lca(a, b);
+    return encDepth[a] + encDepth[b] - 2 * encDepth[c];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || encN != N || i <= encLastI) enc_reset(N);
+    encLastI = i;
+
+    if (i == encStart) {
+        encInitA = encDiaA;
+        encInitB = encDiaB;
+    }
+
+    encDepth[i] = encDepth[Pi] + 1;
+    encUp[i][0] = Pi;
+    for (int k = 1; k < ENC_LOG; ++k) {
+        encUp[i][k] = encUp[encUp[i][k - 1]][k - 1];
+    }
+
+    int oldA = encDiaA;
+    int oldB = encDiaB;
+    int oldD = encDiam;
+    int code = 0;
+
+    int dA = enc_dist(i, oldA);
+    int dB = enc_dist(i, oldB);
+
+    if (dA > oldD) {
+        encDiaA = i;
+        encDiaB = oldA;
+        encDiam = dA;
+        code = 1;
+    } else if (dB > oldD) {
+        encDiaA = i;
+        encDiaB = oldB;
+        encDiam = dB;
+        code = 2;
+    }
+
+    if (i >= encStart) {
+        int k = i - encStart;
+        if (k < ENC_DIGITS) {
+            int bit;
+            if (k < ENC_BITS_PER_VERTEX) bit = (encInitA >> k) & 1;
+            else bit = (encInitB >> (k - ENC_BITS_PER_VERTEX)) & 1;
+            return code * 2 + bit;
+        } else {
+            return code;
+        }
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+
+    int R = std::min(ENC_WINDOW, N - 1);
+    int start = N - R;
+
+    int a = 0, b = 0;
+    std::vector<int> codes(R, 0);
+
+    for (int k = 0; k < R; ++k) {
+        int val = S[start + k];
+        if (k < ENC_DIGITS) {
+            int bit = val & 1;
+            codes[k] = val / 2;
+            if (k < ENC_BITS_PER_VERTEX) a |= bit << k;
+            else b |= bit << (k - ENC_BITS_PER_VERTEX);
+        } else {
+            codes[k] = val;
+        }
+    }
+
+    for (int k = 0; k < R; ++k) {
+        int i = start + k;
+        if (codes[k] == 1) {
+            int oldA = a;
+            a = i;
+            b = oldA;
+        } else if (codes[k] == 2) {
+            a = i;
+        }
+    }
+
+    return {a, b};
+}

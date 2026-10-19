@@ -1,0 +1,290 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using U64 = unsigned long long;
+
+int N, W;
+U64 lastMask;
+vector<vector<U64>> adjG, compG;
+int bestAns = 0;
+
+static inline void setBit(vector<U64>& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+static inline void clearBit(vector<U64>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+static inline bool testBit(const vector<U64>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+static inline int popcountBits(const vector<U64>& b) {
+    int s = 0;
+    for (U64 x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+static inline bool anyBits(const vector<U64>& b) {
+    for (U64 x : b) if (x) return true;
+    return false;
+}
+
+static inline int firstBit(const vector<U64>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+static inline int nextInputBit() {
+    char c;
+    while (cin.get(c)) {
+        if (c == '0') return 0;
+        if (c == '1') return 1;
+    }
+    return 0;
+}
+
+int pickGreedyVertex(const vector<U64>& cand) {
+    int bestV = -1, bestDeg = -1;
+    for (int wi = 0; wi < W; ++wi) {
+        U64 x = cand[wi];
+        while (x) {
+            int b = __builtin_ctzll(x);
+            int v = (wi << 6) + b;
+            int d = 0;
+            for (int k = 0; k < W; ++k) d += __builtin_popcountll(cand[k] & adjG[v][k]);
+            if (d > bestDeg) {
+                bestDeg = d;
+                bestV = v;
+            }
+            x &= x - 1;
+        }
+    }
+    return bestV;
+}
+
+int greedyCliqueForced(int start) {
+    vector<U64> cand(W, 0);
+    int sz = 0;
+    if (start >= 0) {
+        sz = 1;
+        cand = adjG[start];
+    } else {
+        for (int i = 0; i < W; ++i) cand[i] = ~0ULL;
+        if (W) cand[W - 1] &= lastMask;
+    }
+    while (anyBits(cand)) {
+        int v = pickGreedyVertex(cand);
+        if (v < 0) break;
+        ++sz;
+        for (int k = 0; k < W; ++k) cand[k] &= adjG[v][k];
+    }
+    return sz;
+}
+
+void initialHeuristic() {
+    bestAns = max(bestAns, greedyCliqueForced(-1));
+
+    vector<char> used(N, 0);
+    vector<int> starts;
+    int lim = min(N, 96);
+    for (int i = 0; i < lim; ++i) starts.push_back(i);
+    for (int i = 0; i < 96 && N > 0; ++i) starts.push_back((long long)i * N / 96);
+
+    uint64_t seed = 88172645463393265ULL ^ (uint64_t)N;
+    for (int i = 0; i < 96 && N > 0; ++i) {
+        seed ^= seed << 7;
+        seed ^= seed >> 9;
+        starts.push_back(seed % N);
+    }
+
+    for (int s : starts) {
+        if (s >= 0 && s < N && !used[s]) {
+            used[s] = 1;
+            bestAns = max(bestAns, greedyCliqueForced(s));
+        }
+    }
+}
+
+void reduceLowDegree(vector<U64>& P, int& cur) {
+    while (true) {
+        bool changed = false;
+        for (int wi = 0; wi < W && !changed; ++wi) {
+            U64 x = P[wi];
+            while (x && !changed) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                int deg = 0, nei = -1;
+
+                for (int k = 0; k < W && deg < 2; ++k) {
+                    U64 y = P[k] & compG[v][k];
+                    while (y && deg < 2) {
+                        int bb = __builtin_ctzll(y);
+                        nei = (k << 6) + bb;
+                        ++deg;
+                        y &= y - 1;
+                    }
+                }
+
+                if (deg == 0) {
+                    clearBit(P, v);
+                    ++cur;
+                    changed = true;
+                } else if (deg == 1) {
+                    clearBit(P, v);
+                    clearBit(P, nei);
+                    ++cur;
+                    changed = true;
+                }
+
+                x &= x - 1;
+            }
+        }
+        if (!changed) break;
+    }
+}
+
+void colorSort(const vector<U64>& P, vector<int>& order, vector<int>& color) {
+    order.clear();
+    color.clear();
+
+    int m = popcountBits(P);
+    order.reserve(m);
+    color.reserve(m);
+
+    vector<U64> U = P, Q(W);
+    int c = 0;
+
+    while (anyBits(U)) {
+        ++c;
+        Q = U;
+        while (true) {
+            int v = firstBit(Q);
+            if (v < 0) break;
+
+            order.push_back(v);
+            color.push_back(c);
+
+            clearBit(U, v);
+            clearBit(Q, v);
+
+            for (int k = 0; k < W; ++k) Q[k] &= compG[v][k];
+        }
+    }
+}
+
+void expand(vector<U64> P, int cur) {
+    reduceLowDegree(P, cur);
+
+    if (!anyBits(P)) {
+        if (cur > bestAns) bestAns = cur;
+        return;
+    }
+
+    if (cur + popcountBits(P) <= bestAns) return;
+
+    vector<int> order, color;
+    colorSort(P, order, color);
+
+    while (!order.empty()) {
+        int i = (int)order.size() - 1;
+        if (cur + color[i] <= bestAns) return;
+
+        int v = order[i];
+
+        vector<U64> newP(W);
+        for (int k = 0; k < W; ++k) newP[k] = P[k] & adjG[v][k];
+
+        if (anyBits(newP)) {
+            expand(std::move(newP), cur + 1);
+        } else {
+            if (cur + 1 > bestAns) bestAns = cur + 1;
+        }
+
+        clearBit(P, v);
+        order.pop_back();
+        color.pop_back();
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    vector<vector<U64>> orig(N, vector<U64>(W, 0));
+
+    cin.get();
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int bit = nextInputBit();
+            if (bit && i != j) {
+                setBit(orig[i], j);
+                setBit(orig[j], i);
+            }
+        }
+    }
+
+    vector<int> deg(N, 0);
+    for (int i = 0; i < N; ++i) deg[i] = popcountBits(orig[i]);
+
+    vector<int> perm(N), inv(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+    for (int i = 0; i < N; ++i) inv[perm[i]] = i;
+
+    adjG.assign(N, vector<U64>(W, 0));
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        for (int w = 0; w < W; ++w) {
+            U64 x = orig[oi][w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (w << 6) + b;
+                if (oj < N) setBit(adjG[ni], inv[oj]);
+                x &= x - 1;
+            }
+        }
+        clearBit(adjG[ni], ni);
+    }
+
+    compG.assign(N, vector<U64>(W, 0));
+    bool complete = true;
+    for (int i = 0; i < N; ++i) {
+        for (int k = 0; k < W; ++k) compG[i][k] = ~adjG[i][k];
+        compG[i][W - 1] &= lastMask;
+        clearBit(compG[i], i);
+        if (anyBits(compG[i])) complete = false;
+    }
+
+    if (complete) {
+        cout << N << '\n';
+        return 0;
+    }
+
+    initialHeuristic();
+
+    vector<U64> all(W, ~0ULL);
+    all[W - 1] &= lastMask;
+
+    expand(std::move(all), 0);
+
+    cout << bestAns << '\n';
+    return 0;
+}

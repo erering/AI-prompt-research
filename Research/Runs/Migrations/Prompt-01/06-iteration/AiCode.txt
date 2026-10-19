@@ -1,0 +1,107 @@
+#include <bits/stdc++.h>
+
+static const int MAXN = 10000;
+static const int LOG = 15;
+
+static int parent_arr[MAXN];
+static int depth_arr[MAXN];
+static int up_arr[LOG][MAXN];
+
+static int diam_a = 0;
+static int diam_b = 0;
+static int diam_len = 0;
+static int encoded_pair_code = 0;
+
+static int lca_node(int a, int b) {
+    if (depth_arr[a] < depth_arr[b]) std::swap(a, b);
+    int diff = depth_arr[a] - depth_arr[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = up_arr[k][a];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_arr[k][a] != up_arr[k][b]) {
+            a = up_arr[k][a];
+            b = up_arr[k][b];
+        }
+    }
+    return up_arr[0][a];
+}
+
+static int dist_node(int a, int b) {
+    int c = lca_node(a, b);
+    return depth_arr[a] + depth_arr[b] - 2 * depth_arr[c];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        diam_a = 0;
+        diam_b = 0;
+        diam_len = 0;
+        encoded_pair_code = 0;
+        parent_arr[0] = 0;
+        depth_arr[0] = 0;
+        for (int k = 0; k < LOG; ++k) up_arr[k][0] = 0;
+    }
+
+    parent_arr[i] = Pi;
+    depth_arr[i] = depth_arr[Pi] + 1;
+    up_arr[0][i] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up_arr[k][i] = up_arr[k - 1][up_arr[k - 1][i]];
+    }
+
+    int update_type = 0;
+    int da = dist_node(i, diam_a);
+    int db = dist_node(i, diam_b);
+
+    if (da > diam_len) {
+        diam_len = da;
+        diam_b = i;
+        update_type = 1;
+    } else if (db > diam_len) {
+        diam_len = db;
+        diam_a = i;
+        update_type = 2;
+    }
+
+    int start = N - 50;
+    if (i < start) return 0;
+
+    int j = i - start;
+
+    if (j == 0) {
+        encoded_pair_code = diam_a * 10000 + diam_b;
+        update_type = 0;
+    }
+
+    int bit = 0;
+    if (j < 27) bit = (encoded_pair_code >> j) & 1;
+
+    return 2 * update_type + bit;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    int start = N - 50;
+
+    int code = 0;
+    for (int j = 0; j < 27; ++j) {
+        if (S[start + j] & 1) code |= (1 << j);
+    }
+
+    int a = code / 10000;
+    int b = code % 10000;
+
+    for (int j = 1; j < 50; ++j) {
+        int i = start + j;
+        int type = S[i] / 2;
+        if (type == 1) {
+            b = i;
+        } else if (type == 2) {
+            a = i;
+        }
+    }
+
+    return {a, b};
+}

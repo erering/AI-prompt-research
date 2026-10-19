@@ -1,0 +1,123 @@
+#include <vector>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+using ull = unsigned long long;
+
+ull comb_table[32][17];
+bool comb_ready = false;
+
+void init_comb() {
+    if (comb_ready) return;
+    comb_ready = true;
+    for (int n = 0; n <= 31; ++n) {
+        comb_table[n][0] = 1;
+        for (int k = 1; k <= 16; ++k) {
+            if (k > n) comb_table[n][k] = 0;
+            else if (k == n) comb_table[n][k] = 1;
+            else comb_table[n][k] = comb_table[n - 1][k - 1] + comb_table[n - 1][k];
+        }
+    }
+}
+
+ull rank_good_set(const std::vector<bool>& good) {
+    init_comb();
+    ull rank = 0;
+    int rem = 16;
+    for (int i = 0; i < 31; ++i) {
+        if (good[i]) {
+            rank += comb_table[30 - i][rem];
+            --rem;
+        }
+    }
+    return rank;
+}
+
+std::vector<bool> unrank_good_set(ull rank) {
+    init_comb();
+    std::vector<bool> good(31, false);
+    int rem = 16;
+    for (int i = 0; i < 31; ++i) {
+        if (rem == 0) break;
+        ull cnt0 = comb_table[30 - i][rem];
+        if (rank < cnt0) {
+            good[i] = false;
+        } else {
+            good[i] = true;
+            rank -= cnt0;
+            --rem;
+        }
+    }
+    return good;
+}
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<bool> good(31, false);
+    for (int i = 0; i < 31; ++i) good[i] = !C[i];
+
+    ull rank = rank_good_set(good);
+
+    for (int b = 0; b < 29; ++b) {
+        bool bit = ((rank >> b) & 1ULL) != 0;
+        std::vector<bool> A(31, false);
+        for (int i = 0; i < 31; ++i) {
+            if (good[i]) A[i] = bit;
+        }
+        send_packet(A);
+    }
+
+    std::vector<bool> stream;
+    int S = (int)M.size();
+    int len = S - 1;
+    for (int b = 0; b < 10; ++b) stream.push_back(((len >> b) & 1) != 0);
+    for (bool x : M) stream.push_back(x);
+
+    int ptr = 0;
+    while (ptr < (int)stream.size()) {
+        std::vector<bool> A(31, false);
+        for (int i = 0; i < 31; ++i) {
+            if (good[i]) {
+                if (ptr < (int)stream.size()) A[i] = stream[ptr++];
+                else A[i] = false;
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    ull rank = 0;
+    for (int b = 0; b < 29; ++b) {
+        int cnt = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) ++cnt;
+        }
+        if (cnt >= 16) rank |= (1ULL << b);
+    }
+
+    std::vector<bool> good = unrank_good_set(rank);
+
+    std::vector<bool> stream;
+    for (int p = 29; p < (int)R.size(); ++p) {
+        for (int i = 0; i < 31; ++i) {
+            if (good[i]) stream.push_back(R[p][i]);
+        }
+    }
+
+    int len = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (b < (int)stream.size() && stream[b]) len |= (1 << b);
+    }
+    int S = len + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(stream[10 + i]);
+    }
+    return M;
+}

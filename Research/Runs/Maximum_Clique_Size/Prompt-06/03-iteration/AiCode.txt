@@ -1,0 +1,240 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+struct FastInput {
+    static constexpr int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+
+    inline char get() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (!size) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        char c;
+        do c = get(); while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = get();
+        }
+        return x;
+    }
+
+    int nextDigit() {
+        char c;
+        do c = get(); while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+vector<vector<ull>> compAdj;
+vector<vector<int>> adjList;
+int bestAns = 0;
+
+inline bool testBit(const vector<ull>& a, int v) {
+    return (a[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void clearBit(vector<ull>& a, int v) {
+    a[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline void setBit(vector<ull>& a, int v) {
+    a[v >> 6] |= 1ULL << (v & 63);
+}
+
+inline int popcountBits(const vector<ull>& a) {
+    int s = 0;
+    for (ull x : a) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline int firstBit(const vector<ull>& a) {
+    for (int i = 0; i < W; ++i) {
+        ull x = a[i];
+        if (x) return (i << 6) + __builtin_ctzll(x);
+    }
+    return -1;
+}
+
+int greedyInitial() {
+    vector<int> deg(N);
+    vector<unsigned char> alive(N, 1);
+    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)adjList[i].size();
+        pq.push({deg[i], i});
+    }
+
+    int res = 0;
+    vector<int> removed;
+    while (!pq.empty()) {
+        auto [d, v] = pq.top();
+        pq.pop();
+        if (!alive[v] || d != deg[v]) continue;
+
+        ++res;
+        removed.clear();
+        removed.push_back(v);
+        for (int u : adjList[v]) if (alive[u]) removed.push_back(u);
+
+        for (int x : removed) {
+            if (!alive[x]) continue;
+            alive[x] = 0;
+            for (int y : adjList[x]) {
+                if (alive[y]) {
+                    --deg[y];
+                    pq.push({deg[y], y});
+                }
+            }
+        }
+    }
+    return res;
+}
+
+void colorSort(const vector<ull>& P, vector<int>& order, vector<int>& color) {
+    order.clear();
+    color.clear();
+
+    vector<ull> U = P, avail(W);
+    int c = 0;
+
+    while (true) {
+        int fb = firstBit(U);
+        if (fb < 0 || fb >= N) break;
+
+        ++c;
+        avail = U;
+
+        while (true) {
+            int v = firstBit(avail);
+            if (v < 0 || v >= N) break;
+
+            order.push_back(v);
+            color.push_back(c);
+
+            clearBit(U, v);
+            clearBit(avail, v);
+
+            const vector<ull>& cv = compAdj[v];
+            for (int i = 0; i < W; ++i) avail[i] &= cv[i];
+        }
+    }
+}
+
+void expand(vector<ull> P, int sz) {
+    if (sz + popcountBits(P) <= bestAns) return;
+
+    vector<int> order, color;
+    order.reserve(N);
+    color.reserve(N);
+    colorSort(P, order, color);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (sz + color[i] <= bestAns) return;
+
+        int v = order[i];
+        if (!testBit(P, v)) continue;
+
+        vector<ull> NP(W);
+        const vector<ull>& cv = compAdj[v];
+
+        for (int j = 0; j < W; ++j) NP[j] = P[j] & ~cv[j];
+        clearBit(NP, v);
+
+        int npsz = popcountBits(NP);
+        if (npsz == 0) {
+            if (sz + 1 > bestAns) bestAns = sz + 1;
+        } else if (sz + 1 + npsz > bestAns) {
+            expand(std::move(NP), sz + 1);
+        }
+
+        clearBit(P, v);
+        if (sz + popcountBits(P) <= bestAns) return;
+    }
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    vector<vector<ull>> oldComp(N, vector<ull>(W, 0));
+    vector<int> deg(N, 0);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int x = in.nextDigit();
+            if (i != j && x == 0) {
+                setBit(oldComp[i], j);
+                ++deg[i];
+            }
+        }
+    }
+
+    vector<int> perm(N), inv(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+    for (int i = 0; i < N; ++i) inv[perm[i]] = i;
+
+    compAdj.assign(N, vector<ull>(W, 0));
+
+    for (int oi = 0; oi < N; ++oi) {
+        int ni = inv[oi];
+        for (int w = 0; w < W; ++w) {
+            ull bits = oldComp[oi][w];
+            while (bits) {
+                int b = __builtin_ctzll(bits);
+                int oj = (w << 6) + b;
+                if (oj < N) setBit(compAdj[ni], inv[oj]);
+                bits &= bits - 1;
+            }
+        }
+    }
+
+    oldComp.clear();
+    oldComp.shrink_to_fit();
+
+    adjList.assign(N, {});
+    for (int i = 0; i < N; ++i) {
+        int d = 0;
+        for (int w = 0; w < W; ++w) d += __builtin_popcountll(compAdj[i][w]);
+        adjList[i].reserve(d);
+        for (int w = 0; w < W; ++w) {
+            ull bits = compAdj[i][w];
+            while (bits) {
+                int b = __builtin_ctzll(bits);
+                int j = (w << 6) + b;
+                if (j < N) adjList[i].push_back(j);
+                bits &= bits - 1;
+            }
+        }
+    }
+
+    bestAns = greedyInitial();
+
+    vector<ull> P(W, ~0ULL);
+    if (N & 63) P[W - 1] = (1ULL << (N & 63)) - 1ULL;
+
+    expand(std::move(P), 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

@@ -1,0 +1,301 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+int N, W;
+vector<unsigned long long> compBits;
+vector<vector<int>> compAdj;
+vector<int> compDeg;
+int bestSize = 0;
+
+static inline bool compEdge(int u, int v) {
+    return (compBits[(size_t)u * W + (v >> 6)] >> (v & 63)) & 1ULL;
+}
+
+static inline bool origAdj(int u, int v) {
+    return u != v && !compEdge(u, v);
+}
+
+static inline void setCompEdge(int u, int v) {
+    compBits[(size_t)u * W + (v >> 6)] |= 1ULL << (v & 63);
+    compBits[(size_t)v * W + (u >> 6)] |= 1ULL << (u & 63);
+}
+
+struct SplitMix64 {
+    uint64_t x;
+    explicit SplitMix64(uint64_t seed) : x(seed) {}
+    uint64_t next() {
+        uint64_t z = (x += 0x9e3779b97f4a7c15ULL);
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
+        return z ^ (z >> 31);
+    }
+};
+
+vector<int> greedyIndependent(uint64_t seed) {
+    SplitMix64 rng(seed);
+    vector<uint64_t> key(N);
+    for (int i = 0; i < N; ++i) key[i] = rng.next();
+
+    vector<int> deg = compDeg;
+    vector<char> active(N, 1);
+    int remaining = N;
+
+    using Node = tuple<int, uint64_t, int>;
+    priority_queue<Node, vector<Node>, greater<Node>> pq;
+    for (int i = 0; i < N; ++i) pq.emplace(deg[i], key[i], i);
+
+    vector<int> res;
+    res.reserve(N);
+
+    auto removeVertex = [&](int x) {
+        if (!active[x]) return;
+        active[x] = 0;
+        --remaining;
+        for (int y : compAdj[x]) {
+            if (active[y]) {
+                --deg[y];
+                pq.emplace(deg[y], key[y], y);
+            }
+        }
+    };
+
+    while (remaining > 0) {
+        int d, v;
+        uint64_t k;
+        do {
+            if (pq.empty()) break;
+            tie(d, k, v) = pq.top();
+            pq.pop();
+        } while (!active[v] || d != deg[v]);
+        if (!active[v]) continue;
+
+        res.push_back(v);
+        vector<int> toRemove;
+        toRemove.reserve(compAdj[v].size() + 1);
+        toRemove.push_back(v);
+        for (int u : compAdj[v]) {
+            if (active[u]) toRemove.push_back(u);
+        }
+        for (int x : toRemove) removeVertex(x);
+    }
+
+    return res;
+}
+
+void localImprove(vector<int>& S) {
+    vector<char> inSet(N, 0);
+    for (int v : S) inSet[v] = 1;
+
+    while (true) {
+        vector<int> conflict(N, 0);
+        for (int s : S) {
+            for (int nb : compAdj[s]) {
+                if (!inSet[nb]) ++conflict[nb];
+            }
+        }
+
+        int add = -1;
+        for (int v = 0; v < N; ++v) {
+            if (!inSet[v] && conflict[v] == 0) {
+                add = v;
+                break;
+            }
+        }
+        if (add != -1) {
+            inSet[add] = 1;
+            S.push_back(add);
+            continue;
+        }
+
+        vector<vector<int>> bucket(N);
+        for (int v = 0; v < N; ++v) {
+            if (!inSet[v] && conflict[v] == 1) {
+                int owner = -1;
+                for (int nb : compAdj[v]) {
+                    if (inSet[nb]) {
+                        owner = nb;
+                        break;
+                    }
+                }
+                if (owner != -1) bucket[owner].push_back(v);
+            }
+        }
+
+        int rem = -1, a = -1, b = -1;
+        for (int s : S) {
+            auto& L = bucket[s];
+            if (L.size() < 2) continue;
+            bool found = false;
+            for (size_t i = 0; i < L.size() && !found; ++i) {
+                for (size_t j = i + 1; j < L.size(); ++j) {
+                    if (!compEdge(L[i], L[j])) {
+                        rem = s;
+                        a = L[i];
+                        b = L[j];
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (found) break;
+        }
+
+        if (rem == -1) break;
+
+        inSet[rem] = 0;
+        inSet[a] = 1;
+        inSet[b] = 1;
+        S.clear();
+        for (int v = 0; v < N; ++v) {
+            if (inSet[v]) S.push_back(v);
+        }
+    }
+}
+
+void colorSort(const vector<int>& P, vector<int>& order, vector<int>& colors) {
+    order.clear();
+    colors.clear();
+    order.reserve(P.size());
+    colors.reserve(P.size());
+
+    vector<int> U = P;
+    vector<int> rest;
+    vector<int> cls;
+    rest.reserve(P.size());
+    cls.reserve(8);
+
+    int color = 0;
+    while (!U.empty()) {
+        ++color;
+        rest.clear();
+        cls.clear();
+
+        for (int v : U) {
+            bool ok = true;
+            for (int c : cls) {
+                if (!compEdge(v, c)) {
+                    ok = false;
+                    break;
+                }
+            }
+
+            if (ok) {
+                cls.push_back(v);
+                order.push_back(v);
+                colors.push_back(color);
+            } else {
+                rest.push_back(v);
+            }
+        }
+
+        U.swap(rest);
+    }
+}
+
+void expand(const vector<int>& P, int depth) {
+    if (P.empty()) {
+        if (depth > bestSize) bestSize = depth;
+        return;
+    }
+
+    if (depth + (int)P.size() <= bestSize) return;
+
+    vector<int> order, colors;
+    colorSort(P, order, colors);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (depth + colors[i] <= bestSize) return;
+
+        int v = order[i];
+        vector<int> Q;
+        Q.reserve(i);
+
+        for (int j = 0; j < i; ++j) {
+            int u = order[j];
+            if (origAdj(v, u)) Q.push_back(u);
+        }
+
+        if (Q.empty()) {
+            if (depth + 1 > bestSize) bestSize = depth + 1;
+        } else if (depth + 1 + (int)Q.size() > bestSize) {
+            expand(Q, depth + 1);
+        }
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    compBits.assign((size_t)N * W, 0ULL);
+    compAdj.assign(N, {});
+
+    long long need = 1LL * N * N;
+    long long pos = 0;
+    char ch;
+
+    while (pos < need && cin.get(ch)) {
+        if (ch != '0' && ch != '1') continue;
+
+        int i = (int)(pos / N);
+        int j = (int)(pos % N);
+
+        if (i < j && ch == '0') {
+            setCompEdge(i, j);
+            compAdj[i].push_back(j);
+            compAdj[j].push_back(i);
+        }
+
+        ++pos;
+    }
+
+    compDeg.resize(N);
+    long long mComp = 0;
+    for (int i = 0; i < N; ++i) {
+        compDeg[i] = (int)compAdj[i].size();
+        mComp += compDeg[i];
+    }
+    mComp /= 2;
+
+    if (mComp == 0) {
+        cout << N << '\n';
+        return 0;
+    }
+
+    int runs = 10;
+    if (N > 3000) runs = 6;
+    if (N > 8000) runs = 4;
+
+    vector<int> bestHeur;
+    for (int r = 0; r < runs; ++r) {
+        vector<int> cur = greedyIndependent(0x123456789abcdefULL + 1000003ULL * r + (uint64_t)N);
+        if ((int)cur.size() > (int)bestHeur.size()) bestHeur.swap(cur);
+    }
+
+    localImprove(bestHeur);
+    bestSize = (int)bestHeur.size();
+
+    if (bestSize == N) {
+        cout << N << '\n';
+        return 0;
+    }
+
+    vector<int> P(N);
+    iota(P.begin(), P.end(), 0);
+    sort(P.begin(), P.end(), [&](int a, int b) {
+        if (compDeg[a] != compDeg[b]) return compDeg[a] > compDeg[b];
+        return a < b;
+    });
+
+    expand(P, 0);
+
+    cout << bestSize << '\n';
+    return 0;
+}

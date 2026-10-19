@@ -1,0 +1,371 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using U64 = unsigned long long;
+
+struct MISolver {
+    int n, W;
+    vector<vector<U64>> adj;
+    int best = 0;
+    unsigned long long nodes = 0;
+
+    MISolver(vector<vector<U64>> a, int n_) : n(n_), W((n_ + 63) >> 6), adj(std::move(a)) {}
+
+    inline bool testBit(const vector<U64>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline void clearBit(vector<U64>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline void setBit(vector<U64>& b, int v) const {
+        b[v >> 6] |= 1ULL << (v & 63);
+    }
+
+    int countBits(const vector<U64>& b) const {
+        int s = 0;
+        for (U64 x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    int countAnd(const vector<U64>& a, const vector<U64>& b) const {
+        int s = 0;
+        for (int i = 0; i < W; ++i) s += __builtin_popcountll(a[i] & b[i]);
+        return s;
+    }
+
+    int firstBit(const vector<U64>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    vector<U64> andBits(const vector<U64>& a, const vector<U64>& b) const {
+        vector<U64> r(W);
+        for (int i = 0; i < W; ++i) r[i] = a[i] & b[i];
+        return r;
+    }
+
+    bool adjacent(int u, int v) const {
+        return (adj[u][v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    void removeSet(vector<U64>& active, const vector<U64>& rem) const {
+        for (int i = 0; i < W; ++i) active[i] &= ~rem[i];
+    }
+
+    void removeClosed(vector<U64>& active, int v) const {
+        for (int i = 0; i < W; ++i) active[i] &= ~adj[v][i];
+        clearBit(active, v);
+    }
+
+    vector<int> collectVertices(const vector<U64>& b, int limit = INT_MAX) const {
+        vector<int> r;
+        for (int i = 0; i < W; ++i) {
+            U64 x = b[i];
+            while (x) {
+                int v = (i << 6) + __builtin_ctzll(x);
+                if (v < n) {
+                    r.push_back(v);
+                    if ((int)r.size() >= limit) return r;
+                }
+                x &= x - 1;
+            }
+        }
+        return r;
+    }
+
+    bool isCliqueSet(const vector<U64>& s, const vector<int>& verts) const {
+        vector<U64> tmp(W);
+        for (int u : verts) {
+            tmp = s;
+            clearBit(tmp, u);
+            for (int i = 0; i < W; ++i) {
+                if (tmp[i] & ~adj[u][i]) return false;
+            }
+        }
+        return true;
+    }
+
+    int greedyLower(vector<U64> active) const {
+        int res = 0;
+        while (true) {
+            int v = -1, mind = INT_MAX;
+            for (int wi = 0; wi < W; ++wi) {
+                U64 x = active[wi];
+                while (x) {
+                    int u = (wi << 6) + __builtin_ctzll(x);
+                    if (u < n) {
+                        int d = countAnd(adj[u], active);
+                        if (d < mind) {
+                            mind = d;
+                            v = u;
+                            if (d == 0) break;
+                        }
+                    }
+                    x &= x - 1;
+                }
+                if (mind == 0) break;
+            }
+            if (v < 0) break;
+            ++res;
+            removeClosed(active, v);
+        }
+        return res;
+    }
+
+    int coverBound(vector<U64> active, int limit) const {
+        int cover = 0;
+        while (true) {
+            int v = firstBit(active);
+            if (v < 0) return cover;
+            if (++cover > limit) return cover;
+            clearBit(active, v);
+
+            vector<U64> cand(W);
+            for (int i = 0; i < W; ++i) cand[i] = active[i] & adj[v][i];
+
+            while (true) {
+                int u = firstBit(cand);
+                if (u < 0) break;
+                clearBit(active, u);
+                for (int i = 0; i < W; ++i) cand[i] &= adj[u][i] & active[i];
+            }
+        }
+    }
+
+    bool reduce(vector<U64>& active, int& cur) const {
+        bool any = false;
+        while (true) {
+            bool changed = false;
+            for (int wi = 0; wi < W && !changed; ++wi) {
+                U64 x = active[wi];
+                while (x && !changed) {
+                    int v = (wi << 6) + __builtin_ctzll(x);
+                    x &= x - 1;
+                    if (v >= n || !testBit(active, v)) continue;
+
+                    vector<U64> nb = andBits(adj[v], active);
+                    int deg = countBits(nb);
+
+                    if (deg <= 10) {
+                        vector<int> verts = collectVertices(nb, deg);
+                        if (isCliqueSet(nb, verts)) {
+                            removeClosed(active, v);
+                            ++cur;
+                            changed = true;
+                            any = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!changed) break;
+        }
+        return any;
+    }
+
+    void dfs(vector<U64> active, int cur) {
+        ++nodes;
+
+        reduce(active, cur);
+
+        int cnt = countBits(active);
+        if (cnt == 0) {
+            if (cur > best) best = cur;
+            return;
+        }
+
+        if (cur + cnt <= best) return;
+
+        if ((nodes & 127ULL) == 1ULL || cnt <= 80) {
+            int lb = cur + greedyLower(active);
+            if (lb > best) best = lb;
+            if (cur + cnt <= best) return;
+        }
+
+        int limit = best - cur;
+        int cb = coverBound(active, limit);
+        if (cb <= limit) return;
+
+        int foldv = -1, foldu = -1, foldw = -1;
+        int branchv = -1, maxdeg = -1;
+
+        for (int wi = 0; wi < W; ++wi) {
+            U64 x = active[wi];
+            while (x) {
+                int v = (wi << 6) + __builtin_ctzll(x);
+                x &= x - 1;
+                if (v >= n) continue;
+
+                vector<U64> nb = andBits(adj[v], active);
+                int deg = countBits(nb);
+
+                if (deg > maxdeg) {
+                    maxdeg = deg;
+                    branchv = v;
+                }
+
+                if (deg == 2 && foldv < 0) {
+                    vector<int> ns = collectVertices(nb, 2);
+                    if (ns.size() == 2 && !adjacent(ns[0], ns[1])) {
+                        foldv = v;
+                        foldu = ns[0];
+                        foldw = ns[1];
+                    }
+                }
+            }
+        }
+
+        if (foldv >= 0) {
+            vector<U64> a2 = active;
+            vector<U64> rem(W);
+            for (int i = 0; i < W; ++i) rem[i] = adj[foldu][i] | adj[foldw][i];
+            setBit(rem, foldu);
+            setBit(rem, foldw);
+            removeSet(a2, rem);
+            dfs(std::move(a2), cur + 2);
+
+            vector<U64> a1 = active;
+            clearBit(a1, foldv);
+            clearBit(a1, foldu);
+            clearBit(a1, foldw);
+            dfs(std::move(a1), cur + 1);
+            return;
+        }
+
+        if (branchv < 0) {
+            if (cur > best) best = cur;
+            return;
+        }
+
+        vector<U64> inc = active;
+        removeClosed(inc, branchv);
+        dfs(std::move(inc), cur + 1);
+
+        vector<U64> exc = active;
+        clearBit(exc, branchv);
+        dfs(std::move(exc), cur);
+    }
+
+    int solve() {
+        vector<U64> all(W, ~0ULL);
+        if (n & 63) all[W - 1] &= (1ULL << (n & 63)) - 1ULL;
+
+        best = greedyLower(all);
+        dfs(all, 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    int W = (N + 63) >> 6;
+    vector<vector<U64>> orig(N, vector<U64>(W, 0));
+
+    char ch;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            do {
+                if (!cin.get(ch)) return 0;
+            } while (ch != '0' && ch != '1');
+
+            if (ch == '1' && i != j) {
+                orig[i][j >> 6] |= 1ULL << (j & 63);
+            }
+        }
+    }
+
+    vector<vector<U64>> comp(N, vector<U64>(W, 0));
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool edge = ((orig[i][j >> 6] >> (j & 63)) & 1ULL) ||
+                        ((orig[j][i >> 6] >> (i & 63)) & 1ULL);
+            if (!edge) {
+                comp[i][j >> 6] |= 1ULL << (j & 63);
+                comp[j][i >> 6] |= 1ULL << (i & 63);
+            }
+        }
+    }
+
+    vector<U64> unvis(W, ~0ULL);
+    if (N & 63) unvis[W - 1] &= (1ULL << (N & 63)) - 1ULL;
+
+    auto test = [&](const vector<U64>& b, int v) {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    };
+    auto clear = [&](vector<U64>& b, int v) {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    };
+    auto first = [&](const vector<U64>& b) {
+        for (int i = 0; i < W; ++i)
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        return -1;
+    };
+
+    int answer = 0;
+
+    while (true) {
+        int s = first(unvis);
+        if (s < 0 || s >= N) break;
+
+        vector<int> verts;
+        queue<int> q;
+        clear(unvis, s);
+        q.push(s);
+
+        while (!q.empty()) {
+            int v = q.front();
+            q.pop();
+            verts.push_back(v);
+
+            vector<U64> nb(W);
+            for (int i = 0; i < W; ++i) nb[i] = comp[v][i] & unvis[i];
+
+            for (int wi = 0; wi < W; ++wi) {
+                U64 x = nb[wi];
+                while (x) {
+                    int u = (wi << 6) + __builtin_ctzll(x);
+                    x &= x - 1;
+                    if (u < N && test(unvis, u)) {
+                        clear(unvis, u);
+                        q.push(u);
+                    }
+                }
+            }
+        }
+
+        int m = (int)verts.size();
+        if (m == 1) {
+            ++answer;
+            continue;
+        }
+
+        int LW = (m + 63) >> 6;
+        vector<vector<U64>> local(m, vector<U64>(LW, 0));
+
+        for (int i = 0; i < m; ++i) {
+            int gi = verts[i];
+            for (int j = i + 1; j < m; ++j) {
+                int gj = verts[j];
+                if ((comp[gi][gj >> 6] >> (gj & 63)) & 1ULL) {
+                    local[i][j >> 6] |= 1ULL << (j & 63);
+                    local[j][i >> 6] |= 1ULL << (i & 63);
+                }
+            }
+        }
+
+        MISolver solver(std::move(local), m);
+        answer += solver.solve();
+    }
+
+    cout << answer << '\n';
+    return 0;
+}

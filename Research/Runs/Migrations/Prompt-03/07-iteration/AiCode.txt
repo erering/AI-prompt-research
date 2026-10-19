@@ -1,0 +1,103 @@
+#include <vector>
+#include <queue>
+#include <utility>
+#include <algorithm>
+
+namespace {
+    struct Diam {
+        int u;
+        int v;
+        int d;
+    };
+
+    int gN = 0;
+    std::vector<int> parent_arr;
+    std::vector<std::vector<int>> children_arr;
+    int old_u = 0, old_v = 0, old_d = 0;
+
+    std::pair<int, std::vector<int>> bfs_far(int src, int maxv) {
+        std::vector<int> dist(gN, -1);
+        std::queue<int> q;
+        dist[src] = 0;
+        q.push(src);
+        int far = src;
+
+        while (!q.empty()) {
+            int x = q.front();
+            q.pop();
+
+            if (dist[x] > dist[far]) far = x;
+
+            if (x > 0) {
+                int p = parent_arr[x];
+                if (p >= 0 && p <= maxv && dist[p] == -1) {
+                    dist[p] = dist[x] + 1;
+                    q.push(p);
+                }
+            }
+
+            for (int y : children_arr[x]) {
+                if (y <= maxv && dist[y] == -1) {
+                    dist[y] = dist[x] + 1;
+                    q.push(y);
+                }
+            }
+        }
+
+        return {far, dist};
+    }
+
+    Diam compute_diameter(int maxv) {
+        auto a = bfs_far(0, maxv).first;
+        auto res = bfs_far(a, maxv);
+        int b = res.first;
+        return {a, b, res.second[b]};
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || gN != N) {
+        gN = N;
+        parent_arr.assign(N, -1);
+        children_arr.assign(N, {});
+        old_u = old_v = old_d = 0;
+    }
+
+    parent_arr[i] = Pi;
+    children_arr[Pi].push_back(i);
+
+    if (i == N - 2) {
+        Diam d = compute_diameter(i);
+        old_u = d.u;
+        old_v = d.v;
+        old_d = d.d;
+        return old_u + 1;
+    }
+
+    if (i == N - 1) {
+        Diam d = compute_diameter(i);
+
+        if (d.d <= old_d) {
+            return old_v + 1;
+        }
+
+        int other;
+        if (d.u == N - 1) other = d.v;
+        else if (d.v == N - 1) other = d.u;
+        else other = bfs_far(N - 1, N - 1).first;
+
+        return 10001 + other;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    if (S[N - 1] > 10000) {
+        return {N - 1, S[N - 1] - 10001};
+    }
+
+    return {S[N - 2] - 1, S[N - 1] - 1};
+}

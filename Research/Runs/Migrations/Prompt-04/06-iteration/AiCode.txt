@@ -1,0 +1,121 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int LOG = 15;
+
+    int gN = 10000;
+    vector<array<int, LOG>> up_tbl;
+    vector<int> dep;
+
+    int diaA = 0, diaB = 0, diaD = 0;
+    int savedFirst = 0, savedSecond = 0;
+    bool savedHasRoot = false;
+    int lastChangedOther = 0;
+
+    int lca_node(int a, int b) {
+        if (dep[a] < dep[b]) swap(a, b);
+        int diff = dep[a] - dep[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up_tbl[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up_tbl[a][k] != up_tbl[b][k]) {
+                a = up_tbl[a][k];
+                b = up_tbl[b][k];
+            }
+        }
+        return up_tbl[a][0];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return dep[a] + dep[b] - 2 * dep[c];
+    }
+
+    bool add_vertex_update_diameter(int i, int p) {
+        dep[i] = dep[p] + 1;
+        up_tbl[i][0] = p;
+        for (int k = 1; k < LOG; ++k) {
+            up_tbl[i][k] = up_tbl[up_tbl[i][k - 1]][k - 1];
+        }
+
+        int oldA = diaA;
+        int oldB = diaB;
+        int oldD = diaD;
+
+        int da = dist_node(i, oldA);
+        int db = dist_node(i, oldB);
+
+        if (da > oldD) {
+            diaA = i;
+            diaB = oldA;
+            diaD = da;
+            lastChangedOther = oldA;
+            return true;
+        }
+        if (db > oldD) {
+            diaA = i;
+            diaB = oldB;
+            diaD = db;
+            lastChangedOther = oldB;
+            return true;
+        }
+        return false;
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        gN = N;
+        up_tbl.assign(N, {});
+        dep.assign(N, 0);
+        for (int k = 0; k < LOG; ++k) up_tbl[0][k] = 0;
+        diaA = diaB = 0;
+        diaD = 0;
+        savedFirst = savedSecond = 0;
+        savedHasRoot = false;
+        lastChangedOther = 0;
+    }
+
+    bool changed = add_vertex_update_diameter(i, Pi);
+
+    if (i == N - 2) {
+        if (diaA == 0 && diaB != 0) {
+            savedFirst = diaB;
+            savedSecond = diaA;
+        } else {
+            savedFirst = diaA;
+            savedSecond = diaB;
+        }
+        savedHasRoot = (savedFirst == 0 || savedSecond == 0);
+        return savedFirst + 1;
+    }
+
+    if (i == N - 1) {
+        if (changed) {
+            return lastChangedOther + 1;
+        }
+        if (savedHasRoot) {
+            return 0;
+        }
+        return 10001 + savedSecond;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    int x = S[N - 2];
+    int y = S[N - 1];
+
+    if (y == 0) {
+        return {0, x - 1};
+    }
+    if (y <= 10000) {
+        return {N - 1, y - 1};
+    }
+    return {x - 1, y - 10001};
+}

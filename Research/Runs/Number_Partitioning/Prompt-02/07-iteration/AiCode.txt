@@ -1,0 +1,358 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <vector>
+
+using ull = std::uint64_t;
+
+static ull gcd_all(const std::vector<ull>& a) {
+    ull g = 0;
+    for (ull x : a) g = std::gcd(g, x);
+    return g;
+}
+
+static bool le_sum(ull a, ull b, ull limit) {
+    return a <= limit && b <= limit - a;
+}
+
+static ull solve_bitset_dp(const std::vector<ull>& a, ull target) {
+    if (target == 0) return 0;
+
+    ull words_ull = target / 64 + 1;
+    std::size_t words = static_cast<std::size_t>(words_ull);
+    std::vector<ull> bits(words, 0);
+    bits[0] = 1;
+
+    unsigned last_bits = static_cast<unsigned>(target & 63);
+    ull last_mask = (last_bits == 63) ? ~0ULL : ((1ULL << (last_bits + 1)) - 1);
+
+    for (ull x : a) {
+        if (x > target) continue;
+
+        std::size_t ws = static_cast<std::size_t>(x >> 6);
+        unsigned bs = static_cast<unsigned>(x & 63);
+
+        for (std::size_t i = words; i-- > ws;) {
+            ull add = bits[i - ws] << bs;
+            if (bs && i > ws) {
+                add |= bits[i - ws - 1] >> (64 - bs);
+            }
+            bits[i] |= add;
+        }
+        bits.back() &= last_mask;
+    }
+
+    for (std::size_t i = words; i-- > 0;) {
+        if (bits[i]) {
+            return static_cast<ull>(i) * 64 + static_cast<ull>(63 - std::countl_zero(bits[i]));
+        }
+    }
+    return 0;
+}
+
+static bool solve_sparse_dp(const std::vector<ull>& vals, ull target, ull& best) {
+    constexpr std::size_t LIMIT = 2'000'000;
+
+    std::vector<ull> sums;
+    sums.push_back(0);
+
+    for (ull x : vals) {
+        if (x > target) continue;
+
+        auto it_end = std::upper_bound(sums.begin(), sums.end(), target - x);
+        std::size_t shift_len = static_cast<std::size_t>(it_end - sums.begin());
+
+        std::vector<ull> merged;
+        std::size_t reserve_size = sums.size() + shift_len;
+        if (reserve_size > LIMIT + 1) reserve_size = LIMIT + 1;
+        merged.reserve(reserve_size);
+
+        std::size_t i = 0, j = 0;
+        bool have_last = false;
+        ull last = 0;
+
+        while (i < sums.size() || j < shift_len) {
+            ull v;
+            if (j >= shift_len || (i < sums.size() && sums[i] <= sums[j] + x)) {
+                v = sums[i++];
+            } else {
+                v = sums[j++] + x;
+            }
+
+            if (!have_last || v != last) {
+                merged.push_back(v);
+                last = v;
+                have_last = true;
+                if (merged.size() > LIMIT) return false;
+            }
+        }
+
+        sums.swap(merged);
+        if (sums.back() == target) {
+            best = target;
+            return true;
+        }
+    }
+
+    best = sums.back();
+    return true;
+}
+
+static bool solve_mitm(const std::vector<ull>& vals, ull target, ull& best) {
+    const std::size_t n = vals.size();
+    if (n > 48) return false;
+
+    const std::size_t n1 = std::min<std::size_t>(n / 2, 23);
+    const std::size_t n2_begin = n1;
+
+    try {
+        std::vector<ull> first;
+        first.reserve(1ULL << n1);
+        first.push_back(0);
+
+        for (std::size_t i = 0; i < n1; ++i) {
+            ull x = vals[i];
+            std::size_t old = first.size();
+            for (std::size_t j = 0; j < old; ++j) {
+                if (first[j] <= target - x) {
+                    first.push_back(first[j] + x);
+                }
+            }
+        }
+
+        std::sort(first.begin(), first.end());
+        first.erase(std::unique(first.begin(), first.end()), first.end());
+
+        best = first.back();
+        if (best == target) return true;
+
+        std::vector<ull> suffix(n + 1, 0);
+        for (std::size_t i = n; i-- > n2_begin;) {
+            ull add = vals[i];
+            if (suffix[i + 1] >= target || add >= target - suffix[i + 1]) {
+                suffix[i] = target;
+            } else {
+                suffix[i] = suffix[i + 1] + add;
+            }
+        }
+
+        const ull max_first = first.back();
+
+        auto consider = [&](ull s) {
+            if (s > target) return;
+            auto it = std::upper_bound(first.begin(), first.end(), target - s);
+            if (it != first.begin()) {
+                --it;
+                ull cand = s + *it;
+                if (cand > best) best = cand;
+            }
+        };
+
+        auto dfs = [&](auto&& self, std::size_t idx, ull cur) -> void {
+            consider(cur);
+            if (best == target || idx == n) return;
+
+            if (cur <= best) {
+                ull rem = best - cur;
+                if (suffix[idx] <= rem && max_first <= rem - suffix[idx]) return;
+            }
+
+            ull x = vals[idx];
+            if (cur <= target - x) self(self, idx + 1, cur + x);
+            if (best == target) return;
+            self(self, idx + 1, cur);
+        };
+
+        dfs(dfs, n2_begin, 0);
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+struct Frame {
+    std::size_t idx;
+    ull cur;
+    ull next_k;
+};
+
+static ull solve_branch_bound(std::vector<ull> vals, ull target) {
+    std::sort(vals.begin(), vals.end(), std::greater<ull>());
+
+    std::vector<std::pair<ull, ull>> groups;
+    for (ull x : vals) {
+        if (groups.empty() || groups.back().first != x) {
+            groups.push_back({x, 1});
+        } else {
+            ++groups.back().second;
+        }
+    }
+
+    const std::size_t g = groups.size();
+    std::vector<ull> suffix(g + 1, 0);
+    for (std::size_t i = g; i-- > 0;) {
+        ull v = groups[i].first;
+        ull c = groups[i].second;
+        ull add;
+        if (c != 0 && v > target / c) add = target;
+        else add = v * c;
+
+        if (suffix[i + 1] >= target || add >= target - suffix[i + 1]) {
+            suffix[i] = target;
+        } else {
+            suffix[i] = suffix[i + 1] + add;
+        }
+    }
+
+    ull best = 0;
+    ull greedy = 0;
+    for (ull x : vals) {
+        if (greedy <= target - x) greedy += x;
+    }
+    best = greedy;
+    if (best == target) return best;
+
+    constexpr ull DONE = std::numeric_limits<ull>::max();
+
+    std::vector<Frame> stack;
+
+    auto push_node = [&](std::size_t idx, ull cur) {
+        if (cur > best) best = cur;
+        if (best == target) return;
+
+        if (idx == g) return;
+
+        if (cur <= best && suffix[idx] <= best - cur) return;
+
+        if (suffix[idx] <= target - cur) {
+            ull cand = cur + suffix[idx];
+            if (cand > best) best = cand;
+            return;
+        }
+
+        ull v = groups[idx].first;
+        ull c = groups[idx].second;
+        ull max_k = std::min(c, (target - cur) / v);
+        stack.push_back({idx, cur, max_k});
+    };
+
+    push_node(0, 0);
+
+    while (!stack.empty() && best != target) {
+        Frame& f = stack.back();
+
+        if (f.next_k == DONE) {
+            stack.pop_back();
+            continue;
+        }
+
+        ull k = f.next_k;
+        if (f.next_k == 0) f.next_k = DONE;
+        else --f.next_k;
+
+        ull v = groups[f.idx].first;
+        ull next = f.cur + k * v;
+
+        if (next <= best && suffix[f.idx + 1] <= best - next) {
+            stack.pop_back();
+            continue;
+        }
+
+        push_node(f.idx + 1, next);
+    }
+
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a(N);
+    ull total_original = 0;
+    for (std::size_t i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        total_original += a[i];
+    }
+
+    if (N == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    ull g = gcd_all(a);
+    if (g == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::vector<ull> scaled;
+    scaled.reserve(N);
+    ull total = 0;
+    for (ull x : a) {
+        ull y = x / g;
+        scaled.push_back(y);
+        total += y;
+    }
+
+    ull target = total / 2;
+    ull best = 0;
+
+    constexpr ull MAX_WORDS = 4'000'000;
+    constexpr ull MAX_OPS = 200'000'000;
+
+    ull words = target / 64 + 1;
+    if (words <= MAX_WORDS && (N == 0 || words <= MAX_OPS / N)) {
+        best = solve_bitset_dp(scaled, target);
+    } else {
+        std::vector<ull> vals;
+        vals.reserve(N);
+        ull candidate_sum = 0;
+
+        for (ull x : scaled) {
+            if (x <= target) {
+                vals.push_back(x);
+                if (candidate_sum <= target - x) candidate_sum += x;
+                else candidate_sum = target;
+            }
+        }
+
+        if (vals.empty()) {
+            best = 0;
+        } else if (candidate_sum <= target) {
+            best = candidate_sum;
+        } else {
+            std::sort(vals.begin(), vals.end(), std::greater<ull>());
+
+            bool solved = false;
+            if (solve_mitm(vals, target, best)) {
+                solved = true;
+            }
+
+            if (!solved && vals.size() > 48) {
+                ull sparse_best = 0;
+                if (solve_sparse_dp(vals, target, sparse_best)) {
+                    best = sparse_best;
+                    solved = true;
+                }
+            }
+
+            if (!solved) {
+                best = solve_branch_bound(vals, target);
+            }
+        }
+    }
+
+    ull diff_scaled = total - 2 * best;
+    ull answer = diff_scaled * g;
+
+    (void)total_original;
+    std::cout << answer << '\n';
+    return 0;
+}

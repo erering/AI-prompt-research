@@ -1,0 +1,243 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+int N, W;
+vector<vector<ull>> adjBits, nonBits;
+int bestAns = 0;
+
+inline void setBit(vector<ull>& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+inline void resetBit(vector<ull>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline bool testBit(const vector<ull>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline bool anyBits(const vector<ull>& b) {
+    for (ull x : b) if (x) return true;
+    return false;
+}
+
+inline int countBits(const vector<ull>& b) {
+    int s = 0;
+    for (ull x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline int firstBit(const vector<ull>& b) {
+    for (int i = 0; i < (int)b.size(); ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+inline int compDegreeInSet(int v, const vector<ull>& s) {
+    int d = 0;
+    const vector<ull>& nb = nonBits[v];
+    for (int i = 0; i < W; ++i) d += __builtin_popcountll(nb[i] & s[i]);
+    return d;
+}
+
+void greedyInitialLowerBound() {
+    if (N == 0) {
+        bestAns = 0;
+        return;
+    }
+
+    vector<ull> all(W, ~0ULL);
+    if (N & 63) all[W - 1] &= (1ULL << (N & 63)) - 1ULL;
+
+    mt19937 rng(1);
+    int runs;
+    if (N <= 300) runs = 100;
+    else if (N <= 800) runs = 60;
+    else if (N <= 1600) runs = 30;
+    else runs = 8;
+
+    for (int r = 0; r < runs; ++r) {
+        vector<ull> cand = all;
+        int got = 0;
+
+        while (anyBits(cand)) {
+            if (got + countBits(cand) <= bestAns) break;
+
+            int mn = INT_MAX;
+            for (int wi = 0; wi < W; ++wi) {
+                ull x = cand[wi];
+                while (x) {
+                    int bit = __builtin_ctzll(x);
+                    int v = (wi << 6) + bit;
+                    if (v < N) {
+                        int d = compDegreeInSet(v, cand);
+                        if (d < mn) mn = d;
+                    }
+                    x &= x - 1;
+                }
+            }
+
+            int slack = 0;
+            if (r % 7 == 3) slack = 1;
+            else if (r % 11 == 5) slack = 2;
+
+            int chosen = -1, seen = 0;
+            for (int wi = 0; wi < W; ++wi) {
+                ull x = cand[wi];
+                while (x) {
+                    int bit = __builtin_ctzll(x);
+                    int v = (wi << 6) + bit;
+                    if (v < N) {
+                        int d = compDegreeInSet(v, cand);
+                        if (d <= mn + slack) {
+                            ++seen;
+                            if ((int)(rng() % seen) == 0) chosen = v;
+                        }
+                    }
+                    x &= x - 1;
+                }
+            }
+
+            if (chosen < 0) break;
+            ++got;
+            for (int i = 0; i < W; ++i) cand[i] &= adjBits[chosen][i];
+        }
+
+        if (got > bestAns) bestAns = got;
+    }
+}
+
+void colorSort(const vector<ull>& P, vector<int>& order, vector<int>& colors) {
+    order.clear();
+    colors.clear();
+
+    int pc = countBits(P);
+    order.reserve(pc);
+    colors.reserve(pc);
+
+    vector<ull> U = P, Q(W);
+    int color = 0;
+
+    while (anyBits(U)) {
+        ++color;
+        Q = U;
+
+        while (true) {
+            int v = firstBit(Q);
+            if (v < 0 || v >= N) break;
+
+            order.push_back(v);
+            colors.push_back(color);
+
+            resetBit(U, v);
+            resetBit(Q, v);
+
+            const vector<ull>& nb = nonBits[v];
+            for (int i = 0; i < W; ++i) Q[i] &= nb[i];
+        }
+    }
+}
+
+void expand(vector<ull> P, int sz) {
+    if (!anyBits(P)) {
+        if (sz > bestAns) bestAns = sz;
+        return;
+    }
+
+    if (sz + countBits(P) <= bestAns) return;
+
+    vector<int> order, colors;
+    colorSort(P, order, colors);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (sz + colors[i] <= bestAns) return;
+
+        int v = order[i];
+        if (!testBit(P, v)) continue;
+
+        vector<ull> P2(W);
+        bool has = false;
+        const vector<ull>& av = adjBits[v];
+
+        for (int j = 0; j < W; ++j) {
+            P2[j] = P[j] & av[j];
+            has |= (P2[j] != 0);
+        }
+
+        if (has) {
+            expand(std::move(P2), sz + 1);
+        } else {
+            if (sz + 1 > bestAns) bestAns = sz + 1;
+        }
+
+        resetBit(P, v);
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    vector<unsigned char> mat((size_t)N * N, 0);
+    int idx = 0;
+    char c;
+    while (idx < N * N && cin.get(c)) {
+        if (c == '0' || c == '1') {
+            mat[idx++] = (unsigned char)(c - '0');
+        }
+    }
+
+    vector<int> compDeg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            unsigned char e = mat[(size_t)i * N + j] | mat[(size_t)j * N + i];
+            if (!e) {
+                ++compDeg[i];
+                ++compDeg[j];
+            }
+        }
+    }
+
+    vector<int> perm(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (compDeg[a] != compDeg[b]) return compDeg[a] > compDeg[b];
+        return a < b;
+    });
+
+    W = (N + 63) >> 6;
+    adjBits.assign(N, vector<ull>(W, 0));
+    nonBits.assign(N, vector<ull>(W, 0));
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        for (int nj = 0; nj < N; ++nj) {
+            if (ni == nj) continue;
+            int oj = perm[nj];
+            unsigned char e = mat[(size_t)oi * N + oj] | mat[(size_t)oj * N + oi];
+            if (e) setBit(adjBits[ni], nj);
+            else setBit(nonBits[ni], nj);
+        }
+    }
+
+    greedyInitialLowerBound();
+
+    vector<ull> all(W, ~0ULL);
+    if (N & 63) all[W - 1] &= (1ULL << (N & 63)) - 1ULL;
+
+    expand(std::move(all), 0);
+
+    cout << bestAns << '\n';
+    return 0;
+}

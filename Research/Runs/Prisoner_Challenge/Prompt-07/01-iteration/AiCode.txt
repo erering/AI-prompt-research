@@ -1,0 +1,59 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    int D = 0;
+    int p = 1;
+    while (p <= N) {
+        p *= 3;
+        D++;
+    }
+
+    vector<int> pow3(D);
+    pow3[0] = 1;
+    for (int i = 1; i < D; i++) pow3[i] = pow3[i - 1] * 3;
+
+    auto digit = [&](int x, int pos) {
+        return (x / pow3[D - 1 - pos]) % 3;
+    };
+
+    auto id = [&](int pos, int val) {
+        return 1 + pos * 3 + val;
+    };
+
+    int M = 1 + D * 3;
+    vector<vector<int>> s(M, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; j++) {
+        s[0][j] = id(0, digit(j, 0));
+    }
+
+    for (int pos = 0; pos < D; pos++) {
+        for (int val = 0; val < 3; val++) {
+            int row = id(pos, val);
+            bool storedA = (pos % 2 == 0);
+            s[row][0] = storedA ? 1 : 0;
+
+            for (int j = 1; j <= N; j++) {
+                int cur = digit(j, pos);
+
+                if (cur != val) {
+                    if (storedA) {
+                        s[row][j] = (val < cur) ? -1 : -2;
+                    } else {
+                        s[row][j] = (cur < val) ? -1 : -2;
+                    }
+                } else {
+                    if (pos + 1 == D) {
+                        s[row][j] = -1;
+                    } else {
+                        s[row][j] = id(pos + 1, digit(j, pos + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

@@ -1,0 +1,146 @@
+#include <bits/stdc++.h>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    using u64 = unsigned long long;
+
+    u64 comb_table[32][32];
+    bool comb_ready = false;
+
+    void init_comb() {
+        if (comb_ready) return;
+        comb_ready = true;
+        for (int n = 0; n <= 31; ++n) {
+            comb_table[n][0] = comb_table[n][n] = 1;
+            for (int k = 1; k < n; ++k) {
+                comb_table[n][k] = comb_table[n - 1][k - 1] + comb_table[n - 1][k];
+            }
+        }
+    }
+
+    u64 rank_combination(const std::vector<int>& chosen, int n = 31, int k = 15) {
+        init_comb();
+        u64 rank = 0;
+        int prev = -1;
+        int rem = k;
+        for (int x : chosen) {
+            for (int v = prev + 1; v < x; ++v) {
+                rank += comb_table[n - 1 - v][rem - 1];
+            }
+            prev = x;
+            --rem;
+        }
+        return rank;
+    }
+
+    std::vector<int> unrank_combination(u64 rank, int n = 31, int k = 15) {
+        init_comb();
+        std::vector<int> chosen;
+        int start = 0;
+        int rem = k;
+        while (rem > 0) {
+            for (int x = start; x <= n - rem; ++x) {
+                u64 cnt = comb_table[n - 1 - x][rem - 1];
+                if (rank >= cnt) {
+                    rank -= cnt;
+                } else {
+                    chosen.push_back(x);
+                    start = x + 1;
+                    --rem;
+                    break;
+                }
+            }
+        }
+        return chosen;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> controlled;
+    std::vector<int> protected_pos;
+
+    for (int i = 0; i < 31; ++i) {
+        if (C[i]) controlled.push_back(i);
+        else protected_pos.push_back(i);
+    }
+
+    u64 rank = rank_combination(controlled);
+
+    for (int b = 0; b < 29; ++b) {
+        bool bit = (rank >> b) & 1ULL;
+        std::vector<bool> A(31, bit);
+        send_packet(A);
+    }
+
+    int S = (int)M.size();
+    int len_value = S - 1;
+
+    std::vector<bool> payload;
+    payload.reserve(10 + S);
+
+    for (int b = 0; b < 10; ++b) {
+        payload.push_back((len_value >> b) & 1);
+    }
+    for (bool bit : M) {
+        payload.push_back(bit);
+    }
+
+    int ptr = 0;
+    while (ptr < (int)payload.size()) {
+        std::vector<bool> A(31, false);
+        for (int idx : protected_pos) {
+            if (ptr < (int)payload.size()) {
+                A[idx] = payload[ptr++];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    u64 rank = 0;
+
+    for (int b = 0; b < 29; ++b) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) ++ones;
+        }
+        if (ones >= 16) {
+            rank |= (1ULL << b);
+        }
+    }
+
+    std::vector<int> controlled = unrank_combination(rank);
+    std::vector<bool> is_controlled(31, false);
+    for (int x : controlled) {
+        is_controlled[x] = true;
+    }
+
+    std::vector<int> protected_pos;
+    for (int i = 0; i < 31; ++i) {
+        if (!is_controlled[i]) protected_pos.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    for (int p = 29; p < (int)R.size(); ++p) {
+        for (int idx : protected_pos) {
+            bits.push_back(R[p][idx]);
+        }
+    }
+
+    int len_value = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (bits[b]) len_value |= (1 << b);
+    }
+
+    int S = len_value + 1;
+    std::vector<bool> M;
+    M.reserve(S);
+
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[10 + i]);
+    }
+
+    return M;
+}

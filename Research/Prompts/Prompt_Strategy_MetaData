@@ -1,0 +1,9 @@
+Prompt 1: Minimal lossless compression style. Make the prompt as short as possible while keeping every solver-relevant detail.
+Prompt 2: Official statement style. Rewrite in a formal, numbered, specification-like format with clear sections.
+Prompt 3: Symbol-definition style. First define all symbols, variables, and entities clearly, then restate the task in a compact formal way.
+Prompt 4: Imperative directive style. Phrase the prompt as direct commands to the solver, with strong instruction wording.
+Prompt 5: Structured checklist style. Rewrite the task as a compact checklist of requirements and constraints.
+Prompt 6: Competitive benchmark style. Present the task as a benchmark against other AI solvers. Use concise, competitive language that frames the objective as achieving the strongest possible solution under the task's requirements.
+Prompt 7: Educational teaching style. Rewrite the task as if teaching the concept to a student encountering it for the first time. Introduce ideas gradually and prioritize intuition before formal details.
+Prompt 8: Plan-first algorithm design style. Require the solver to first identify the core algorithm, data structures, invariants, and target complexity internally, then derive the implementation from that plan. Emphasize choosing the asymptotically strongest correct approach before coding.
+Prompt 9: Structured computational reasoning style. Rewrite the task so that the solver is encouraged to internally represent the solution as a sequence of computational stages, decision rules, and iteration processes before implementation. Emphasize identifying the flow of computation and interactions between components prior to coding.

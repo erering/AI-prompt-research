@@ -1,0 +1,290 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static const int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int readInt() {
+        char c;
+        do { c = getChar(); } while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int readBit() {
+        char c;
+        do { c = getChar(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+int bestAns;
+uint64_t lastMask;
+vector<uint64_t> adjMat;
+
+inline bool getBitVec(const vector<uint64_t>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void clearBitVec(vector<uint64_t>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline bool emptyBits(const vector<uint64_t>& b) {
+    for (uint64_t x : b) if (x) return false;
+    return true;
+}
+
+inline int popcountBits(const vector<uint64_t>& b) {
+    int s = 0;
+    for (uint64_t x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline int firstBit(const vector<uint64_t>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+void colorSort(const vector<uint64_t>& P, vector<int>& verts, vector<int>& cols) {
+    verts.clear();
+    cols.clear();
+    verts.reserve(popcountBits(P));
+    cols.reserve(verts.capacity());
+
+    vector<uint64_t> U = P;
+    vector<uint64_t> Q(W);
+
+    int color = 0;
+    while (!emptyBits(U)) {
+        ++color;
+        Q = U;
+        while (!emptyBits(Q)) {
+            int v = firstBit(Q);
+            verts.push_back(v);
+            cols.push_back(color);
+
+            clearBitVec(U, v);
+            clearBitVec(Q, v);
+
+            const uint64_t* row = &adjMat[(size_t)v * W];
+            for (int i = 0; i < W; ++i) Q[i] &= ~row[i];
+            Q[W - 1] &= lastMask;
+        }
+    }
+}
+
+void expand(vector<uint64_t> P, int sz) {
+    if (emptyBits(P)) {
+        if (sz > bestAns) bestAns = sz;
+        return;
+    }
+
+    vector<int> verts, cols;
+    colorSort(P, verts, cols);
+
+    for (int i = (int)verts.size() - 1; i >= 0; --i) {
+        if (sz + cols[i] <= bestAns) return;
+
+        int v = verts[i];
+        if (!getBitVec(P, v)) continue;
+
+        vector<uint64_t> child(W);
+        const uint64_t* row = &adjMat[(size_t)v * W];
+        bool any = false;
+        for (int j = 0; j < W; ++j) {
+            child[j] = P[j] & row[j];
+            any |= child[j] != 0;
+        }
+
+        if (!any) {
+            if (sz + 1 > bestAns) bestAns = sz + 1;
+        } else if (sz + 1 + popcountBits(child) > bestAns) {
+            expand(std::move(child), sz + 1);
+        }
+
+        clearBitVec(P, v);
+    }
+}
+
+int greedyResidualMIS(const vector<vector<int>>& comp, const vector<char>& aliveInit, const vector<int>& degInit) {
+    int n = (int)comp.size();
+    vector<char> alive = aliveInit;
+    vector<int> deg = degInit;
+    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+    int cntAlive = 0;
+    for (int i = 0; i < n; ++i) {
+        if (alive[i]) {
+            ++cntAlive;
+            pq.push({deg[i], i});
+        }
+    }
+
+    int res = 0;
+    while (cntAlive > 0) {
+        int v = -1;
+        while (!pq.empty()) {
+            auto [d, x] = pq.top();
+            pq.pop();
+            if (alive[x] && deg[x] == d) {
+                v = x;
+                break;
+            }
+        }
+        if (v < 0) break;
+
+        ++res;
+        vector<int> rem;
+        rem.push_back(v);
+        for (int u : comp[v]) if (alive[u]) rem.push_back(u);
+
+        for (int u : rem) {
+            if (!alive[u]) continue;
+            alive[u] = 0;
+            --cntAlive;
+            for (int x : comp[u]) {
+                if (alive[x]) {
+                    --deg[x];
+                    pq.push({deg[x], x});
+                }
+            }
+        }
+    }
+    return res;
+}
+
+int main() {
+    FastInput in;
+    int originalN = in.readInt();
+    if (originalN <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    int Wold = (originalN + 63) >> 6;
+    vector<uint64_t> oldAdj((size_t)originalN * Wold, 0);
+    vector<vector<int>> comp(originalN);
+
+    for (int i = 0; i < originalN; ++i) {
+        uint64_t* row = &oldAdj[(size_t)i * Wold];
+        for (int j = 0; j < originalN; ++j) {
+            int b = in.readBit();
+            if (b) {
+                row[j >> 6] |= 1ULL << (j & 63);
+            } else if (i != j) {
+                comp[i].push_back(j);
+            }
+        }
+    }
+
+    for (int i = 0; i < originalN; ++i) {
+        oldAdj[(size_t)i * Wold + (i >> 6)] &= ~(1ULL << (i & 63));
+    }
+
+    vector<char> alive(originalN, 1);
+    vector<int> deg(originalN);
+    queue<int> q;
+    for (int i = 0; i < originalN; ++i) {
+        deg[i] = (int)comp[i].size();
+        if (deg[i] <= 1) q.push(i);
+    }
+
+    int forced = 0;
+    int aliveCnt = originalN;
+
+    while (!q.empty()) {
+        int v = q.front();
+        q.pop();
+        if (!alive[v] || deg[v] > 1) continue;
+
+        ++forced;
+        vector<int> rem;
+        rem.push_back(v);
+        for (int u : comp[v]) if (alive[u]) rem.push_back(u);
+
+        for (int u : rem) {
+            if (!alive[u]) continue;
+            alive[u] = 0;
+            --aliveCnt;
+            for (int x : comp[u]) {
+                if (alive[x]) {
+                    --deg[x];
+                    if (deg[x] <= 1) q.push(x);
+                }
+            }
+        }
+    }
+
+    if (aliveCnt == 0) {
+        printf("%d\n", forced);
+        return 0;
+    }
+
+    int greedyLB = greedyResidualMIS(comp, alive, deg);
+    bestAns = forced + greedyLB;
+
+    vector<int> remVerts;
+    remVerts.reserve(aliveCnt);
+    for (int i = 0; i < originalN; ++i) if (alive[i]) remVerts.push_back(i);
+
+    sort(remVerts.begin(), remVerts.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    N = (int)remVerts.size();
+    W = (N + 63) >> 6;
+    lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    adjMat.assign((size_t)N * W, 0);
+
+    for (int i = 0; i < N; ++i) {
+        int oi = remVerts[i];
+        const uint64_t* oldRow = &oldAdj[(size_t)oi * Wold];
+        uint64_t* newRow = &adjMat[(size_t)i * W];
+        for (int j = 0; j < N; ++j) {
+            int oj = remVerts[j];
+            if ((oldRow[oj >> 6] >> (oj & 63)) & 1ULL) {
+                newRow[j >> 6] |= 1ULL << (j & 63);
+            }
+        }
+        newRow[i >> 6] &= ~(1ULL << (i & 63));
+    }
+
+    oldAdj.clear();
+    oldAdj.shrink_to_fit();
+    comp.clear();
+    comp.shrink_to_fit();
+
+    vector<uint64_t> P(W, ~0ULL);
+    P[W - 1] = lastMask;
+
+    if (forced + N <= bestAns) {
+        printf("%d\n", bestAns);
+        return 0;
+    }
+
+    expand(std::move(P), forced);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

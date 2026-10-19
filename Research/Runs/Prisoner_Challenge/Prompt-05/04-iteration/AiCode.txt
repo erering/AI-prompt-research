@@ -1,0 +1,156 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    auto maxprod = [](int s) -> long long {
+        if (s <= 0) return 1;
+        if (s == 1) return 1;
+        long long res = 1;
+        if (s % 3 == 0) {
+            for (int i = 0; i < s / 3; ++i) res *= 3;
+        } else if (s % 3 == 1) {
+            res = 4;
+            for (int i = 0; i < (s - 4) / 3; ++i) res *= 3;
+        } else {
+            res = 2;
+            for (int i = 0; i < (s - 2) / 3; ++i) res *= 3;
+        }
+        return res;
+    };
+
+    auto min_sum = [&](int target) -> int {
+        if (target <= 1) return 0;
+        for (int s = 0; s <= 100; ++s) {
+            if (maxprod(s) >= target) return s;
+        }
+        return 100;
+    };
+
+    auto make_factors = [](int s) -> vector<int> {
+        vector<int> f;
+        if (s <= 0) return f;
+        if (s % 3 == 0) {
+            for (int i = 0; i < s / 3; ++i) f.push_back(3);
+        } else if (s % 3 == 1) {
+            f.push_back(4);
+            for (int i = 0; i < (s - 4) / 3; ++i) f.push_back(3);
+        } else {
+            f.push_back(2);
+            for (int i = 0; i < (s - 2) / 3; ++i) f.push_back(3);
+        }
+        return f;
+    };
+
+    int bestF = 2, bestS = min_sum((N + 1) / 2);
+    int best = bestS;
+    for (int F = 2; F <= N; ++F) {
+        int target = (N + F - 1) / F;
+        int S = min_sum(target);
+        int cur = S + F - 2;
+        if (cur < best) {
+            best = cur;
+            bestF = F;
+            bestS = S;
+        }
+    }
+
+    int F = bestF;
+    vector<int> base = make_factors(bestS);
+    int L = (int)base.size();
+
+    vector<int> start(L);
+    int ptr = 1;
+    for (int i = 0; i < L; ++i) {
+        start[i] = ptr;
+        ptr += base[i];
+    }
+    int finalStart = ptr;
+    int x = best;
+
+    vector<int> suf(L + 1, 1);
+    for (int i = L - 1; i >= 0; --i) suf[i] = suf[i + 1] * base[i];
+
+    auto code_of = [&](int v) {
+        return (v - 1) / F;
+    };
+
+    auto digit = [&](int v, int lev) {
+        int c = code_of(v);
+        return (c / suf[lev + 1]) % base[lev];
+    };
+
+    auto state_id = [&](int lev, int dig) {
+        return start[lev] + dig;
+    };
+
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, -1));
+
+    auto declare_current_smaller = [&](int curBag) {
+        return curBag == 0 ? -1 : -2;
+    };
+
+    auto declare_other_smaller = [&](int curBag) {
+        return curBag == 0 ? -2 : -1;
+    };
+
+    int finalCurrent = (L == 0 ? 0 : (L % 2));
+    int finalInspect = 1 - finalCurrent;
+
+    auto final_action = [&](int curBag, int v) {
+        int c = code_of(v);
+        int off = (v - 1) % F;
+        int maxOff = min(F - 1, N - 1 - c * F);
+        if (off == 0) return declare_current_smaller(curBag);
+        if (off == maxOff) return declare_other_smaller(curBag);
+        return finalStart + (off - 1);
+    };
+
+    if (L == 0) {
+        s[0][0] = 0;
+        for (int v = 1; v <= N; ++v) s[0][v] = final_action(0, v);
+    } else {
+        s[0][0] = 0;
+        for (int v = 1; v <= N; ++v) {
+            s[0][v] = state_id(0, digit(v, 0));
+        }
+    }
+
+    for (int lev = 0; lev < L; ++lev) {
+        int curBag = (lev + 1) % 2;
+        for (int d = 0; d < base[lev]; ++d) {
+            int id = state_id(lev, d);
+            s[id][0] = curBag;
+            for (int v = 1; v <= N; ++v) {
+                int cd = digit(v, lev);
+                if (cd < d) {
+                    s[id][v] = declare_current_smaller(curBag);
+                } else if (cd > d) {
+                    s[id][v] = declare_other_smaller(curBag);
+                } else {
+                    if (lev + 1 < L) {
+                        s[id][v] = state_id(lev + 1, digit(v, lev + 1));
+                    } else {
+                        s[id][v] = final_action(curBag, v);
+                    }
+                }
+            }
+        }
+    }
+
+    for (int off = 1; off <= F - 2; ++off) {
+        int id = finalStart + (off - 1);
+        s[id][0] = finalInspect;
+        for (int v = 1; v <= N; ++v) {
+            int curOff = (v - 1) % F;
+            if (curOff < off) {
+                s[id][v] = declare_current_smaller(finalInspect);
+            } else if (curOff > off) {
+                s[id][v] = declare_other_smaller(finalInspect);
+            } else {
+                s[id][v] = declare_current_smaller(finalInspect);
+            }
+        }
+    }
+
+    return s;
+}

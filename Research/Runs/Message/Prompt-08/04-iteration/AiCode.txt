@@ -1,0 +1,132 @@
+#include <vector>
+#include <cstdint>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+static uint64_t binom_val(int n, int k) {
+    static bool init = false;
+    static uint64_t C[32][32];
+    if (!init) {
+        for (int i = 0; i <= 31; ++i) {
+            C[i][0] = C[i][i] = 1;
+            for (int j = 1; j < i; ++j) C[i][j] = C[i - 1][j - 1] + C[i - 1][j];
+        }
+        init = true;
+    }
+    if (k < 0 || k > n) return 0;
+    return C[n][k];
+}
+
+static uint64_t rank_bad_mask(const std::vector<bool>& Cmask) {
+    const int n = 31, k = 15;
+    std::vector<int> sel;
+    for (int i = 0; i < n; ++i) {
+        if (Cmask[i]) sel.push_back(i);
+    }
+
+    uint64_t rank = 0;
+    int prev = -1;
+    for (int i = 0; i < k; ++i) {
+        for (int x = prev + 1; x < sel[i]; ++x) {
+            rank += binom_val(n - 1 - x, k - 1 - i);
+        }
+        prev = sel[i];
+    }
+    return rank;
+}
+
+static std::vector<bool> unrank_bad_mask(uint64_t rank) {
+    const int n = 31, k = 15;
+    std::vector<bool> Cmask(n, false);
+
+    int prev = -1;
+    for (int i = 0; i < k; ++i) {
+        for (int x = prev + 1; x < n; ++x) {
+            uint64_t cnt = binom_val(n - 1 - x, k - 1 - i);
+            if (rank >= cnt) {
+                rank -= cnt;
+            } else {
+                Cmask[x] = true;
+                prev = x;
+                break;
+            }
+        }
+    }
+
+    return Cmask;
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    uint64_t rank = rank_bad_mask(C);
+
+    for (int b = 28; b >= 0; --b) {
+        bool bit = ((rank >> b) & 1ULL) != 0;
+        std::vector<bool> A(31, bit);
+        send_packet(A);
+    }
+
+    std::vector<bool> payload;
+    int S = (int)M.size();
+    int len_code = S - 1;
+
+    for (int b = 9; b >= 0; --b) {
+        payload.push_back(((len_code >> b) & 1) != 0);
+    }
+    for (bool bit : M) payload.push_back(bit);
+
+    std::vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    int ptr = 0;
+    while (ptr < (int)payload.size()) {
+        std::vector<bool> A(31, false);
+        for (int idx = 0; idx < 16; ++idx) {
+            if (ptr < (int)payload.size()) A[good[idx]] = payload[ptr++];
+            else A[good[idx]] = false;
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    uint64_t rank = 0;
+
+    for (int i = 0; i < 29; ++i) {
+        int ones = 0;
+        for (int j = 0; j < 31; ++j) {
+            if (R[i][j]) ++ones;
+        }
+        bool bit = ones >= 16;
+        rank = (rank << 1) | (bit ? 1ULL : 0ULL);
+    }
+
+    std::vector<bool> C = unrank_bad_mask(rank);
+
+    std::vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    std::vector<bool> payload;
+    for (int r = 29; r < (int)R.size(); ++r) {
+        for (int idx = 0; idx < 16; ++idx) {
+            payload.push_back(R[r][good[idx]]);
+        }
+    }
+
+    int len_code = 0;
+    for (int i = 0; i < 10; ++i) {
+        len_code = (len_code << 1) | (payload[i] ? 1 : 0);
+    }
+    int S = len_code + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(payload[10 + i]);
+    }
+
+    return M;
+}

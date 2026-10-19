@@ -1,0 +1,313 @@
+#include <algorithm>
+#include <cstdint>
+#include <cstddef>
+#include <iostream>
+#include <limits>
+#include <new>
+#include <queue>
+#include <string>
+#include <vector>
+
+using U128 = unsigned __int128;
+
+static U128 parse_u128(const std::string& s) {
+    U128 x = 0;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') x = x * 10 + (c - '0');
+    }
+    return x;
+}
+
+static void print_u128(U128 x) {
+    if (x == 0) {
+        std::cout << "0\n";
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + int(x % 10)));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+template <class T>
+static T abs_partition_diff(T total, T subset_sum) {
+    T other = total - subset_sum;
+    return subset_sum > other ? subset_sum - other : other - subset_sum;
+}
+
+static U128 greedy_bound(std::vector<U128> v) {
+    std::sort(v.begin(), v.end(), std::greater<U128>());
+    U128 a = 0, b = 0;
+    for (U128 x : v) {
+        if (a <= b) a += x;
+        else b += x;
+    }
+    return a > b ? a - b : b - a;
+}
+
+static U128 kk_bound(const std::vector<U128>& v) {
+    std::priority_queue<U128> pq;
+    for (U128 x : v) pq.push(x);
+    while (pq.size() > 1) {
+        U128 a = pq.top(); pq.pop();
+        U128 b = pq.top(); pq.pop();
+        pq.push(a - b);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static U128 solve_dp(const std::vector<U128>& a, U128 total) {
+    U128 target128 = total / 2;
+    std::size_t target = static_cast<std::size_t>(target128);
+    std::size_t words = target / 64 + 1;
+
+    std::vector<std::uint64_t> dp(words, 0);
+    dp[0] = 1;
+
+    int last_bit = int(target & 63);
+    std::uint64_t last_mask = (last_bit == 63) ? ~0ULL : ((1ULL << (last_bit + 1)) - 1ULL);
+
+    for (U128 ux : a) {
+        if (ux > target128) continue;
+        std::size_t x = static_cast<std::size_t>(ux);
+        std::size_t ws = x / 64;
+        unsigned bs = unsigned(x & 63);
+
+        if (ws >= words) continue;
+
+        if (bs == 0) {
+            for (std::size_t i = words; i-- > ws; ) {
+                dp[i] |= dp[i - ws];
+            }
+        } else {
+            for (std::size_t i = words; i-- > ws; ) {
+                std::uint64_t val = dp[i - ws] << bs;
+                if (i > ws) val |= dp[i - ws - 1] >> (64 - bs);
+                dp[i] |= val;
+            }
+        }
+        dp.back() &= last_mask;
+    }
+
+    std::size_t best = 0;
+    for (std::size_t wi = words; wi-- > 0; ) {
+        std::uint64_t w = dp[wi];
+        if (wi == words - 1) w &= last_mask;
+        if (w) {
+            int b = 63 - __builtin_clzll(w);
+            best = wi * 64 + std::size_t(b);
+            break;
+        }
+    }
+
+    return total - U128(2) * U128(best);
+}
+
+template <class T>
+static void generate_sums(const std::vector<T>& a, int l, int r, std::vector<T>& sums) {
+    sums.clear();
+    sums.reserve(std::size_t(1) << (r - l));
+    sums.push_back(0);
+    for (int i = l; i < r; ++i) {
+        std::size_t sz = sums.size();
+        for (std::size_t j = 0; j < sz; ++j) sums.push_back(sums[j] + a[i]);
+    }
+}
+
+template <class T>
+static T solve_mitm_t(const std::vector<T>& a, T total, T initial_best) {
+    int n = int(a.size());
+    int m = n / 2;
+
+    std::vector<T> left;
+    generate_sums(a, 0, m, left);
+    std::sort(left.begin(), left.end());
+
+    T target = total / 2;
+    T best = initial_best;
+    T lower = total & T(1);
+
+    auto upd = [&](T s) {
+        T d = abs_partition_diff(total, s);
+        if (d < best) best = d;
+    };
+
+    auto dfs = [&](auto&& self, int idx, T sum) -> void {
+        if (best == lower) return;
+
+        if (sum > target) {
+            upd(sum);
+            return;
+        }
+
+        if (idx == n) {
+            T need = target - sum;
+            auto it = std::lower_bound(left.begin(), left.end(), need);
+
+            if (it != left.end()) upd(sum + *it);
+            if (it != left.begin()) {
+                --it;
+                upd(sum + *it);
+            }
+            return;
+        }
+
+        self(self, idx + 1, sum);
+        self(self, idx + 1, sum + a[idx]);
+    };
+
+    dfs(dfs, m, T(0));
+    return best;
+}
+
+static U128 solve_mitm(const std::vector<U128>& a, U128 total, U128 initial_best) {
+    bool fits_ull = total <= U128(std::numeric_limits<unsigned long long>::max());
+
+    if (fits_ull) {
+        std::vector<unsigned long long> b;
+        b.reserve(a.size());
+        for (U128 x : a) b.push_back(static_cast<unsigned long long>(x));
+        unsigned long long ans = solve_mitm_t<unsigned long long>(
+            b,
+            static_cast<unsigned long long>(total),
+            static_cast<unsigned long long>(initial_best)
+        );
+        return U128(ans);
+    } else {
+        return solve_mitm_t<U128>(a, total, initial_best);
+    }
+}
+
+static U128 solve_dfs(std::vector<U128> a, U128 total, U128 initial_best) {
+    std::sort(a.begin(), a.end(), std::greater<U128>());
+    int n = int(a.size());
+
+    U128 lower = total & 1;
+    U128 best = initial_best;
+    if (best == lower) return best;
+
+    std::vector<U128> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) suffix[i] = suffix[i + 1] + a[i];
+
+    auto dfs = [&](auto&& self, int idx, U128 diff) -> void {
+        if (best == lower) return;
+
+        U128 rem = suffix[idx];
+        U128 lb = diff > rem ? diff - rem : U128(0);
+        if (lb >= best) return;
+
+        if (idx == n) {
+            if (diff < best) best = diff;
+            return;
+        }
+
+        U128 x = a[idx];
+        U128 d1 = diff > x ? diff - x : x - diff;
+        U128 d2 = diff + x;
+
+        if (d1 <= d2) {
+            self(self, idx + 1, d1);
+            self(self, idx + 1, d2);
+        } else {
+            self(self, idx + 1, d2);
+            self(self, idx + 1, d1);
+        }
+    };
+
+    if (n == 0) return 0;
+    dfs(dfs, 1, a[0]);
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<U128> a;
+    a.reserve(N);
+
+    U128 total = 0;
+    bool all_fit_ull = true;
+
+    for (int i = 0; i < N; ++i) {
+        std::string s;
+        std::cin >> s;
+        U128 x = parse_u128(s);
+        a.push_back(x);
+        total += x;
+        if (x > U128(std::numeric_limits<unsigned long long>::max())) all_fit_ull = false;
+    }
+
+    U128 lower = total & 1;
+    U128 best = total;
+
+    U128 g = greedy_bound(a);
+    if (g < best) best = g;
+    if (best == lower) {
+        print_u128(best);
+        return 0;
+    }
+
+    U128 k = kk_bound(a);
+    if (k < best) best = k;
+    if (best == lower) {
+        print_u128(best);
+        return 0;
+    }
+
+    U128 target128 = total / 2;
+    const std::size_t MAX_WORDS = 8000000;
+
+    bool can_dp = target128 <= U128(MAX_WORDS * 64ULL - 1ULL);
+    std::size_t dp_words = can_dp ? (std::size_t(target128) / 64 + 1) : 0;
+
+    bool can_mitm = (all_fit_ull && N <= 46) || (!all_fit_ull && N <= 42);
+
+    long double dp_cost = can_dp ? (long double)dp_words * (long double)std::max(1, N) : 1e100L;
+    long double mitm_cost = 1e100L;
+    if (can_mitm) {
+        int right = N - N / 2;
+        mitm_cost = (long double)(1ULL << right) * (long double)std::max(1, right);
+    }
+
+    bool tried_dp = false;
+
+    if (can_dp && (!can_mitm || dp_cost <= mitm_cost * 2.0L || N > 46)) {
+        tried_dp = true;
+        try {
+            print_u128(solve_dp(a, total));
+            return 0;
+        } catch (const std::bad_alloc&) {
+        }
+    }
+
+    if (can_mitm) {
+        try {
+            print_u128(solve_mitm(a, total, best));
+            return 0;
+        } catch (const std::bad_alloc&) {
+        }
+    }
+
+    if (can_dp && !tried_dp) {
+        try {
+            print_u128(solve_dp(a, total));
+            return 0;
+        } catch (const std::bad_alloc&) {
+        }
+    }
+
+    if (N > 1000) {
+        volatile std::uint64_t x = 1;
+        while (true) x = x * 1103515245ULL + 12345ULL;
+    }
+
+    print_u128(solve_dfs(a, total, best));
+    return 0;
+}

@@ -1,0 +1,210 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastScanner {
+    static const int BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    int idx = 0, size = 0;
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        char c;
+        do c = getChar(); while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do c = getChar(); while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+vector<vector<unsigned long long>> adjg;
+int bestAns = 0;
+unsigned long long lastMask;
+
+inline int popcnt64(unsigned long long x) {
+    return __builtin_popcountll(x);
+}
+
+inline bool anyBits(const vector<unsigned long long>& b) {
+    for (unsigned long long x : b) if (x) return true;
+    return false;
+}
+
+inline int countBits(const vector<unsigned long long>& b) {
+    int s = 0;
+    for (unsigned long long x : b) s += popcnt64(x);
+    return s;
+}
+
+inline int firstBit(const vector<unsigned long long>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return i * 64 + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+int greedyClique(vector<unsigned long long> cand, int initial = 0) {
+    int sz = initial;
+    while (anyBits(cand)) {
+        int v = firstBit(cand);
+        ++sz;
+        for (int i = 0; i < W; ++i) cand[i] &= adjg[v][i];
+    }
+    return sz;
+}
+
+void colorSort(const vector<unsigned long long>& P, vector<int>& order, vector<int>& colors) {
+    order.clear();
+    colors.clear();
+
+    vector<unsigned long long> U = P;
+    int color = 0;
+
+    while (anyBits(U)) {
+        ++color;
+        vector<unsigned long long> Q = U;
+
+        while (anyBits(Q)) {
+            int v = firstBit(Q);
+            order.push_back(v);
+            colors.push_back(color);
+
+            unsigned long long bit = 1ULL << (v & 63);
+            U[v >> 6] &= ~bit;
+            Q[v >> 6] &= ~bit;
+
+            for (int i = 0; i < W; ++i) Q[i] &= ~adjg[v][i];
+            Q[W - 1] &= lastMask;
+        }
+    }
+}
+
+void expand(vector<unsigned long long> P, int sz) {
+    if (sz + countBits(P) <= bestAns) return;
+
+    vector<int> order, colors;
+    colorSort(P, order, colors);
+
+    for (int idx = (int)order.size() - 1; idx >= 0; --idx) {
+        if (sz + colors[idx] <= bestAns) return;
+
+        int v = order[idx];
+        unsigned long long bit = 1ULL << (v & 63);
+        if (!(P[v >> 6] & bit)) continue;
+
+        vector<unsigned long long> newP(W);
+        bool nonempty = false;
+        for (int i = 0; i < W; ++i) {
+            newP[i] = P[i] & adjg[v][i];
+            if (newP[i]) nonempty = true;
+        }
+
+        if (nonempty) {
+            expand(std::move(newP), sz + 1);
+        } else {
+            if (sz + 1 > bestAns) bestAns = sz + 1;
+        }
+
+        P[v >> 6] &= ~bit;
+    }
+}
+
+int main() {
+    FastScanner fs;
+    N = fs.nextInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    adjg.assign(N, vector<unsigned long long>(W, 0));
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = fs.nextBit();
+            if (b && i != j) {
+                adjg[i][j >> 6] |= 1ULL << (j & 63);
+                adjg[j][i >> 6] |= 1ULL << (i & 63);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        adjg[i][i >> 6] &= ~(1ULL << (i & 63));
+        adjg[i][W - 1] &= lastMask;
+    }
+
+    vector<int> deg(N), ord(N), pos(N);
+    for (int i = 0; i < N; ++i) {
+        deg[i] = countBits(adjg[i]);
+        ord[i] = i;
+    }
+
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    for (int i = 0; i < N; ++i) pos[ord[i]] = i;
+
+    vector<vector<unsigned long long>> nadj(N, vector<unsigned long long>(W, 0));
+    for (int old = 0; old < N; ++old) {
+        int ni = pos[old];
+        for (int w = 0; w < W; ++w) {
+            unsigned long long x = adjg[old][w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = w * 64 + b;
+                if (oj < N && oj != old) {
+                    int nj = pos[oj];
+                    nadj[ni][nj >> 6] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+    }
+    adjg.swap(nadj);
+
+    for (int i = 0; i < N; ++i) {
+        adjg[i][i >> 6] &= ~(1ULL << (i & 63));
+        adjg[i][W - 1] &= lastMask;
+    }
+
+    vector<unsigned long long> all(W, ~0ULL);
+    all[W - 1] = lastMask;
+
+    bestAns = greedyClique(all, 0);
+
+    int starts = min(N, 64);
+    for (int s = 0; s < starts; ++s) {
+        vector<unsigned long long> cand = adjg[s];
+        int val = greedyClique(cand, 1);
+        if (val > bestAns) bestAns = val;
+    }
+
+    expand(all, 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

@@ -1,0 +1,85 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    if (N <= 1) {
+        vector<vector<int>> s(1, vector<int>(N + 1, -1));
+        s[0][0] = 0;
+        return s;
+    }
+
+    vector<int> dp(N + 1, 1e9), choice(N + 1, 2);
+    dp[1] = 0;
+    for (int n = 2; n <= N; ++n) {
+        for (int r = 2; r <= n; ++r) {
+            int nxt = (n + r - 1) / r;
+            if (r + dp[nxt] < dp[n]) {
+                dp[n] = r + dp[nxt];
+                choice[n] = r;
+            }
+        }
+    }
+
+    vector<int> base;
+    int cur = N;
+    while (cur > 1) {
+        int r = choice[cur];
+        base.push_back(r);
+        cur = (cur + r - 1) / r;
+    }
+
+    int L = (int)base.size();
+    vector<long long> suf(L + 1, 1);
+    for (int i = L - 1; i >= 0; --i) suf[i] = suf[i + 1] * base[i];
+
+    vector<vector<int>> dig(L, vector<int>(N + 1, 0));
+    for (int j = 1; j <= N; ++j) {
+        long long v = j - 1;
+        for (int i = 0; i < L; ++i) {
+            dig[i][j] = (int)((v / suf[i + 1]) % base[i]);
+        }
+    }
+
+    vector<vector<int>> id(L);
+    int idx = 1;
+    for (int i = 0; i < L; ++i) {
+        id[i].resize(base[i]);
+        for (int d = 0; d < base[i]; ++d) id[i][d] = idx++;
+    }
+
+    int x = idx - 1;
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, -1));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = id[0][dig[0][j]];
+    }
+
+    for (int lv = 0; lv < L; ++lv) {
+        int bag = (lv % 2 == 0 ? 1 : 0);
+        for (int d = 0; d < base[lv]; ++d) {
+            int st = id[lv][d];
+            s[st][0] = bag;
+
+            for (int j = 1; j <= N; ++j) {
+                int e = dig[lv][j];
+
+                if (e == d) {
+                    if (lv + 1 == L) {
+                        s[st][j] = -1;
+                    } else {
+                        s[st][j] = id[lv + 1][dig[lv + 1][j]];
+                    }
+                } else {
+                    if (bag == 1) {
+                        s[st][j] = (d < e ? -1 : -2);
+                    } else {
+                        s[st][j] = (e < d ? -1 : -2);
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

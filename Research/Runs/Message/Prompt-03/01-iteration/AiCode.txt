@@ -1,0 +1,153 @@
+#include <vector>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+long long comb_table[32][32];
+bool comb_ready = false;
+
+void init_comb() {
+    if (comb_ready) return;
+    for (int n = 0; n <= 31; ++n) {
+        comb_table[n][0] = comb_table[n][n] = 1;
+        for (int k = 1; k < n; ++k) {
+            comb_table[n][k] = comb_table[n - 1][k - 1] + comb_table[n - 1][k];
+        }
+    }
+    comb_ready = true;
+}
+
+long long rank_control_set(const std::vector<bool>& C) {
+    init_comb();
+    long long rank = 0;
+    int remaining = 15;
+    for (int i = 0; i < 31; ++i) {
+        if (C[i]) {
+            rank += comb_table[31 - i - 1][remaining];
+            --remaining;
+        }
+    }
+    return rank;
+}
+
+std::vector<bool> unrank_control_set(long long rank) {
+    init_comb();
+    std::vector<bool> C(31, false);
+    int remaining = 15;
+    for (int i = 0; i < 31; ++i) {
+        if (remaining == 0) break;
+        long long skip = comb_table[31 - i - 1][remaining];
+        if (rank >= skip) {
+            C[i] = true;
+            rank -= skip;
+            --remaining;
+        }
+    }
+    return C;
+}
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    long long rank = rank_control_set(C);
+
+    for (int t = 0; t < 29; ++t) {
+        bool bit = ((rank >> t) & 1LL) != 0;
+        std::vector<bool> A(31, bit);
+        send_packet(A);
+    }
+
+    std::vector<int> protected_pos;
+    protected_pos.reserve(16);
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) protected_pos.push_back(i);
+    }
+
+    int S = (int)M.size();
+    int rem = S & 15;
+    int total_bits = S + 4;
+    int data_packets = (total_bits + 15) / 16;
+
+    for (int p = 0; p < data_packets; ++p) {
+        std::vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            int bit_index = p * 16 + j;
+            bool bit = false;
+            if (bit_index < 4) {
+                bit = ((rem >> bit_index) & 1) != 0;
+            } else {
+                int m_index = bit_index - 4;
+                if (m_index < S) bit = M[m_index];
+            }
+            A[protected_pos[j]] = bit;
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    int q = (int)R.size();
+
+    uint32_t best_value = 0;
+    int best_count = -1;
+
+    for (int col = 0; col < 31; ++col) {
+        uint32_t value = 0;
+        for (int t = 0; t < 29; ++t) {
+            if (R[t][col]) value |= (1u << t);
+        }
+
+        int count = 0;
+        for (int col2 = 0; col2 < 31; ++col2) {
+            uint32_t value2 = 0;
+            for (int t = 0; t < 29; ++t) {
+                if (R[t][col2]) value2 |= (1u << t);
+            }
+            if (value2 == value) ++count;
+        }
+
+        if (count > best_count) {
+            best_count = count;
+            best_value = value;
+        }
+    }
+
+    std::vector<bool> C = unrank_control_set((long long)best_value);
+
+    std::vector<int> protected_pos;
+    protected_pos.reserve(16);
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) protected_pos.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    bits.reserve(std::max(0, q - 29) * 16);
+
+    for (int p = 29; p < q; ++p) {
+        for (int j = 0; j < 16; ++j) {
+            bits.push_back(R[p][protected_pos[j]]);
+        }
+    }
+
+    int rem = 0;
+    for (int i = 0; i < 4 && i < (int)bits.size(); ++i) {
+        if (bits[i]) rem |= (1 << i);
+    }
+
+    int data_packets = q - 29;
+    int S = 1;
+    for (int s = 1; s <= 1024; ++s) {
+        if ((s & 15) == rem && (s + 4 + 15) / 16 == data_packets) {
+            S = s;
+            break;
+        }
+    }
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[4 + i]);
+    }
+    return M;
+}

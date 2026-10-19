@@ -1,0 +1,135 @@
+#include <vector>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    uint64_t BINOM[32][32];
+    bool BINOM_READY = false;
+
+    void init_binom() {
+        if (BINOM_READY) return;
+        for (int n = 0; n <= 31; ++n) {
+            BINOM[n][0] = BINOM[n][n] = 1;
+            for (int k = 1; k < n; ++k) {
+                BINOM[n][k] = BINOM[n - 1][k - 1] + BINOM[n - 1][k];
+            }
+        }
+        BINOM_READY = true;
+    }
+
+    uint64_t rank_subset(const std::vector<int>& a) {
+        init_binom();
+        const int n = 31;
+        const int k = 16;
+        uint64_t r = 0;
+        int prev = -1;
+        for (int j = 0; j < k; ++j) {
+            for (int x = prev + 1; x < a[j]; ++x) {
+                r += BINOM[n - 1 - x][k - 1 - j];
+            }
+            prev = a[j];
+        }
+        return r;
+    }
+
+    std::vector<int> unrank_subset(uint64_t r) {
+        init_binom();
+        const int n = 31;
+        const int k = 16;
+        std::vector<int> a;
+        a.reserve(k);
+        int prev = -1;
+        for (int j = 0; j < k; ++j) {
+            for (int x = prev + 1; x < n; ++x) {
+                uint64_t cnt = BINOM[n - 1 - x][k - 1 - j];
+                if (r >= cnt) {
+                    r -= cnt;
+                } else {
+                    a.push_back(x);
+                    prev = x;
+                    break;
+                }
+            }
+        }
+        return a;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> good;
+    good.reserve(16);
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    uint64_t r = rank_subset(good);
+
+    for (int b = 0; b < 29; ++b) {
+        bool bit = ((r >> b) & 1ULL) != 0;
+        std::vector<bool> A(31, bit);
+        send_packet(A);
+    }
+
+    std::vector<bool> payload;
+    int S = (int)M.size();
+    int len = S - 1;
+    payload.reserve(10 + S);
+
+    for (int b = 0; b < 10; ++b) {
+        payload.push_back(((len >> b) & 1) != 0);
+    }
+    for (bool bit : M) {
+        payload.push_back(bit);
+    }
+
+    int packets = ((int)payload.size() + 15) / 16;
+    int ptr = 0;
+
+    for (int t = 0; t < packets; ++t) {
+        std::vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            bool bit = false;
+            if (ptr < (int)payload.size()) bit = payload[ptr];
+            A[good[j]] = bit;
+            ++ptr;
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    uint64_t r = 0;
+
+    for (int b = 0; b < 29; ++b) {
+        int cnt = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) ++cnt;
+        }
+        if (cnt >= 16) r |= (1ULL << b);
+    }
+
+    std::vector<int> good = unrank_subset(r);
+
+    std::vector<bool> bits;
+    for (int t = 29; t < (int)R.size(); ++t) {
+        for (int j = 0; j < 16; ++j) {
+            bits.push_back(R[t][good[j]]);
+        }
+    }
+
+    int len = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (bits[b]) len |= (1 << b);
+    }
+    int S = len + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[10 + i]);
+    }
+
+    return M;
+}

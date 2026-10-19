@@ -1,0 +1,235 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static const int BUFSIZE = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[BUFSIZE];
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        char c;
+        do { c = getChar(); } while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do { c = getChar(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+uint64_t LAST_MASK;
+vector<uint64_t> adjBits;
+vector<vector<int>> compAdj;
+int bestAns = 0;
+
+inline uint64_t* rowPtr(int v) {
+    return &adjBits[(size_t)v * W];
+}
+
+inline const uint64_t* rowPtrConst(int v) {
+    return &adjBits[(size_t)v * W];
+}
+
+inline void setBit(vector<uint64_t>& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+inline void clearBit(vector<uint64_t>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline bool hasBit(const vector<uint64_t>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline int popcountBits(const vector<uint64_t>& b) {
+    int s = 0;
+    for (uint64_t x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+int greedyComplementMIS() {
+    vector<int> deg(N);
+    vector<unsigned char> alive(N, 1);
+    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)compAdj[i].size();
+        pq.push({deg[i], i});
+    }
+
+    int res = 0;
+    vector<int> rem;
+    while (!pq.empty()) {
+        auto [d, v] = pq.top();
+        pq.pop();
+        if (!alive[v] || d != deg[v]) continue;
+
+        ++res;
+        rem.clear();
+        rem.push_back(v);
+        for (int u : compAdj[v]) {
+            if (alive[u]) rem.push_back(u);
+        }
+
+        for (int x : rem) {
+            if (!alive[x]) continue;
+            alive[x] = 0;
+            for (int y : compAdj[x]) {
+                if (alive[y]) {
+                    --deg[y];
+                    pq.push({deg[y], y});
+                }
+            }
+        }
+    }
+    return res;
+}
+
+void colorSort(const vector<uint64_t>& P, int sz, vector<int>& order, vector<int>& colors) {
+    order.clear();
+    colors.clear();
+    order.reserve(sz);
+    colors.reserve(sz);
+
+    vector<uint64_t> U = P;
+    vector<uint64_t> Q(W);
+
+    int remaining = sz;
+    int color = 0;
+
+    while (remaining > 0) {
+        ++color;
+        Q = U;
+
+        while (true) {
+            int v = -1;
+            for (int i = 0; i < W; ++i) {
+                if (Q[i]) {
+                    v = (i << 6) + __builtin_ctzll(Q[i]);
+                    break;
+                }
+            }
+            if (v < 0 || v >= N) break;
+
+            uint64_t mask = 1ULL << (v & 63);
+            int wi = v >> 6;
+
+            if (U[wi] & mask) {
+                U[wi] &= ~mask;
+                --remaining;
+                order.push_back(v);
+                colors.push_back(color);
+            }
+
+            Q[wi] &= ~mask;
+            const uint64_t* av = rowPtrConst(v);
+            for (int i = 0; i < W; ++i) {
+                Q[i] &= ~av[i];
+            }
+            Q[W - 1] &= LAST_MASK;
+        }
+    }
+}
+
+void expand(const vector<uint64_t>& P, int sz, int cur) {
+    if (cur + sz <= bestAns) return;
+    if (sz == 0) {
+        if (cur > bestAns) bestAns = cur;
+        return;
+    }
+
+    vector<int> order, colors;
+    colorSort(P, sz, order, colors);
+
+    vector<uint64_t> Pcur = P;
+    vector<uint64_t> newP(W);
+
+    for (int idx = (int)order.size() - 1; idx >= 0; --idx) {
+        if (cur + colors[idx] <= bestAns) return;
+
+        int v = order[idx];
+        if (!hasBit(Pcur, v)) continue;
+
+        const uint64_t* av = rowPtrConst(v);
+        int cnt = 0;
+        for (int i = 0; i < W; ++i) {
+            newP[i] = Pcur[i] & av[i];
+            cnt += __builtin_popcountll(newP[i]);
+        }
+
+        if (cnt == 0) {
+            if (cur + 1 > bestAns) bestAns = cur + 1;
+        } else if (cur + 1 + cnt > bestAns) {
+            expand(newP, cnt, cur + 1);
+        }
+
+        clearBit(Pcur, v);
+    }
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    LAST_MASK = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    adjBits.assign((size_t)N * W, 0);
+    compAdj.assign(N, {});
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = in.nextBit();
+            if (b && i != j) {
+                adjBits[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+            }
+            if (!b && i < j) {
+                compAdj[i].push_back(j);
+                compAdj[j].push_back(i);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        adjBits[(size_t)i * W + (i >> 6)] &= ~(1ULL << (i & 63));
+        adjBits[(size_t)i * W + W - 1] &= LAST_MASK;
+    }
+
+    bestAns = greedyComplementMIS();
+
+    if (bestAns >= N) {
+        printf("%d\n", N);
+        return 0;
+    }
+
+    vector<uint64_t> P(W, ~0ULL);
+    P[W - 1] = LAST_MASK;
+
+    expand(P, N, 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

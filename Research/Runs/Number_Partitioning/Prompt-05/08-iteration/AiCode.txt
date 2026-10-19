@@ -1,0 +1,270 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <optional>
+#include <vector>
+
+using ull = unsigned long long;
+
+static std::optional<ull> solve_dp(const std::vector<ull>& a, ull target) {
+    constexpr std::size_t MAX_WORDS = 8000000;
+    constexpr long double MAX_OPS = 250000000.0L;
+
+    std::size_t words = static_cast<std::size_t>(target / 64 + 1);
+    if (words > MAX_WORDS) return std::nullopt;
+
+    std::vector<ull> chunks;
+    chunks.reserve(a.size());
+
+    for (std::size_t i = 0; i < a.size();) {
+        ull v = a[i];
+        std::size_t j = i + 1;
+        while (j < a.size() && a[j] == v) ++j;
+
+        if (v <= target) {
+            ull usable_ull = target / v;
+            std::size_t cnt = j - i;
+            std::size_t usable = cnt;
+            if (usable_ull < static_cast<ull>(usable)) usable = static_cast<std::size_t>(usable_ull);
+
+            std::size_t rem = usable;
+            std::size_t k = 1;
+            while (rem > 0) {
+                std::size_t take = std::min(k, rem);
+                chunks.push_back(v * static_cast<ull>(take));
+                rem -= take;
+                if (rem == 0) break;
+                if (k <= rem / 2) k *= 2;
+                else k = rem;
+            }
+        }
+
+        i = j;
+    }
+
+    long double ops = static_cast<long double>(chunks.size()) * static_cast<long double>(words);
+    if (ops > MAX_OPS) return std::nullopt;
+
+    std::vector<std::uint64_t> bits(words, 0);
+    bits[0] = 1;
+
+    const int last_bits = static_cast<int>(target & 63ULL);
+    const std::uint64_t last_mask =
+        (last_bits == 63) ? ~0ULL : ((1ULL << (last_bits + 1)) - 1ULL);
+
+    for (ull sh : chunks) {
+        std::size_t ws = static_cast<std::size_t>(sh / 64);
+        unsigned bs = static_cast<unsigned>(sh & 63ULL);
+
+        for (std::size_t i = words; i-- > ws;) {
+            std::uint64_t val = bits[i - ws] << bs;
+            if (bs && i > ws) {
+                val |= bits[i - ws - 1] >> (64 - bs);
+            }
+            bits[i] |= val;
+        }
+        bits.back() &= last_mask;
+    }
+
+    for (std::size_t i = words; i-- > 0;) {
+        std::uint64_t w = bits[i];
+        if (w) {
+            int pos = 63 - std::countl_zero(w);
+            ull s = static_cast<ull>(i) * 64ULL + static_cast<ull>(pos);
+            if (s <= target) return s;
+        }
+    }
+
+    return 0ULL;
+}
+
+static ull solve_mitm(const std::vector<ull>& a, ull target) {
+    std::vector<ull> v;
+    for (ull x : a) {
+        if (x <= target) v.push_back(x);
+    }
+
+    std::size_t n = v.size();
+    std::size_t m = n / 2;
+
+    std::vector<ull> left{0};
+    if (m < 63) left.reserve(static_cast<std::size_t>(1ULL << m));
+
+    for (std::size_t i = 0; i < m; ++i) {
+        ull x = v[i];
+        std::size_t old = left.size();
+        for (std::size_t j = 0; j < old; ++j) {
+            if (left[j] <= target - x) left.push_back(left[j] + x);
+        }
+    }
+
+    std::sort(left.begin(), left.end());
+
+    ull best = 0;
+
+    auto check = [&](ull cur) {
+        if (cur > target) return;
+        auto it = std::upper_bound(left.begin(), left.end(), target - cur);
+        if (it != left.begin()) {
+            --it;
+            ull cand = cur + *it;
+            if (cand > best) best = cand;
+        }
+    };
+
+    std::vector<ull> right(v.begin() + static_cast<std::ptrdiff_t>(m), v.end());
+
+    struct Frame {
+        std::size_t idx;
+        ull sum;
+    };
+
+    std::vector<Frame> st;
+    st.push_back({0, 0});
+
+    while (!st.empty() && best != target) {
+        Frame f = st.back();
+        st.pop_back();
+
+        if (f.idx == right.size()) {
+            check(f.sum);
+            continue;
+        }
+
+        st.push_back({f.idx + 1, f.sum});
+        ull x = right[f.idx];
+        if (f.sum <= target - x) st.push_back({f.idx + 1, f.sum + x});
+    }
+
+    return best;
+}
+
+static ull solve_dfs(const std::vector<ull>& sorted_a, ull target) {
+    std::vector<ull> v;
+    v.reserve(sorted_a.size());
+    for (auto it = sorted_a.rbegin(); it != sorted_a.rend(); ++it) {
+        if (*it <= target) v.push_back(*it);
+    }
+
+    std::size_t n = v.size();
+    if (n == 0) return 0;
+
+    std::vector<ull> suffix(n + 1, 0);
+    for (std::size_t i = n; i-- > 0;) {
+        suffix[i] = suffix[i + 1] + v[i];
+    }
+
+    ull best = 0;
+
+    ull g1 = 0;
+    for (ull x : v) {
+        if (x <= target - g1) g1 += x;
+    }
+    best = std::max(best, g1);
+
+    ull g2 = 0;
+    for (ull x : sorted_a) {
+        if (x <= target && x <= target - g2) g2 += x;
+    }
+    best = std::max(best, g2);
+
+    if (best == target) return best;
+
+    struct State {
+        std::size_t idx;
+        ull cur;
+    };
+
+    std::vector<State> st;
+    st.reserve(n + 1);
+    st.push_back({0, 0});
+
+    while (!st.empty() && best != target) {
+        State s = st.back();
+        st.pop_back();
+
+        if (s.idx == n) {
+            if (s.cur > best) best = s.cur;
+            continue;
+        }
+
+        if (s.cur + suffix[s.idx] <= best) continue;
+
+        if (s.cur + suffix[s.idx] <= target) {
+            best = s.cur + suffix[s.idx];
+            continue;
+        }
+
+        ull x = v[s.idx];
+
+        if (s.cur + suffix[s.idx + 1] > best) {
+            st.push_back({s.idx + 1, s.cur});
+        }
+
+        if (x <= target - s.cur) {
+            ull nc = s.cur + x;
+            if (nc + suffix[s.idx + 1] > best) {
+                st.push_back({s.idx + 1, nc});
+            } else if (nc > best) {
+                best = nc;
+            }
+        }
+    }
+
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a(N);
+    ull g = 0;
+
+    for (std::size_t i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        g = std::gcd(g, a[i]);
+    }
+
+    if (N == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    ull total = 0;
+    for (ull& x : a) {
+        x /= g;
+        total += x;
+    }
+
+    ull target = total / 2;
+    std::sort(a.begin(), a.end());
+
+    ull best = 0;
+
+    if (auto dp = solve_dp(a, target)) {
+        best = *dp;
+    } else {
+        std::size_t usable = 0;
+        for (ull x : a) {
+            if (x <= target) ++usable;
+        }
+
+        if (usable <= 46) {
+            best = solve_mitm(a, target);
+        } else {
+            best = solve_dfs(a, target);
+        }
+    }
+
+    ull diff = (total - 2ULL * best) * g;
+    std::cout << diff << '\n';
+
+    return 0;
+}

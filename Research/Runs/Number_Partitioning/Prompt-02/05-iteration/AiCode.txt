@@ -1,0 +1,378 @@
+#include <algorithm>
+#include <bit>
+#include <cstddef>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <unordered_set>
+#include <vector>
+
+using ull = unsigned long long;
+
+static void print_product(ull a, ull b) {
+    const ull BASE = 1000000000ULL;
+    if (a == 0 || b == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+
+    auto chunks = [&](ull x) {
+        std::vector<ull> v;
+        while (x > 0) {
+            v.push_back(x % BASE);
+            x /= BASE;
+        }
+        return v;
+    };
+
+    std::vector<ull> x = chunks(a), y = chunks(b);
+    std::vector<ull> res(x.size() + y.size() + 2, 0);
+
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        for (std::size_t j = 0; j < y.size(); ++j) {
+            res[i + j] += x[i] * y[j];
+        }
+    }
+
+    for (std::size_t i = 0; i + 1 < res.size(); ++i) {
+        res[i + 1] += res[i] / BASE;
+        res[i] %= BASE;
+    }
+
+    while (res.size() > 1 && res.back() == 0) res.pop_back();
+
+    std::cout << res.back();
+    for (std::size_t i = res.size() - 1; i-- > 0;) {
+        std::cout << std::setw(9) << std::setfill('0') << res[i];
+    }
+    std::cout << '\n';
+}
+
+static bool solve_dp(const std::vector<ull>& a, ull total, ull& ans) {
+    ull half = total / 2;
+    constexpr ull MAX_HALF = 200000000ULL;
+    if (half > MAX_HALF) return false;
+
+    try {
+        std::size_t words = static_cast<std::size_t>(half / 64 + 1);
+        std::vector<ull> dp(words, 0);
+        dp[0] = 1;
+
+        ull max_reach = 0;
+
+        for (ull x : a) {
+            if (x == 0 || x > half) continue;
+
+            ull new_reach = std::min(half, max_reach + x);
+            std::size_t high = static_cast<std::size_t>(new_reach / 64);
+            std::size_t word_shift = static_cast<std::size_t>(x / 64);
+            unsigned bit_shift = static_cast<unsigned>(x % 64);
+
+            for (std::size_t i = high + 1; i-- > word_shift;) {
+                ull val = dp[i - word_shift] << bit_shift;
+                if (bit_shift != 0 && i > word_shift) {
+                    val |= dp[i - word_shift - 1] >> (64 - bit_shift);
+                }
+                dp[i] |= val;
+            }
+
+            unsigned valid_bits = static_cast<unsigned>(half % 64) + 1;
+            if (valid_bits < 64) {
+                dp.back() &= ((1ULL << valid_bits) - 1ULL);
+            }
+
+            max_reach = new_reach;
+            if ((dp[half / 64] & (1ULL << (half % 64))) != 0) {
+                ans = total - 2 * half;
+                return true;
+            }
+        }
+
+        std::size_t idx = static_cast<std::size_t>(half / 64);
+        unsigned offset = static_cast<unsigned>(half % 64);
+        ull mask = (offset == 63) ? ~0ULL : ((1ULL << (offset + 1)) - 1ULL);
+
+        while (true) {
+            ull w = dp[idx] & mask;
+            if (w != 0) {
+                unsigned bit = 63U - static_cast<unsigned>(std::countl_zero(w));
+                ull best = static_cast<ull>(idx) * 64ULL + bit;
+                ans = total - 2 * best;
+                return true;
+            }
+            if (idx == 0) break;
+            --idx;
+            mask = ~0ULL;
+        }
+    } catch (...) {
+        return false;
+    }
+
+    return false;
+}
+
+static bool generate_sums(const std::vector<ull>& a, std::size_t l, std::size_t r, ull half, std::vector<ull>& sums) {
+    try {
+        sums.clear();
+        sums.push_back(0);
+
+        std::size_t k = r - l;
+        if (k < 63 && k <= 23) {
+            sums.reserve(static_cast<std::size_t>(1ULL << k));
+        }
+
+        for (std::size_t i = l; i < r; ++i) {
+            ull x = a[i];
+            std::size_t m = sums.size();
+            if (x <= half) {
+                for (std::size_t j = 0; j < m; ++j) {
+                    if (sums[j] <= half - x) {
+                        sums.push_back(sums[j] + x);
+                    }
+                }
+            }
+        }
+    } catch (...) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool solve_mitm(const std::vector<ull>& a, ull total, ull& ans) {
+    std::size_t n = a.size();
+    if (n > 46) return false;
+
+    ull half = total / 2;
+    std::size_t n1 = n / 2;
+    std::size_t n2 = n - n1;
+
+    std::vector<ull> right;
+    if (!generate_sums(a, n1, n, half, right)) return false;
+
+    try {
+        std::sort(right.begin(), right.end());
+        right.erase(std::unique(right.begin(), right.end()), right.end());
+    } catch (...) {
+        return false;
+    }
+
+    ull best_sum = 0;
+
+    auto dfs = [&](auto&& self, std::size_t idx, ull cur) -> void {
+        if (best_sum == half) return;
+        if (idx == n1) {
+            ull need = half - cur;
+            auto it = std::upper_bound(right.begin(), right.end(), need);
+            if (it != right.begin()) {
+                --it;
+                ull s = cur + *it;
+                if (s > best_sum) best_sum = s;
+            }
+            return;
+        }
+
+        self(self, idx + 1, cur);
+        if (a[idx] <= half - cur) {
+            self(self, idx + 1, cur + a[idx]);
+        }
+    };
+
+    dfs(dfs, 0, 0);
+    ans = total - 2 * best_sum;
+    return true;
+}
+
+class BranchBoundSolver {
+    std::vector<ull> a;
+    std::vector<ull> suffix;
+    std::vector<ull> suffix_gcd;
+    std::vector<std::unordered_set<ull>> seen;
+    ull best;
+    bool use_memo = true;
+    std::size_t memo_entries = 0;
+    static constexpr std::size_t MEMO_LIMIT = 200000;
+
+    ull initial_greedy() const {
+        ull s1 = 0, s2 = 0;
+        for (ull x : a) {
+            if (s1 <= s2) s1 += x;
+            else s2 += x;
+        }
+        return s1 >= s2 ? s1 - s2 : s2 - s1;
+    }
+
+    ull initial_kk() const {
+        std::priority_queue<ull> pq;
+        for (ull x : a) pq.push(x);
+        while (pq.size() > 1) {
+            ull x = pq.top(); pq.pop();
+            ull y = pq.top(); pq.pop();
+            pq.push(x - y);
+        }
+        return pq.empty() ? 0 : pq.top();
+    }
+
+    static ull next_ge_residue(ull low, ull residue, ull mod) {
+        if (low <= residue) return residue;
+        ull delta = low - residue;
+        ull k = (delta + mod - 1) / mod;
+        if (k > (std::numeric_limits<ull>::max() - residue) / mod) {
+            return std::numeric_limits<ull>::max();
+        }
+        return residue + k * mod;
+    }
+
+    bool pruned(std::size_t i, ull d) const {
+        ull rem = suffix[i];
+        ull lb = (d > rem) ? (d - rem) : 0;
+
+        ull g = suffix_gcd[i];
+        if (g > 0 && g <= std::numeric_limits<ull>::max() / 2) {
+            ull mod = 2 * g;
+            ull c = (d % mod + rem % mod) % mod;
+            ull r1 = c;
+            ull r2 = (mod - c) % mod;
+            ull b1 = next_ge_residue(lb, r1, mod);
+            ull b2 = next_ge_residue(lb, r2, mod);
+            lb = std::min(b1, b2);
+        }
+
+        return lb >= best;
+    }
+
+public:
+    explicit BranchBoundSolver(std::vector<ull> v) : a(std::move(v)) {
+        std::sort(a.begin(), a.end(), std::greater<ull>());
+
+        best = initial_greedy();
+        best = std::min(best, initial_kk());
+
+        std::size_t n = a.size();
+        suffix.assign(n + 1, 0);
+        suffix_gcd.assign(n + 1, 0);
+
+        for (std::size_t i = n; i-- > 0;) {
+            suffix[i] = suffix[i + 1] + a[i];
+            suffix_gcd[i] = std::gcd(suffix_gcd[i + 1], a[i]);
+        }
+
+        if (n <= 5000) {
+            seen.resize(n);
+        } else {
+            use_memo = false;
+        }
+    }
+
+    ull solve() {
+        if (best == 0) return 0;
+
+        std::vector<std::pair<std::size_t, ull>> st;
+        st.push_back({0, 0});
+
+        auto consider = [&](std::size_t i, ull d) {
+            if (best == 0) return;
+            if (pruned(i, d)) return;
+
+            if (i < a.size() && use_memo) {
+                auto& s = seen[i];
+                if (s.find(d) != s.end()) return;
+                if (memo_entries < MEMO_LIMIT) {
+                    try {
+                        s.insert(d);
+                        ++memo_entries;
+                    } catch (...) {
+                        use_memo = false;
+                    }
+                }
+            }
+
+            st.push_back({i, d});
+        };
+
+        while (!st.empty() && best != 0) {
+            auto [i, d] = st.back();
+            st.pop_back();
+
+            if (pruned(i, d)) continue;
+
+            if (i == a.size()) {
+                if (d < best) best = d;
+                continue;
+            }
+
+            ull x = a[i];
+            ull b1 = (d >= x) ? (d - x) : (x - d);
+            ull b2 = d + x;
+
+            if (b1 <= b2) {
+                if (b2 != b1) consider(i + 1, b2);
+                consider(i + 1, b1);
+            } else {
+                consider(i + 1, b1);
+                consider(i + 1, b2);
+            }
+        }
+
+        return best;
+    }
+};
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a(N);
+    ull g = 0;
+
+    for (std::size_t i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        g = std::gcd(g, a[i]);
+    }
+
+    if (N == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    if (g == 0) g = 1;
+
+    bool overflow = false;
+    ull total = 0;
+
+    for (ull& x : a) {
+        x /= g;
+        if (std::numeric_limits<ull>::max() - total < x) {
+            overflow = true;
+        } else {
+            total += x;
+        }
+    }
+
+    if (overflow) {
+        while (true) {}
+    }
+
+    ull ans = 0;
+
+    if (solve_dp(a, total, ans)) {
+        print_product(ans, g);
+        return 0;
+    }
+
+    if (solve_mitm(a, total, ans)) {
+        print_product(ans, g);
+        return 0;
+    }
+
+    BranchBoundSolver solver(a);
+    ans = solver.solve();
+    print_product(ans, g);
+
+    return 0;
+}

@@ -1,0 +1,5 @@
+Define N as the number of vertices, V = {0,1,...,N-1}, and A as the N by N adjacency matrix read from input, where A[i][j] = 1 means vertices i and j are adjacent and A[i][j] = 0 means they are not. The graph is simple and undirected, so A is symmetric and self-entries are irrelevant. Each edge was generated independently with probability p = e^(-ln(N)/N). A set S subset of V is a clique iff for all distinct u,v in S, A[u][v] = 1. Let omega(G) be the maximum possible size of such an S.
+
+Read N and A, accepting rows written as either contiguous 0/1 characters or whitespace-separated digits. Under a 1 second limit, compute omega(G) exactly and print it as a single integer. Test instances are ordered by increasing N; the first wrong answer, runtime error, crash, or invalid output stops evaluation and gives zero score, so the program must be both correct and robust.
+
+Your answer must consist only of valid C++20 source code. Do not include explanations, markdown, or code fences.

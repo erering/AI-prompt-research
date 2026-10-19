@@ -1,0 +1,336 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using U64 = unsigned long long;
+
+int N, W;
+vector<vector<U64>> H;
+U64 lastMask;
+
+static inline bool testBit(const vector<U64>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+static inline void setBit(vector<U64>& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+static inline void resetBit(vector<U64>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+static inline bool anyBits(const vector<U64>& b) {
+    for (U64 x : b) if (x) return true;
+    return false;
+}
+
+static inline int popcountBits(const vector<U64>& b) {
+    int s = 0;
+    for (U64 x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+static inline int firstBit(const vector<U64>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+static inline int degreeInP(int v, const vector<U64>& P) {
+    int d = 0;
+    const auto& hv = H[v];
+    for (int i = 0; i < W; ++i) d += __builtin_popcountll(hv[i] & P[i]);
+    return d;
+}
+
+int degreeUpTo3(int v, const vector<U64>& P, int& a, int& b) {
+    int cnt = 0;
+    a = b = -1;
+    const auto& hv = H[v];
+    for (int i = 0; i < W; ++i) {
+        U64 x = hv[i] & P[i];
+        while (x) {
+            int u = (i << 6) + __builtin_ctzll(x);
+            if (cnt == 0) a = u;
+            else if (cnt == 1) b = u;
+            ++cnt;
+            if (cnt > 2) return cnt;
+            x &= x - 1;
+        }
+    }
+    return cnt;
+}
+
+void reduceGraph(vector<U64>& P, int& cur) {
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int wi = 0; wi < W && !changed; ++wi) {
+            U64 bits = P[wi];
+            while (bits) {
+                int v = (wi << 6) + __builtin_ctzll(bits);
+                bits &= bits - 1;
+
+                int a, b;
+                int d = degreeUpTo3(v, P, a, b);
+
+                if (d == 0) {
+                    resetBit(P, v);
+                    ++cur;
+                    changed = true;
+                    break;
+                }
+
+                if (d == 1) {
+                    resetBit(P, v);
+                    resetBit(P, a);
+                    ++cur;
+                    changed = true;
+                    break;
+                }
+
+                if (d == 2 && testBit(H[a], b)) {
+                    resetBit(P, v);
+                    resetBit(P, a);
+                    resetBit(P, b);
+                    ++cur;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+int greedyMIS(vector<U64> P) {
+    int res = 0;
+
+    while (anyBits(P)) {
+        int best = -1;
+        int bestDeg = INT_MAX;
+
+        for (int wi = 0; wi < W; ++wi) {
+            U64 bits = P[wi];
+            while (bits) {
+                int v = (wi << 6) + __builtin_ctzll(bits);
+                bits &= bits - 1;
+
+                int d = degreeInP(v, P);
+                if (d < bestDeg) {
+                    bestDeg = d;
+                    best = v;
+                    if (d == 0) break;
+                }
+            }
+            if (bestDeg == 0) break;
+        }
+
+        ++res;
+        for (int i = 0; i < W; ++i) P[i] &= ~H[best][i];
+        resetBit(P, best);
+        P[W - 1] &= lastMask;
+    }
+
+    return res;
+}
+
+bool splitComponents(const vector<U64>& P, vector<vector<U64>>& comps) {
+    comps.clear();
+
+    vector<U64> unvis = P;
+    vector<int> q;
+    q.reserve(256);
+
+    while (anyBits(unvis)) {
+        int s = firstBit(unvis);
+
+        vector<U64> comp(W, 0);
+        resetBit(unvis, s);
+        setBit(comp, s);
+
+        q.clear();
+        q.push_back(s);
+
+        for (size_t head = 0; head < q.size(); ++head) {
+            int v = q[head];
+            for (int i = 0; i < W; ++i) {
+                U64 nb = H[v][i] & unvis[i];
+                while (nb) {
+                    int u = (i << 6) + __builtin_ctzll(nb);
+                    nb &= nb - 1;
+                    resetBit(unvis, u);
+                    setBit(comp, u);
+                    q.push_back(u);
+                }
+            }
+        }
+
+        comps.push_back(std::move(comp));
+        if (comps.size() > 1) {
+            while (anyBits(unvis)) {
+                int t = firstBit(unvis);
+                vector<U64> c(W, 0);
+                resetBit(unvis, t);
+                setBit(c, t);
+                q.clear();
+                q.push_back(t);
+
+                for (size_t head = 0; head < q.size(); ++head) {
+                    int v = q[head];
+                    for (int i = 0; i < W; ++i) {
+                        U64 nb = H[v][i] & unvis[i];
+                        while (nb) {
+                            int u = (i << 6) + __builtin_ctzll(nb);
+                            nb &= nb - 1;
+                            resetBit(unvis, u);
+                            setBit(c, u);
+                            q.push_back(u);
+                        }
+                    }
+                }
+
+                comps.push_back(std::move(c));
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void colorSort(const vector<U64>& P, vector<int>& order, vector<int>& color) {
+    order.clear();
+    color.clear();
+
+    vector<U64> U = P;
+    vector<U64> Q(W);
+
+    int c = 0;
+    while (anyBits(U)) {
+        ++c;
+        Q = U;
+
+        while (anyBits(Q)) {
+            int v = firstBit(Q);
+
+            order.push_back(v);
+            color.push_back(c);
+
+            resetBit(U, v);
+            resetBit(Q, v);
+
+            for (int i = 0; i < W; ++i) Q[i] &= H[v][i] & U[i];
+        }
+    }
+}
+
+int solveExact(vector<U64> P);
+
+void expandLocal(vector<U64> P, int cur, int& best) {
+    reduceGraph(P, cur);
+
+    if (!anyBits(P)) {
+        if (cur > best) best = cur;
+        return;
+    }
+
+    int m = popcountBits(P);
+    if (cur + m <= best) return;
+
+    vector<vector<U64>> comps;
+    if (splitComponents(P, comps)) {
+        int val = cur;
+        for (auto& c : comps) val += solveExact(std::move(c));
+        if (val > best) best = val;
+        return;
+    }
+
+    vector<int> order, color;
+    colorSort(P, order, color);
+
+    if (order.empty()) {
+        if (cur > best) best = cur;
+        return;
+    }
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (cur + color[i] <= best) return;
+
+        int v = order[i];
+        if (!testBit(P, v)) continue;
+
+        vector<U64> newP(W);
+        for (int k = 0; k < W; ++k) newP[k] = P[k] & ~H[v][k];
+        resetBit(newP, v);
+        newP[W - 1] &= lastMask;
+
+        if (!anyBits(newP)) {
+            if (cur + 1 > best) best = cur + 1;
+        } else {
+            expandLocal(std::move(newP), cur + 1, best);
+        }
+
+        resetBit(P, v);
+    }
+}
+
+int solveExact(vector<U64> P) {
+    int forced = 0;
+    reduceGraph(P, forced);
+
+    if (!anyBits(P)) return forced;
+
+    vector<vector<U64>> comps;
+    if (splitComponents(P, comps)) {
+        int ans = forced;
+        for (auto& c : comps) ans += solveExact(std::move(c));
+        return ans;
+    }
+
+    int best = greedyMIS(P);
+    expandLocal(std::move(P), 0, best);
+    return forced + best;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+
+    W = (N + 63) >> 6;
+    int rem = N & 63;
+    lastMask = rem ? ((1ULL << rem) - 1ULL) : ~0ULL;
+
+    H.assign(N, vector<U64>(W, 0));
+
+    char ch;
+    long long idx = 0;
+    long long total = 1LL * N * N;
+
+    while (idx < total && cin.get(ch)) {
+        if (ch != '0' && ch != '1') continue;
+
+        int i = (int)(idx / N);
+        int j = (int)(idx % N);
+
+        if (ch == '0' && i != j) {
+            setBit(H[i], j);
+            setBit(H[j], i);
+        }
+
+        ++idx;
+    }
+
+    for (int i = 0; i < N; ++i) {
+        resetBit(H[i], i);
+        H[i][W - 1] &= lastMask;
+    }
+
+    vector<U64> all(W, ~0ULL);
+    all[W - 1] = lastMask;
+
+    cout << solveExact(std::move(all)) << '\n';
+    return 0;
+}

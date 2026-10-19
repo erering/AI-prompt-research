@@ -1,0 +1,100 @@
+#include <vector>
+#include <utility>
+
+static const int MAXN = 10000;
+static const int LOG = 15;
+
+static int up_tbl[MAXN][LOG];
+static int depth_tbl[MAXN];
+static int dia_a = 0;
+static int dia_b = 0;
+static int dia_len = 0;
+
+static int lca_node(int u, int v) {
+    if (depth_tbl[u] < depth_tbl[v]) {
+        int t = u;
+        u = v;
+        v = t;
+    }
+
+    int diff = depth_tbl[u] - depth_tbl[v];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) u = up_tbl[u][k];
+    }
+
+    if (u == v) return u;
+
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_tbl[u][k] != up_tbl[v][k]) {
+            u = up_tbl[u][k];
+            v = up_tbl[v][k];
+        }
+    }
+
+    return up_tbl[u][0];
+}
+
+static int dist_node(int u, int v) {
+    int w = lca_node(u, v);
+    return depth_tbl[u] + depth_tbl[v] - 2 * depth_tbl[w];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        depth_tbl[0] = 0;
+        for (int k = 0; k < LOG; ++k) up_tbl[0][k] = 0;
+        dia_a = 0;
+        dia_b = 0;
+        dia_len = 0;
+    }
+
+    up_tbl[i][0] = Pi;
+    depth_tbl[i] = depth_tbl[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[i][k] = up_tbl[up_tbl[i][k - 1]][k - 1];
+    }
+
+    bool replaced_a = false;
+
+    int da = dist_node(i, dia_a);
+    int db = dist_node(i, dia_b);
+
+    if (db > dia_len && db >= da) {
+        dia_a = i;
+        dia_len = db;
+        replaced_a = true;
+    } else if (da > dia_len) {
+        dia_b = i;
+        dia_len = da;
+    }
+
+    if (i == N - 2) {
+        return dia_a + 1;
+    }
+
+    if (i == N - 1) {
+        int value = dia_b + 1;
+        if (replaced_a) value += 10000;
+        return value;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    int a_prev = S[N - 2] - 1;
+    int value = S[N - 1];
+
+    bool replaced_a = false;
+    if (value > 10000) {
+        replaced_a = true;
+        value -= 10000;
+    }
+
+    int b = value - 1;
+    int a = replaced_a ? (N - 1) : a_prev;
+
+    return {a, b};
+}

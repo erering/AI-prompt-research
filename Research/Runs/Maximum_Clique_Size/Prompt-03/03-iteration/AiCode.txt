@@ -1,0 +1,221 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static int N, W;
+static unsigned long long LAST_MASK;
+
+struct BitSet {
+    vector<unsigned long long> a;
+
+    BitSet(bool fill = false) {
+        a.assign(W, fill ? ~0ULL : 0ULL);
+        if (fill && W > 0) a[W - 1] &= LAST_MASK;
+    }
+
+    inline void setbit(int i) {
+        a[i >> 6] |= 1ULL << (i & 63);
+    }
+
+    inline void resetbit(int i) {
+        a[i >> 6] &= ~(1ULL << (i & 63));
+    }
+
+    inline bool testbit(int i) const {
+        return (a[i >> 6] >> (i & 63)) & 1ULL;
+    }
+
+    inline bool any() const {
+        for (unsigned long long x : a) {
+            if (x) return true;
+        }
+        return false;
+    }
+
+    inline int count() const {
+        int s = 0;
+        for (unsigned long long x : a) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline void intersectWith(const BitSet& other) {
+        for (int i = 0; i < W; ++i) a[i] &= other.a[i];
+    }
+
+    inline void intersectWithNot(const BitSet& other) {
+        for (int i = 0; i < W; ++i) a[i] &= ~other.a[i];
+        if (W > 0) a[W - 1] &= LAST_MASK;
+    }
+
+    inline int first() const {
+        for (int i = 0; i < W; ++i) {
+            if (a[i]) return (i << 6) + __builtin_ctzll(a[i]);
+        }
+        return -1;
+    }
+};
+
+static vector<BitSet> adjg;
+static int bestAns = 0;
+
+static inline int popIntersect(const BitSet& x, const BitSet& y) {
+    int s = 0;
+    for (int i = 0; i < W; ++i) s += __builtin_popcountll(x.a[i] & y.a[i]);
+    return s;
+}
+
+static int greedyClique(BitSet p) {
+    int res = 0;
+    while (p.any()) {
+        int bestV = -1;
+        int bestScore = -1;
+
+        for (int wi = 0; wi < W; ++wi) {
+            unsigned long long x = p.a[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                int sc = popIntersect(p, adjg[v]);
+                if (sc > bestScore) {
+                    bestScore = sc;
+                    bestV = v;
+                }
+                x &= x - 1;
+            }
+        }
+
+        ++res;
+        p.intersectWith(adjg[bestV]);
+    }
+    return res;
+}
+
+static void colorSort(const BitSet& p, vector<int>& order, vector<int>& color) {
+    order.clear();
+    color.clear();
+
+    BitSet uncolored = p;
+    int c = 0;
+
+    while (uncolored.any()) {
+        ++c;
+        BitSet avail = uncolored;
+
+        while (avail.any()) {
+            int v = avail.first();
+            order.push_back(v);
+            color.push_back(c);
+
+            uncolored.resetbit(v);
+            avail.resetbit(v);
+            avail.intersectWithNot(adjg[v]);
+        }
+    }
+}
+
+static void expand(BitSet p, int sz) {
+    int pcnt = p.count();
+    if (sz + pcnt <= bestAns) return;
+
+    vector<int> order;
+    vector<int> color;
+    order.reserve(pcnt);
+    color.reserve(pcnt);
+    colorSort(p, order, color);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (sz + color[i] <= bestAns) return;
+
+        int v = order[i];
+        if (!p.testbit(v)) continue;
+
+        BitSet np = p;
+        np.intersectWith(adjg[v]);
+
+        if (np.any()) {
+            expand(np, sz + 1);
+        } else {
+            if (sz + 1 > bestAns) bestAns = sz + 1;
+        }
+
+        p.resetbit(v);
+        if (sz + p.count() <= bestAns) return;
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    LAST_MASK = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    vector<BitSet> oldAdj(N);
+
+    char ch;
+    long long need = 1LL * N * N;
+    long long got = 0;
+
+    while (got < need && cin.get(ch)) {
+        if (ch != '0' && ch != '1') continue;
+
+        int i = (int)(got / N);
+        int j = (int)(got % N);
+
+        if (ch == '1' && i != j) {
+            oldAdj[i].setbit(j);
+        }
+
+        ++got;
+    }
+
+    for (int i = 0; i < N; ++i) oldAdj[i].resetbit(i);
+
+    vector<int> deg(N), ord(N), pos(N);
+    for (int i = 0; i < N; ++i) {
+        deg[i] = oldAdj[i].count();
+        ord[i] = i;
+    }
+
+    sort(ord.begin(), ord.end(), [&](int x, int y) {
+        if (deg[x] != deg[y]) return deg[x] > deg[y];
+        return x < y;
+    });
+
+    for (int i = 0; i < N; ++i) pos[ord[i]] = i;
+
+    adjg.assign(N, BitSet(false));
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = ord[ni];
+
+        for (int wi = 0; wi < W; ++wi) {
+            unsigned long long x = oldAdj[oi].a[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (wi << 6) + b;
+                if (oj < N) {
+                    int nj = pos[oj];
+                    if (nj != ni) adjg[ni].setbit(nj);
+                }
+                x &= x - 1;
+            }
+        }
+
+        adjg[ni].resetbit(ni);
+    }
+
+    BitSet all(true);
+    bestAns = greedyClique(all);
+
+    expand(all, 0);
+
+    cout << bestAns << '\n';
+    return 0;
+}

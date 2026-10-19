@@ -1,0 +1,84 @@
+#include <vector>
+#include <cstddef>
+
+extern std::vector<bool> send_packet(std::vector<bool> A);
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    const int N = 31;
+
+    for (int j = 0; j < N; ++j) {
+        std::vector<bool> A(N, C[j]);
+        send_packet(A);
+    }
+
+    std::vector<int> protected_pos;
+    protected_pos.reserve(16);
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) protected_pos.push_back(i);
+    }
+
+    std::vector<bool> payload;
+    payload.reserve(10 + M.size());
+
+    int len_code = static_cast<int>(M.size()) - 1;
+    for (int b = 0; b < 10; ++b) {
+        payload.push_back((len_code >> b) & 1);
+    }
+
+    for (bool bit : M) {
+        payload.push_back(bit);
+    }
+
+    std::size_t ptr = 0;
+    while (ptr < payload.size()) {
+        std::vector<bool> A(N, false);
+        for (int j = 0; j < 16; ++j) {
+            if (ptr < payload.size()) {
+                A[protected_pos[j]] = payload[ptr++];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    const int N = 31;
+
+    std::vector<bool> C(N, false);
+
+    for (int j = 0; j < N; ++j) {
+        int cnt = 0;
+        for (int i = 0; i < N; ++i) {
+            if (R[j][i]) ++cnt;
+        }
+        C[j] = (cnt >= 16);
+    }
+
+    std::vector<int> protected_pos;
+    protected_pos.reserve(16);
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) protected_pos.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    for (std::size_t r = N; r < R.size(); ++r) {
+        for (int j = 0; j < 16; ++j) {
+            bits.push_back(R[r][protected_pos[j]]);
+        }
+    }
+
+    int len_code = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (bits[b]) len_code |= (1 << b);
+    }
+
+    int S = len_code + 1;
+    std::vector<bool> M;
+    M.reserve(S);
+
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[10 + i]);
+    }
+
+    return M;
+}

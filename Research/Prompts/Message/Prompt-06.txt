@@ -1,0 +1,8 @@
+You are competing to produce the strongest C++20 library solution. Output code only. No explanation, no markdown.
+Implement:
+void send_message(std::vector<bool> M, std::vector<bool> C);
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R);
+The grader supplies std::vector<bool> send_packet(std::vector<bool> A), callable by send_message.
+Game: send a bit message M of length S, 1<=S<=1024, through packets of 31 bits. In each message instance, exactly 15 packet positions are adversarial and 16 are reliable. The sender is given the 31-bit mask C identifying adversarial positions with 1 and reliable positions with 0. The receiver is not given C. For every packet A sent, the returned/received packet B equals A on all reliable positions; on the 15 adversarial positions, the adversary can write any bits. The adversarial set is fixed during the instance, but the actual corrupted values may change per packet and may be chosen adaptively from the full history. The sender sees B after every send_packet call and may adapt. The receiver gets the final ordered list R of all received packets and must reconstruct M.
+Hard constraints: each sent packet must have length 31; at most 100 packets per send_message call; no shared state or side channel between send_message and receive_message because they are run separately and receive calls can be reordered; correctness must hold for every valid C, every M, and every legal adaptive adversary.
+Benchmark objective: minimize the worst-case packet count Q over all calls. Q<=66 is the top target; if 66<Q<=100 the score multiplier is 0.95^(Q-66). Produce a robust high-scoring protocol and implement it completely in C++20.

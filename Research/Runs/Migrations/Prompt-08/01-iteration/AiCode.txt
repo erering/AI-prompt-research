@@ -1,0 +1,134 @@
+#include <vector>
+#include <utility>
+#include <algorithm>
+
+namespace {
+    static int encN = 0;
+    static int LOG = 15;
+    static std::vector<int> depth_enc;
+    static std::vector<std::vector<int>> up_enc;
+    static int diaA = 0, diaB = 0, diaLen = 0;
+    static int startC = 1;
+    static int initHigh = 0;
+
+    int lca_enc(int a, int b) {
+        if (depth_enc[a] < depth_enc[b]) std::swap(a, b);
+        int diff = depth_enc[a] - depth_enc[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up_enc[k][a];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up_enc[k][a] != up_enc[k][b]) {
+                a = up_enc[k][a];
+                b = up_enc[k][b];
+            }
+        }
+        return up_enc[0][a];
+    }
+
+    int dist_enc(int a, int b) {
+        int c = lca_enc(a, b);
+        return depth_enc[a] + depth_enc[b] - 2 * depth_enc[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        encN = N;
+        LOG = 1;
+        while ((1 << LOG) <= std::max(1, N)) ++LOG;
+        depth_enc.assign(N, 0);
+        up_enc.assign(LOG, std::vector<int>(N, 0));
+        for (int k = 0; k < LOG; ++k) up_enc[k][0] = 0;
+        diaA = 0;
+        diaB = 0;
+        diaLen = 0;
+        startC = std::max(1, N - 50);
+        initHigh = 0;
+    }
+
+    depth_enc[i] = depth_enc[Pi] + 1;
+    up_enc[0][i] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up_enc[k][i] = up_enc[k - 1][up_enc[k - 1][i]];
+    }
+
+    int oldA = diaA;
+    int oldB = diaB;
+    int oldLen = diaLen;
+    int state = 0;
+
+    int dA = dist_enc(i, oldA);
+    int dB = dist_enc(i, oldB);
+
+    if (dA > oldLen) {
+        state = 1;
+        diaA = i;
+        diaB = oldA;
+        diaLen = dA;
+    } else if (dB > oldLen) {
+        state = 2;
+        diaA = i;
+        diaB = oldB;
+        diaLen = dB;
+    }
+
+    if (i < startC) return 0;
+
+    if (i == startC) {
+        int x = diaA * 10000 + diaB;
+        initHigh = x / 20000;
+        int low = x % 20000;
+        return low + 1;
+    }
+
+    if (i == startC + 1) {
+        return initHigh * 3 + state + 1;
+    }
+
+    return state + 1;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+
+    int C = std::max(1, N - 50);
+
+    int low = S[C] - 1;
+    int high = 0;
+    int firstState = 0;
+
+    if (C + 1 < N) {
+        int code = S[C + 1] - 1;
+        firstState = code % 3;
+        high = code / 3;
+    }
+
+    int x = low + 20000 * high;
+    int a = x / 10000;
+    int b = x % 10000;
+
+    if (C + 1 < N) {
+        int v = C + 1;
+        if (firstState == 1) {
+            b = a;
+            a = v;
+        } else if (firstState == 2) {
+            a = v;
+        }
+    }
+
+    for (int v = C + 2; v < N; ++v) {
+        int state = S[v] - 1;
+        if (state == 1) {
+            b = a;
+            a = v;
+        } else if (state == 2) {
+            a = v;
+        }
+    }
+
+    return {a, b};
+}

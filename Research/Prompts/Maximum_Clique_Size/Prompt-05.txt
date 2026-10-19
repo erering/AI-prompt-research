@@ -1,0 +1,11 @@
+Checklist for the program to write:
+[ ] Language: C++20 only; final response is source code only.
+[ ] Input: first line integer N.
+[ ] Input: next N rows form an N x N adjacency matrix of a simple undirected graph; each entry is 0 or 1, rows may be compact strings or spaced digits.
+[ ] Meaning: 1 indicates an undirected edge between two vertices, 0 indicates no edge; diagonal entries are irrelevant.
+[ ] Random model: each edge was independently included with probability e^(-ln(N)/N).
+[ ] Goal: compute the exact maximum clique size, where a clique is a vertex set with all pairwise edges present.
+[ ] Output: one integer, the size of the largest clique, and nothing else.
+[ ] Limit: 1 second.
+[ ] Scoring behavior: tests grow by N and stop at first failure; any wrong answer, crash, runtime error, or invalid output gives zero score.
+[ ] Formatting: no explanation, no markdown, no code fences.

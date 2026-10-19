@@ -1,0 +1,272 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+#pragma GCC optimize("O3,unroll-loops")
+
+using ull = unsigned long long;
+
+struct FastScanner {
+    static const int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (!size) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        char c;
+        do c = getChar(); while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do c = getChar(); while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+struct Solver {
+    int n, w, best;
+    ull lastMask;
+    vector<ull> adj, comp;
+    vector<int> deg;
+
+    Solver(const vector<int>& verts, const vector<vector<int>>& cg, vector<int>& pos) {
+        n = (int)verts.size();
+        w = (n + 63) >> 6;
+        lastMask = (n & 63) ? ((1ULL << (n & 63)) - 1ULL) : ~0ULL;
+
+        adj.assign((size_t)n * w, 0);
+        comp.assign((size_t)n * w, 0);
+        deg.assign(n, 0);
+
+        for (int i = 0; i < n; ++i) pos[verts[i]] = i;
+
+        for (int i = 0; i < n; ++i) {
+            ull* a = &adj[(size_t)i * w];
+            for (int k = 0; k < w; ++k) a[k] = ~0ULL;
+            a[w - 1] &= lastMask;
+            a[i >> 6] &= ~(1ULL << (i & 63));
+        }
+
+        for (int i = 0; i < n; ++i) {
+            int gv = verts[i];
+            for (int gu : cg[gv]) {
+                int j = pos[gu];
+                if (j >= 0) {
+                    comp[(size_t)i * w + (j >> 6)] |= 1ULL << (j & 63);
+                    adj[(size_t)i * w + (j >> 6)] &= ~(1ULL << (j & 63));
+                    ++deg[i];
+                }
+            }
+        }
+
+        for (int v : verts) pos[v] = -1;
+    }
+
+    inline bool anyBits(const vector<ull>& b) const {
+        for (ull x : b) if (x) return true;
+        return false;
+    }
+
+    inline int popBits(const vector<ull>& b) const {
+        int s = 0;
+        for (ull x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline int firstBit(const vector<ull>& b) const {
+        for (int i = 0; i < w; ++i)
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        return -1;
+    }
+
+    int greedy() const {
+        vector<ull> C(w, ~0ULL);
+        C[w - 1] &= lastMask;
+        int ans = 0;
+
+        while (anyBits(C)) {
+            int bv = -1, bd = INT_MAX;
+
+            if (n <= 2000) {
+                for (int wi = 0; wi < w; ++wi) {
+                    ull x = C[wi];
+                    while (x) {
+                        int b = __builtin_ctzll(x);
+                        int v = (wi << 6) + b;
+                        int d = 0;
+                        const ull* cp = &comp[(size_t)v * w];
+                        for (int k = 0; k < w; ++k) d += __builtin_popcountll(C[k] & cp[k]);
+                        if (d < bd || (d == bd && deg[v] < deg[bv])) {
+                            bd = d;
+                            bv = v;
+                        }
+                        x &= x - 1;
+                    }
+                }
+            } else {
+                for (int wi = 0; wi < w; ++wi) {
+                    ull x = C[wi];
+                    while (x) {
+                        int b = __builtin_ctzll(x);
+                        int v = (wi << 6) + b;
+                        if (deg[v] < bd) {
+                            bd = deg[v];
+                            bv = v;
+                        }
+                        x &= x - 1;
+                    }
+                }
+            }
+
+            ++ans;
+            const ull* ap = &adj[(size_t)bv * w];
+            for (int k = 0; k < w; ++k) C[k] &= ap[k];
+        }
+
+        return ans;
+    }
+
+    void colorSort(const vector<ull>& P, vector<int>& order, vector<int>& colors) const {
+        vector<ull> U = P, Q(w);
+        order.clear();
+        colors.clear();
+
+        int c = 0;
+        while (anyBits(U)) {
+            ++c;
+            Q = U;
+
+            while (anyBits(Q)) {
+                int v = firstBit(Q);
+                order.push_back(v);
+                colors.push_back(c);
+
+                ull m = ~(1ULL << (v & 63));
+                int wi = v >> 6;
+                U[wi] &= m;
+                Q[wi] &= m;
+
+                const ull* cp = &comp[(size_t)v * w];
+                for (int k = 0; k < w; ++k) Q[k] &= cp[k];
+            }
+        }
+    }
+
+    void expand(const vector<ull>& P, int sz) {
+        if (sz + popBits(P) <= best) return;
+        if (best == n) return;
+
+        vector<int> order, colors;
+        order.reserve(popBits(P));
+        colors.reserve(order.capacity());
+        colorSort(P, order, colors);
+
+        int m = (int)order.size();
+        vector<ull> cur = P, NP(w);
+
+        for (int i = m - 1; i >= 0; --i) {
+            if (sz + colors[i] <= best) return;
+
+            int v = order[i];
+            cur[v >> 6] &= ~(1ULL << (v & 63));
+
+            const ull* ap = &adj[(size_t)v * w];
+            bool nonempty = false;
+            for (int k = 0; k < w; ++k) {
+                NP[k] = cur[k] & ap[k];
+                nonempty |= NP[k] != 0;
+            }
+
+            if (!nonempty) {
+                if (sz + 1 > best) best = sz + 1;
+            } else {
+                expand(NP, sz + 1);
+            }
+
+            if (best == n) return;
+        }
+    }
+
+    int solve() {
+        if (n <= 1) return n;
+        best = greedy();
+
+        vector<ull> P(w, ~0ULL);
+        P[w - 1] &= lastMask;
+        expand(P, 0);
+        return best;
+    }
+};
+
+int main() {
+    FastScanner fs;
+    int N = fs.nextInt();
+
+    vector<vector<int>> compGraph(N);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int bit = fs.nextBit();
+            if (i < j && bit == 0) {
+                compGraph[i].push_back(j);
+                compGraph[j].push_back(i);
+            }
+        }
+    }
+
+    vector<char> seen(N, 0);
+    vector<int> pos(N, -1);
+    int answer = 0;
+
+    for (int s = 0; s < N; ++s) {
+        if (seen[s]) continue;
+
+        vector<int> verts;
+        queue<int> q;
+        q.push(s);
+        seen[s] = 1;
+
+        while (!q.empty()) {
+            int v = q.front();
+            q.pop();
+            verts.push_back(v);
+            for (int u : compGraph[v]) {
+                if (!seen[u]) {
+                    seen[u] = 1;
+                    q.push(u);
+                }
+            }
+        }
+
+        if ((int)verts.size() == 1) {
+            ++answer;
+            continue;
+        }
+
+        sort(verts.begin(), verts.end(), [&](int a, int b) {
+            if (compGraph[a].size() != compGraph[b].size())
+                return compGraph[a].size() < compGraph[b].size();
+            return a < b;
+        });
+
+        Solver solver(verts, compGraph, pos);
+        answer += solver.solve();
+    }
+
+    printf("%d\n", answer);
+    return 0;
+}

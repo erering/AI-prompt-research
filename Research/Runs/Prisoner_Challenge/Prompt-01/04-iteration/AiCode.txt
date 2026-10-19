@@ -1,0 +1,106 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    auto direct = [&]() {
+        int x = max(0, N - 2);
+        vector<vector<int>> s(x + 1, vector<int>(N + 1, -1));
+        s[0][0] = 0;
+        for (int j = 1; j <= N; ++j) {
+            if (j == 1) s[0][j] = -1;
+            else if (j == N) s[0][j] = -2;
+            else s[0][j] = j - 1;
+        }
+        for (int st = 1; st <= x; ++st) {
+            int a = st + 1;
+            s[st][0] = 1;
+            for (int b = 1; b <= N; ++b) {
+                if (b < a) s[st][b] = -2;
+                else if (b > a) s[st][b] = -1;
+                else s[st][b] = -1;
+            }
+        }
+        return s;
+    };
+
+    vector<int> bases;
+    int best_sum = 1000000;
+
+    for (int sum = 2; sum <= 60; ++sum) {
+        vector<int> cur;
+        if (sum % 3 == 0) {
+            for (int i = 0; i < sum / 3; ++i) cur.push_back(3);
+        } else if (sum % 3 == 1) {
+            if (sum == 4) {
+                cur.push_back(2);
+                cur.push_back(2);
+            } else {
+                cur.push_back(4);
+                for (int i = 0; i < (sum - 4) / 3; ++i) cur.push_back(3);
+            }
+        } else {
+            cur.push_back(2);
+            for (int i = 0; i < (sum - 2) / 3; ++i) cur.push_back(3);
+        }
+
+        long long prod = 1;
+        for (int b : cur) prod *= b;
+        if (prod >= N) {
+            bases = cur;
+            best_sum = sum;
+            break;
+        }
+    }
+
+    if (N - 2 <= best_sum) return direct();
+
+    int L = (int)bases.size();
+    vector<int> offset(L + 1, 1);
+    for (int i = 0; i < L; ++i) offset[i + 1] = offset[i] + bases[i];
+
+    vector<int> place(L, 1);
+    long long p = 1;
+    for (int i = L - 1; i >= 0; --i) {
+        place[i] = (int)p;
+        p *= bases[i];
+    }
+
+    int x = best_sum;
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, -1));
+
+    auto digit = [&](int j, int level) {
+        int v = j - 1;
+        return (v / place[level]) % bases[level];
+    };
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = offset[0] + digit(j, 0);
+    }
+
+    for (int level = 0; level < L; ++level) {
+        bool inspectB = (level % 2 == 0);
+        for (int d = 0; d < bases[level]; ++d) {
+            int id = offset[level] + d;
+            s[id][0] = inspectB ? 1 : 0;
+
+            for (int j = 1; j <= N; ++j) {
+                int dj = digit(j, level);
+
+                if (dj < d) {
+                    s[id][j] = inspectB ? -2 : -1;
+                } else if (dj > d) {
+                    s[id][j] = inspectB ? -1 : -2;
+                } else {
+                    if (level + 1 == L) {
+                        s[id][j] = -1;
+                    } else {
+                        s[id][j] = offset[level + 1] + digit(j, level + 1);
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

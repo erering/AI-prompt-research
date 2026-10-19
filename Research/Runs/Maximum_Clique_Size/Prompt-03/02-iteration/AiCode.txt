@@ -1,0 +1,206 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+int N, W;
+using ull = unsigned long long;
+
+struct Bits {
+    vector<ull> b;
+
+    Bits() : b(W, 0) {}
+
+    explicit Bits(bool full) : b(W, full ? ~0ULL : 0ULL) {
+        if (full && W > 0 && (N & 63)) {
+            b[W - 1] &= ((1ULL << (N & 63)) - 1ULL);
+        }
+    }
+
+    inline void setbit(int i) {
+        b[i >> 6] |= 1ULL << (i & 63);
+    }
+
+    inline void resetbit(int i) {
+        b[i >> 6] &= ~(1ULL << (i & 63));
+    }
+
+    inline bool test(int i) const {
+        return (b[i >> 6] >> (i & 63)) & 1ULL;
+    }
+
+    inline bool any() const {
+        for (ull x : b) if (x) return true;
+        return false;
+    }
+
+    inline int count() const {
+        int s = 0;
+        for (ull x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline void intersectWith(const Bits& o) {
+        for (int i = 0; i < W; ++i) b[i] &= o.b[i];
+    }
+
+    inline void intersectNot(const Bits& o) {
+        for (int i = 0; i < W; ++i) b[i] &= ~o.b[i];
+    }
+
+    inline int countIntersect(const Bits& o) const {
+        int s = 0;
+        for (int i = 0; i < W; ++i) s += __builtin_popcountll(b[i] & o.b[i]);
+        return s;
+    }
+
+    inline int first() const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+};
+
+vector<Bits> adjg;
+int bestAns = 0;
+
+int chooseBestVertex(const Bits& P) {
+    int bestV = -1, bestScore = -1;
+    for (int wi = 0; wi < W; ++wi) {
+        ull x = P.b[wi];
+        while (x) {
+            int bit = __builtin_ctzll(x);
+            int v = (wi << 6) + bit;
+            if (v < N) {
+                int sc = P.countIntersect(adjg[v]);
+                if (sc > bestScore) {
+                    bestScore = sc;
+                    bestV = v;
+                }
+            }
+            x &= x - 1;
+        }
+    }
+    return bestV;
+}
+
+void greedyComplete(Bits P, int cur) {
+    while (P.any()) {
+        int v = chooseBestVertex(P);
+        if (v < 0) break;
+        ++cur;
+        P.intersectWith(adjg[v]);
+    }
+    if (cur > bestAns) bestAns = cur;
+}
+
+void colorSort(const Bits& P, vector<int>& order, vector<int>& colors) {
+    Bits U = P;
+    int color = 0;
+    while (U.any()) {
+        ++color;
+        Bits Q = U;
+        while (Q.any()) {
+            int v = Q.first();
+            order.push_back(v);
+            colors.push_back(color);
+            U.resetbit(v);
+            Q.resetbit(v);
+            Q.intersectNot(adjg[v]);
+        }
+    }
+}
+
+void expand(Bits P, int sz) {
+    int pc = P.count();
+    if (sz + pc <= bestAns) return;
+
+    vector<int> order;
+    vector<int> colors;
+    order.reserve(pc);
+    colors.reserve(pc);
+    colorSort(P, order, colors);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (sz + colors[i] <= bestAns) return;
+
+        int v = order[i];
+        if (!P.test(v)) continue;
+
+        Bits NP = P;
+        NP.intersectWith(adjg[v]);
+
+        int nsz = sz + 1;
+        if (!NP.any()) {
+            if (nsz > bestAns) bestAns = nsz;
+        } else if (nsz + NP.count() > bestAns) {
+            expand(NP, nsz);
+        }
+
+        P.resetbit(v);
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+
+    vector<Bits> oldAdj(N, Bits(false));
+
+    char c;
+    long long need = 1LL * N * N;
+    long long got = 0;
+    while (got < need && cin.get(c)) {
+        if (c == '0' || c == '1') {
+            int i = (int)(got / N);
+            int j = (int)(got % N);
+            if (c == '1') oldAdj[i].setbit(j);
+            ++got;
+        }
+    }
+
+    for (int i = 0; i < N; ++i) oldAdj[i].resetbit(i);
+
+    vector<int> deg(N);
+    for (int i = 0; i < N; ++i) deg[i] = oldAdj[i].count();
+
+    vector<int> ord(N);
+    iota(ord.begin(), ord.end(), 0);
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    adjg.assign(N, Bits(false));
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = ord[ni];
+        for (int nj = 0; nj < N; ++nj) {
+            if (ni == nj) continue;
+            int oj = ord[nj];
+            if (oldAdj[oi].test(oj)) adjg[ni].setbit(nj);
+        }
+        adjg[ni].resetbit(ni);
+    }
+
+    Bits all(true);
+
+    greedyComplete(all, 0);
+
+    int limit = min(N, 32);
+    for (int v = 0; v < limit; ++v) {
+        Bits P = adjg[v];
+        greedyComplete(P, 1);
+    }
+
+    if (bestAns < N) expand(all, 0);
+
+    cout << bestAns << '\n';
+    return 0;
+}

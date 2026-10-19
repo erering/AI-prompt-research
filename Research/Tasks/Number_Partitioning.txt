@@ -1,0 +1,18 @@
+Time Limit: 1s
+You are given N positive integers. Partition them into two groups such that the absolute difference between the sums of the two groups is minimized.
+Input Description
+Line 1: N, the number of integers.
+Each of the following N lines: A positive integer Ai.
+Output Description
+Line 1: The minimum possible absolute difference between the sums of the two groups.
+Example:
+Input: 4 1 5 7 9
+Output: 0
+
+Test cases are ordered by increasing N and evaluated sequentially. Testing stops at the first unsuccessful execution.
+
+If the failure is a Time Limit Exceeded (TLE): Evaluation stops, and your score is based on the largest value of N solved successfully up to that point.
+
+If the failure is a Wrong Answer (WA) or Run-Time Error (RTE): Evaluation terminates immediately, and your total score is zero.
+
+The solution must compile under a standard C++20 environment using only the C++ standard library.

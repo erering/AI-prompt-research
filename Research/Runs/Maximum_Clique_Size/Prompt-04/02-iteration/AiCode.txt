@@ -1,0 +1,319 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    size_t pos = 0, len = 0;
+
+    inline int getChar() {
+        if (pos >= len) {
+            len = fread(buf, 1, BUFSIZE, stdin);
+            pos = 0;
+            if (len == 0) return EOF;
+        }
+        return buf[pos++];
+    }
+
+    int nextInt() {
+        int c, x = 0;
+        do {
+            c = getChar();
+        } while (c != EOF && (c < '0' || c > '9'));
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        int c;
+        do {
+            c = getChar();
+        } while (c != EOF && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+vector<unsigned long long> adjBits;
+int bestAns = 0;
+
+inline bool adjacent(int a, int b) {
+    return (adjBits[(size_t)a * W + (b >> 6)] >> (b & 63)) & 1ULL;
+}
+
+void colorSort(vector<int>& P, vector<int>& color) {
+    vector<int> U;
+    U.swap(P);
+    P.clear();
+    P.reserve(U.size());
+    color.clear();
+    color.reserve(U.size());
+
+    vector<int> rest;
+    rest.reserve(U.size());
+    vector<int> cls;
+    cls.reserve(8);
+
+    int c = 0;
+    while (!U.empty()) {
+        ++c;
+        rest.clear();
+        cls.clear();
+
+        for (int v : U) {
+            bool ok = true;
+            size_t base = (size_t)v * W;
+            for (int u : cls) {
+                if ((adjBits[base + (u >> 6)] >> (u & 63)) & 1ULL) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                cls.push_back(v);
+                P.push_back(v);
+                color.push_back(c);
+            } else {
+                rest.push_back(v);
+            }
+        }
+        U.swap(rest);
+    }
+}
+
+void expand(vector<int>& P, vector<int>& color, int cur) {
+    if (P.empty()) {
+        if (cur > bestAns) bestAns = cur;
+        return;
+    }
+    if (cur + color.back() <= bestAns) return;
+
+    for (int idx = (int)P.size() - 1; idx >= 0; --idx) {
+        if (cur + color[idx] <= bestAns) return;
+
+        int v = P[idx];
+        vector<int> Q;
+        Q.reserve(idx);
+
+        size_t base = (size_t)v * W;
+        for (int j = 0; j < idx; ++j) {
+            int u = P[j];
+            if ((adjBits[base + (u >> 6)] >> (u & 63)) & 1ULL) {
+                Q.push_back(u);
+            }
+        }
+
+        int ncur = cur + 1;
+        if (ncur + (int)Q.size() <= bestAns) continue;
+
+        if (Q.empty()) {
+            if (ncur > bestAns) bestAns = ncur;
+            continue;
+        }
+
+        vector<int> Qcolor;
+        colorSort(Q, Qcolor);
+
+        if (ncur + Qcolor.back() <= bestAns) continue;
+        expand(Q, Qcolor, ncur);
+    }
+}
+
+static inline uint32_t mixHash(uint32_t x) {
+    x ^= x >> 16;
+    x *= 0x7feb352dU;
+    x ^= x >> 15;
+    x *= 0x846ca68bU;
+    x ^= x >> 16;
+    return x;
+}
+
+int greedyIndependentComplement(const vector<vector<int>>& comp, uint32_t seed) {
+    struct Item {
+        int deg;
+        uint32_t tie;
+        int v;
+        bool operator>(const Item& o) const {
+            if (deg != o.deg) return deg > o.deg;
+            if (tie != o.tie) return tie > o.tie;
+            return v > o.v;
+        }
+    };
+
+    vector<int> deg(N);
+    vector<unsigned char> alive(N, 1);
+    vector<uint32_t> tie(N);
+    priority_queue<Item, vector<Item>, greater<Item>> pq;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)comp[i].size();
+        tie[i] = mixHash((uint32_t)i ^ seed);
+        pq.push({deg[i], tie[i], i});
+    }
+
+    int aliveCnt = N;
+    int res = 0;
+    vector<int> rem;
+    rem.reserve(128);
+
+    while (aliveCnt > 0) {
+        Item it;
+        do {
+            if (pq.empty()) return res;
+            it = pq.top();
+            pq.pop();
+        } while (!alive[it.v] || it.deg != deg[it.v]);
+
+        int v = it.v;
+        ++res;
+
+        rem.clear();
+        rem.push_back(v);
+        for (int u : comp[v]) {
+            if (alive[u]) rem.push_back(u);
+        }
+
+        for (int x : rem) {
+            if (!alive[x]) continue;
+            alive[x] = 0;
+            --aliveCnt;
+            for (int y : comp[x]) {
+                if (alive[y]) {
+                    --deg[y];
+                    pq.push({deg[y], tie[y], y});
+                }
+            }
+        }
+    }
+
+    return res;
+}
+
+int greedyCliqueSimple(const vector<int>& order) {
+    vector<int> C = order;
+    int res = 0;
+
+    while (!C.empty()) {
+        int v = C[0];
+        ++res;
+
+        vector<int> nxt;
+        nxt.reserve(C.size());
+        size_t base = (size_t)v * W;
+
+        for (size_t i = 1; i < C.size(); ++i) {
+            int u = C[i];
+            if ((adjBits[base + (u >> 6)] >> (u & 63)) & 1ULL) {
+                nxt.push_back(u);
+            }
+        }
+        C.swap(nxt);
+    }
+
+    return res;
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    adjBits.assign((size_t)N * W, 0ULL);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = in.nextBit();
+            if (b && i != j) {
+                adjBits[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+                adjBits[(size_t)j * W + (i >> 6)] |= 1ULL << (i & 63);
+            }
+        }
+    }
+
+    vector<int> degOrig(N, 0);
+    for (int i = 0; i < N; ++i) {
+        size_t base = (size_t)i * W;
+        int d = 0;
+        for (int w = 0; w < W; ++w) {
+            d += __builtin_popcountll(adjBits[base + w]);
+        }
+        degOrig[i] = d;
+    }
+
+    const long long COMP_CAP = 10000000LL;
+    bool compEnabled = true;
+    long long compEdges = 0;
+    vector<vector<int>> comp(N);
+
+    for (int i = 0; i < N && compEnabled; ++i) {
+        size_t base = (size_t)i * W;
+        for (int j = i + 1; j < N; ++j) {
+            bool e = (adjBits[base + (j >> 6)] >> (j & 63)) & 1ULL;
+            if (!e) {
+                if (compEdges >= COMP_CAP) {
+                    compEnabled = false;
+                    vector<vector<int>>().swap(comp);
+                    break;
+                }
+                comp[i].push_back(j);
+                comp[j].push_back(i);
+                ++compEdges;
+            }
+        }
+    }
+
+    vector<int> order(N);
+    iota(order.begin(), order.end(), 0);
+
+    if (compEnabled) {
+        int passes = (N < 2500 ? 8 : (N < 10000 ? 4 : 2));
+        for (int p = 0; p < passes; ++p) {
+            int val = greedyIndependentComplement(comp, 0x9e3779b9U * (uint32_t)(p + 1));
+            if (val > bestAns) bestAns = val;
+            if (bestAns == N) {
+                printf("%d\n", N);
+                return 0;
+            }
+        }
+
+        sort(order.begin(), order.end(), [&](int a, int b) {
+            if (comp[a].size() != comp[b].size()) return comp[a].size() < comp[b].size();
+            if (degOrig[a] != degOrig[b]) return degOrig[a] > degOrig[b];
+            return a < b;
+        });
+    } else {
+        sort(order.begin(), order.end(), [&](int a, int b) {
+            if (degOrig[a] != degOrig[b]) return degOrig[a] > degOrig[b];
+            return a < b;
+        });
+        bestAns = max(bestAns, greedyCliqueSimple(order));
+        if (bestAns == N) {
+            printf("%d\n", N);
+            return 0;
+        }
+    }
+
+    if (bestAns == 0) bestAns = 1;
+
+    vector<int> P = order;
+    vector<int> color;
+    colorSort(P, color);
+
+    if (!color.empty() && color.back() <= bestAns) {
+        printf("%d\n", bestAns);
+        return 0;
+    }
+
+    expand(P, color, 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

@@ -1,0 +1,7 @@
+You are competing against other AI solvers on a 1 second exact-optimization benchmark. Produce the strongest possible C++20 program, source code only.
+
+Challenge: read N and an N x N 0/1 adjacency matrix for a simple undirected graph. Rows may be contiguous digit strings or whitespace-separated digits. Each edge in the hidden generator is independent with probability e^(-ln(N)/N), so instances are random and dense, but the required answer is exact. Find the maximum number of vertices that can be chosen so every chosen pair has an edge: the maximum clique size.
+
+Output exactly one integer. Evaluation runs cases in increasing N and stops at the first failure; one wrong answer, crash, runtime error, timeout, or invalid output means zero score. Exploit the random distribution, engineer for speed, and preserve correctness.
+
+Return only valid C++20 code, with no prose, markdown, or code fences.

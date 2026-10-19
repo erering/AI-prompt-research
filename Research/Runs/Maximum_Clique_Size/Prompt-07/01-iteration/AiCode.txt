@@ -1,0 +1,258 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+int N, W;
+ull LAST_MASK;
+vector<vector<ull>> adjg, compg;
+int bestAns = 0;
+
+static inline int pc64(ull x) {
+    return __builtin_popcountll(x);
+}
+
+static inline bool getBit(const vector<ull>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+static inline void clearBit(vector<ull>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+static inline void setBit(vector<ull>& b, int v) {
+    b[v >> 6] |= (1ULL << (v & 63));
+}
+
+static inline bool emptyBits(const vector<ull>& b) {
+    for (ull x : b) if (x) return false;
+    return true;
+}
+
+static inline int firstBit(const vector<ull>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+static inline int countBits(const vector<ull>& b) {
+    int s = 0;
+    for (ull x : b) s += pc64(x);
+    return s;
+}
+
+static inline int countIntersection(const vector<ull>& a, const vector<ull>& b) {
+    int s = 0;
+    for (int i = 0; i < W; ++i) s += pc64(a[i] & b[i]);
+    return s;
+}
+
+void colorSort(const vector<ull>& P, vector<int>& verts, vector<int>& cols) {
+    verts.clear();
+    cols.clear();
+
+    vector<ull> U = P, Q(W);
+    int color = 0;
+
+    while (!emptyBits(U)) {
+        ++color;
+        Q = U;
+
+        while (!emptyBits(Q)) {
+            int v = firstBit(Q);
+            verts.push_back(v);
+            cols.push_back(color);
+
+            clearBit(U, v);
+            clearBit(Q, v);
+
+            for (int i = 0; i < W; ++i) {
+                Q[i] &= ~adjg[v][i];
+            }
+            Q[W - 1] &= LAST_MASK;
+        }
+    }
+}
+
+void expandClique(const vector<ull>& P, int depth) {
+    if (depth + countBits(P) <= bestAns) return;
+
+    vector<int> verts, cols;
+    colorSort(P, verts, cols);
+
+    vector<ull> Pcur = P;
+    int m = (int)verts.size();
+
+    for (int i = m - 1; i >= 0; --i) {
+        if (depth + cols[i] <= bestAns) return;
+
+        int v = verts[i];
+        if (!getBit(Pcur, v)) continue;
+
+        vector<ull> NP(W);
+        int cnt = 0;
+        for (int j = 0; j < W; ++j) {
+            NP[j] = Pcur[j] & adjg[v][j];
+            cnt += pc64(NP[j]);
+        }
+
+        if (depth + 1 > bestAns) bestAns = depth + 1;
+
+        if (cnt && depth + 1 + cnt > bestAns) {
+            expandClique(NP, depth + 1);
+        }
+
+        clearBit(Pcur, v);
+    }
+}
+
+int greedyClique(vector<ull> cand) {
+    int res = 0;
+
+    while (!emptyBits(cand)) {
+        int bestv = -1, bestd = -1;
+
+        for (int wi = 0; wi < W; ++wi) {
+            ull x = cand[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                if (v < N) {
+                    int d = countIntersection(cand, adjg[v]);
+                    if (d > bestd) {
+                        bestd = d;
+                        bestv = v;
+                    }
+                }
+                x &= x - 1;
+            }
+        }
+
+        if (bestv < 0) break;
+
+        ++res;
+        for (int i = 0; i < W; ++i) cand[i] &= adjg[bestv][i];
+    }
+
+    return res;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+
+    W = (N + 63) >> 6;
+    LAST_MASK = (N % 64 == 0) ? ~0ULL : ((1ULL << (N % 64)) - 1ULL);
+
+    vector<vector<ull>> oldAdj(N, vector<ull>(W, 0));
+
+    int need = N * N;
+    int got = 0;
+    char c;
+
+    while (got < need && cin.get(c)) {
+        if (c == '0' || c == '1') {
+            int i = got / N;
+            int j = got % N;
+            if (i != j && c == '1') setBit(oldAdj[i], j);
+            ++got;
+        }
+    }
+
+    vector<int> deg(N, 0);
+    for (int i = 0; i < N; ++i) deg[i] = countBits(oldAdj[i]);
+
+    vector<int> ord(N);
+    iota(ord.begin(), ord.end(), 0);
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    vector<int> pos(N);
+    for (int i = 0; i < N; ++i) pos[ord[i]] = i;
+
+    adjg.assign(N, vector<ull>(W, 0));
+
+    for (int oi = 0; oi < N; ++oi) {
+        for (int oj = oi + 1; oj < N; ++oj) {
+            bool e = getBit(oldAdj[oi], oj) || getBit(oldAdj[oj], oi);
+            if (e) {
+                int ni = pos[oi], nj = pos[oj];
+                setBit(adjg[ni], nj);
+                setBit(adjg[nj], ni);
+            }
+        }
+    }
+
+    compg.assign(N, vector<ull>(W, 0));
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            if (!getBit(adjg[i], j)) {
+                setBit(compg[i], j);
+                setBit(compg[j], i);
+            }
+        }
+    }
+
+    vector<ull> active(W, ~0ULL);
+    active[W - 1] &= LAST_MASK;
+
+    int base = 0;
+    bool changed = true;
+
+    while (changed) {
+        changed = false;
+
+        for (int v = 0; v < N; ++v) {
+            if (!getBit(active, v)) continue;
+
+            vector<ull> nb(W);
+            int d = 0;
+            for (int k = 0; k < W; ++k) {
+                nb[k] = compg[v][k] & active[k];
+                d += pc64(nb[k]);
+            }
+
+            if (d == 0) {
+                ++base;
+                clearBit(active, v);
+                changed = true;
+                break;
+            }
+
+            if (d == 1) {
+                ++base;
+                int u = firstBit(nb);
+                clearBit(active, v);
+                clearBit(active, u);
+                changed = true;
+                break;
+            }
+
+            if (d == 2) {
+                int u = firstBit(nb);
+                clearBit(nb, u);
+                int w = firstBit(nb);
+
+                if (getBit(compg[u], w)) {
+                    ++base;
+                    clearBit(active, v);
+                    clearBit(active, u);
+                    clearBit(active, w);
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    bestAns = base + greedyClique(active);
+    expandClique(active, base);
+
+    cout << bestAns << '\n';
+    return 0;
+}

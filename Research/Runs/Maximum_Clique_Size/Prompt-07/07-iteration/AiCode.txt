@@ -1,0 +1,316 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class Solver {
+public:
+    int n, W;
+    vector<vector<unsigned long long>> adj;
+    vector<vector<int>> comp;
+    vector<int> compDeg;
+    int best = 0;
+
+    vector<int> inSet, pairId;
+    vector<unsigned char> used;
+    int stamp = 1;
+
+    Solver(int n_) : n(n_) {
+        W = (n + 63) >> 6;
+        adj.assign(n, vector<unsigned long long>(W, 0));
+        comp.assign(n, {});
+        compDeg.assign(n, 0);
+        inSet.assign(n, 0);
+        pairId.assign(n, -1);
+        used.assign(n, 0);
+    }
+
+    inline bool isAdj(int a, int b) const {
+        return (adj[a][b >> 6] >> (b & 63)) & 1ULL;
+    }
+
+    inline bool isCompAdj(int a, int b) const {
+        return a != b && !isAdj(a, b);
+    }
+
+    inline void setEdge(int a, int b) {
+        adj[a][b >> 6] |= 1ULL << (b & 63);
+    }
+
+    inline void clearEdge(int a, int b) {
+        adj[a][b >> 6] &= ~(1ULL << (b & 63));
+    }
+
+    int greedyInitial() {
+        if (n == 0) return 0;
+
+        int ans = 0;
+
+        {
+            vector<int> deg = compDeg;
+            vector<unsigned char> alive(n, 1);
+            priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+            for (int i = 0; i < n; ++i) pq.push({deg[i], i});
+
+            int cnt = 0;
+            while (!pq.empty()) {
+                auto [d, v] = pq.top();
+                pq.pop();
+                if (!alive[v] || d != deg[v]) continue;
+
+                ++cnt;
+                vector<int> rem;
+                rem.push_back(v);
+                for (int u : comp[v]) {
+                    if (alive[u]) rem.push_back(u);
+                }
+
+                for (int x : rem) {
+                    if (!alive[x]) continue;
+                    alive[x] = 0;
+                    for (int y : comp[x]) {
+                        if (alive[y]) {
+                            --deg[y];
+                            pq.push({deg[y], y});
+                        }
+                    }
+                }
+            }
+            ans = max(ans, cnt);
+        }
+
+        uint64_t seed = 88172645463393265ULL ^ (uint64_t)n;
+        auto rnd = [&]() {
+            seed ^= seed << 7;
+            seed ^= seed >> 9;
+            return seed;
+        };
+
+        int tries = (n <= 3000 ? 8 : 4);
+        vector<int> ord(n);
+        iota(ord.begin(), ord.end(), 0);
+
+        for (int t = 0; t < tries; ++t) {
+            vector<pair<int,int>> key;
+            key.reserve(n);
+            for (int v = 0; v < n; ++v) {
+                int noise = (int)(rnd() % (3 + t));
+                key.push_back({compDeg[v] * 16 + noise, v});
+            }
+            sort(key.begin(), key.end());
+
+            vector<unsigned char> forbidden(n, 0);
+            int cnt = 0;
+            for (auto [_, v] : key) {
+                if (!forbidden[v]) {
+                    ++cnt;
+                    for (int u : comp[v]) forbidden[u] = 1;
+                }
+            }
+            ans = max(ans, cnt);
+        }
+
+        return ans;
+    }
+
+    void colorSort(const vector<int>& P, vector<int>& Q, vector<int>& C) {
+        Q.clear();
+        C.clear();
+
+        ++stamp;
+        if (stamp == INT_MAX) {
+            fill(inSet.begin(), inSet.end(), 0);
+            stamp = 1;
+        }
+
+        for (int v : P) {
+            inSet[v] = stamp;
+            used[v] = 0;
+            pairId[v] = -1;
+        }
+
+        struct Cls {
+            int v[3];
+            int sz;
+        };
+
+        vector<Cls> classes;
+        classes.reserve(P.size() / 2 + 1);
+
+        for (int v : P) {
+            if (used[v]) continue;
+
+            int mate = -1;
+            for (int u : comp[v]) {
+                if (inSet[u] == stamp && !used[u]) {
+                    mate = u;
+                    break;
+                }
+            }
+
+            if (mate != -1) {
+                int id = (int)classes.size();
+                Cls c;
+                c.v[0] = v;
+                c.v[1] = mate;
+                c.sz = 2;
+                classes.push_back(c);
+
+                used[v] = used[mate] = 1;
+                pairId[v] = pairId[mate] = id;
+            }
+        }
+
+        vector<int> unmatched;
+        unmatched.reserve(P.size());
+        for (int v : P) {
+            if (!used[v]) unmatched.push_back(v);
+        }
+
+        for (int v : unmatched) {
+            if (used[v]) continue;
+
+            int chosen = -1;
+            for (int u : comp[v]) {
+                if (inSet[u] != stamp) continue;
+                int id = pairId[u];
+                if (id < 0 || classes[id].sz != 2) continue;
+
+                int a = classes[id].v[0];
+                int b = classes[id].v[1];
+                int other = (u == a ? b : a);
+
+                if (isCompAdj(v, other)) {
+                    chosen = id;
+                    break;
+                }
+            }
+
+            if (chosen != -1) {
+                classes[chosen].v[classes[chosen].sz++] = v;
+                used[v] = 1;
+                pairId[v] = chosen;
+            }
+        }
+
+        int color = 0;
+        for (const auto& cls : classes) {
+            ++color;
+            for (int i = 0; i < cls.sz; ++i) {
+                Q.push_back(cls.v[i]);
+                C.push_back(color);
+            }
+        }
+
+        for (int v : P) {
+            if (!used[v]) {
+                ++color;
+                Q.push_back(v);
+                C.push_back(color);
+                used[v] = 1;
+            }
+        }
+    }
+
+    void expand(const vector<int>& P, int cur) {
+        if (P.empty()) {
+            if (cur > best) best = cur;
+            return;
+        }
+
+        if (cur + (int)P.size() <= best) return;
+
+        vector<int> Q, C;
+        colorSort(P, Q, C);
+
+        for (int i = (int)Q.size() - 1; i >= 0; --i) {
+            if (cur + C[i] <= best) return;
+
+            int v = Q[i];
+            vector<int> NP;
+            NP.reserve(i);
+
+            for (int j = 0; j < i; ++j) {
+                int u = Q[j];
+                if (isAdj(v, u)) NP.push_back(u);
+            }
+
+            if (NP.empty()) {
+                if (cur + 1 > best) best = cur + 1;
+            } else {
+                expand(NP, cur + 1);
+            }
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        if (n == 1) return 1;
+
+        best = greedyInitial();
+
+        vector<int> P(n);
+        iota(P.begin(), P.end(), 0);
+        stable_sort(P.begin(), P.end(), [&](int a, int b) {
+            return compDeg[a] < compDeg[b];
+        });
+
+        expand(P, 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    Solver solver(N);
+
+    int total = N * N;
+    int cnt = 0;
+    char ch;
+
+    while (cnt < total && cin.get(ch)) {
+        if (ch != '0' && ch != '1') continue;
+
+        int i = cnt / N;
+        int j = cnt % N;
+
+        if (i != j && ch == '1') solver.setEdge(i, j);
+        ++cnt;
+    }
+
+    for (int i = 0; i < N; ++i) {
+        solver.clearEdge(i, i);
+    }
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool e = solver.isAdj(i, j) || solver.isAdj(j, i);
+            if (e) {
+                solver.setEdge(i, j);
+                solver.setEdge(j, i);
+            } else {
+                solver.clearEdge(i, j);
+                solver.clearEdge(j, i);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            if (!solver.isAdj(i, j)) {
+                solver.comp[i].push_back(j);
+                solver.comp[j].push_back(i);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        solver.compDeg[i] = (int)solver.comp[i].size();
+    }
+
+    cout << solver.solve() << '\n';
+    return 0;
+}

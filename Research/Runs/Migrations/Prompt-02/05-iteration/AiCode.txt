@@ -1,0 +1,147 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    const int MAXN = 10005;
+    const int LOG = 15;
+
+    int up_[MAXN][LOG];
+    int depth_[MAXN];
+
+    int diamA, diamB, diamD;
+    int encA, encB, encD;
+    int pendingAction;
+    bool hasPending;
+
+    int lca_node(int a, int b) {
+        if (depth_[a] < depth_[b]) swap(a, b);
+        int diff = depth_[a] - depth_[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up_[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up_[a][k] != up_[b][k]) {
+                a = up_[a][k];
+                b = up_[b][k];
+            }
+        }
+        return up_[a][0];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return depth_[a] + depth_[b] - 2 * depth_[c];
+    }
+
+    void reset_sender() {
+        memset(up_, 0, sizeof(up_));
+        memset(depth_, 0, sizeof(depth_));
+        diamA = diamB = 0;
+        diamD = 0;
+        encA = encB = 0;
+        encD = 0;
+        pendingAction = 0;
+        hasPending = false;
+    }
+
+    int compute_action_and_update(int node, int parent) {
+        int da = dist_node(parent, encA);
+        int db = dist_node(parent, encB);
+
+        if (da == encD) {
+            encB = node;
+            ++encD;
+            return 1;
+        }
+        if (db == encD) {
+            encA = node;
+            ++encD;
+            return 2;
+        }
+        return 0;
+    }
+
+    void apply_action_receiver(int node, int action, int &a, int &b) {
+        if (action == 1) {
+            b = node;
+        } else if (action == 2) {
+            a = node;
+        }
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) reset_sender();
+
+    up_[i][0] = Pi;
+    depth_[i] = depth_[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up_[i][k] = up_[up_[i][k - 1]][k - 1];
+    }
+
+    int oldA = diamA;
+    int oldB = diamB;
+    int oldD = diamD;
+    int dA = dist_node(i, oldA);
+    int dB = dist_node(i, oldB);
+
+    if (dA > oldD) {
+        diamA = oldA;
+        diamB = i;
+        diamD = dA;
+    } else if (dB > oldD) {
+        diamA = i;
+        diamB = oldB;
+        diamD = dB;
+    }
+
+    int t = N - 50;
+
+    if (i < t) return 0;
+
+    if (i == t) {
+        encA = diamA;
+        encB = diamB;
+        encD = diamD;
+        return encA + 1;
+    }
+
+    if (i == t + 1) {
+        pendingAction = compute_action_and_update(i, Pi);
+        hasPending = true;
+        return encB + 1;
+    }
+
+    if (i == t + 2) {
+        int action = compute_action_and_update(i, Pi);
+        int packed = pendingAction * 3 + action;
+        hasPending = false;
+        return packed + 1;
+    }
+
+    int action = compute_action_and_update(i, Pi);
+    return action + 1;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    int t = N - 50;
+
+    int a = S[t] - 1;
+    int b = S[t + 1] - 1;
+
+    int packed = S[t + 2] - 1;
+    int action1 = packed / 3;
+    int action2 = packed % 3;
+
+    apply_action_receiver(t + 1, action1, a, b);
+    apply_action_receiver(t + 2, action2, a, b);
+
+    for (int i = t + 3; i < N; ++i) {
+        int action = S[i] - 1;
+        apply_action_receiver(i, action, a, b);
+    }
+
+    return {a, b};
+}

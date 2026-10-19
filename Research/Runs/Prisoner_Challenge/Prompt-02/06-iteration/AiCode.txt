@@ -1,0 +1,83 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    vector<int> bases, cur;
+
+    function<bool(int, int, long long)> dfs = [&](int rem, int mn, long long prod) -> bool {
+        if (prod >= N && !cur.empty()) {
+            bases = cur;
+            return true;
+        }
+        if (rem < 2) return false;
+        for (int b = mn; b <= rem; ++b) {
+            cur.push_back(b);
+            long long np = min<long long>(N, prod * b);
+            if (dfs(rem - b, b, np)) return true;
+            cur.pop_back();
+        }
+        return false;
+    };
+
+    for (int sum = 2; sum <= 24 && bases.empty(); ++sum) {
+        cur.clear();
+        dfs(sum, 2, 1);
+    }
+
+    if (bases.empty()) bases = {3, 3, 3, 3, 4, 4, 4};
+
+    int L = (int)bases.size();
+
+    vector<int> place(L);
+    int prod = 1;
+    for (int i = L - 1; i >= 0; --i) {
+        place[i] = prod;
+        prod *= bases[i];
+    }
+
+    auto digit = [&](int val, int pos) {
+        int x = val - 1;
+        return (x / place[pos]) % bases[pos];
+    };
+
+    vector<int> off(L);
+    int rows = 1;
+    for (int i = 0; i < L; ++i) {
+        off[i] = rows;
+        rows += bases[i];
+    }
+
+    vector<vector<int>> s(rows, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = off[0] + digit(j, 0);
+    }
+
+    for (int p = 0; p < L; ++p) {
+        for (int d = 0; d < bases[p]; ++d) {
+            int st = off[p] + d;
+            s[st][0] = (p % 2 == 0 ? 1 : 0);
+
+            for (int j = 1; j <= N; ++j) {
+                int e = digit(j, p);
+
+                if (e != d) {
+                    if (p % 2 == 0) {
+                        s[st][j] = (d < e ? -1 : -2);
+                    } else {
+                        s[st][j] = (e < d ? -1 : -2);
+                    }
+                } else {
+                    if (p + 1 == L) {
+                        s[st][j] = -1;
+                    } else {
+                        s[st][j] = off[p + 1] + digit(j, p + 1);
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

@@ -1,0 +1,316 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastScanner {
+    static const int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    bool readInt(int &out) {
+        char c;
+        do {
+            c = getChar();
+            if (!c) return false;
+        } while (c < '0' || c > '9');
+
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        out = x;
+        return true;
+    }
+
+    int readBit() {
+        char c;
+        do {
+            c = getChar();
+            if (!c) return 0;
+        } while (c != '0' && c != '1');
+        return c - '0';
+    }
+};
+
+int N, W;
+uint64_t LAST_MASK;
+vector<uint64_t> adjBits;
+int bestAns = 0;
+
+inline bool bitTest(const vector<uint64_t>& a, int v) {
+    return (a[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline bool edgeTest(const vector<uint64_t>& a, int wcnt, int u, int v) {
+    return (a[(size_t)u * wcnt + (v >> 6)] >> (v & 63)) & 1ULL;
+}
+
+inline void bitClear(vector<uint64_t>& a, int v) {
+    a[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline int firstBit(const vector<uint64_t>& a) {
+    for (int i = 0; i < W; ++i) {
+        if (a[i]) return (i << 6) + __builtin_ctzll(a[i]);
+    }
+    return -1;
+}
+
+inline int popcountBits(const vector<uint64_t>& a) {
+    int s = 0;
+    for (uint64_t x : a) s += __builtin_popcountll(x);
+    return s;
+}
+
+int greedyLowerBound(const vector<vector<int>>& comp, const vector<uint64_t>& oldAdj, vector<char>& selected) {
+    int n = (int)comp.size();
+    selected.assign(n, 0);
+
+    vector<int> deg(n);
+    vector<char> active(n, 1);
+    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+    for (int i = 0; i < n; ++i) {
+        deg[i] = (int)comp[i].size();
+        pq.push({deg[i], i});
+    }
+
+    int rem = n, res = 0;
+    vector<int> removed;
+    while (rem > 0) {
+        int v = -1;
+        while (!pq.empty()) {
+            auto [d, x] = pq.top();
+            pq.pop();
+            if (active[x] && deg[x] == d) {
+                v = x;
+                break;
+            }
+        }
+        if (v < 0) break;
+
+        selected[v] = 1;
+        ++res;
+        removed.clear();
+        removed.push_back(v);
+        for (int u : comp[v]) {
+            if (active[u]) removed.push_back(u);
+        }
+
+        for (int x : removed) {
+            if (!active[x]) continue;
+            active[x] = 0;
+            --rem;
+            for (int y : comp[x]) {
+                if (active[y]) {
+                    --deg[y];
+                    pq.push({deg[y], y});
+                }
+            }
+        }
+    }
+
+    int wcnt = (n + 63) >> 6;
+    int limit = n;
+    for (int it = 0; it < limit; ++it) {
+        vector<vector<int>> group(n);
+        bool improved = false;
+
+        for (int x = 0; x < n; ++x) {
+            if (selected[x]) continue;
+            int cnt = 0, only = -1;
+            for (int y : comp[x]) {
+                if (selected[y]) {
+                    ++cnt;
+                    only = y;
+                    if (cnt > 1) break;
+                }
+            }
+            if (cnt == 1) group[only].push_back(x);
+        }
+
+        for (int s = 0; s < n && !improved; ++s) {
+            if (!selected[s] || group[s].size() < 2) continue;
+            auto &g = group[s];
+            for (size_t i = 0; i < g.size() && !improved; ++i) {
+                int x = g[i];
+                for (size_t j = i + 1; j < g.size(); ++j) {
+                    int y = g[j];
+                    if (edgeTest(oldAdj, wcnt, x, y)) {
+                        selected[s] = 0;
+                        selected[x] = 1;
+                        selected[y] = 1;
+                        ++res;
+                        improved = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!improved) break;
+    }
+
+    return res;
+}
+
+void colorSort(const vector<uint64_t>& P, vector<int>& order, vector<int>& color) {
+    order.clear();
+    color.clear();
+
+    vector<uint64_t> U = P, Q(W);
+    int c = 0;
+
+    while (true) {
+        bool any = false;
+        for (uint64_t x : U) {
+            if (x) {
+                any = true;
+                break;
+            }
+        }
+        if (!any) break;
+
+        ++c;
+        Q = U;
+
+        while (true) {
+            int v = firstBit(Q);
+            if (v < 0 || v >= N) break;
+
+            order.push_back(v);
+            color.push_back(c);
+
+            bitClear(U, v);
+            bitClear(Q, v);
+
+            const uint64_t* av = &adjBits[(size_t)v * W];
+            for (int i = 0; i < W; ++i) Q[i] &= ~av[i];
+            Q[W - 1] &= LAST_MASK;
+        }
+    }
+}
+
+void expandClique(int cur, vector<uint64_t> P) {
+    int pc = popcountBits(P);
+    if (pc == 0) {
+        if (cur > bestAns) bestAns = cur;
+        return;
+    }
+    if (cur + pc <= bestAns) return;
+
+    vector<int> order;
+    vector<int> color;
+    order.reserve(pc);
+    color.reserve(pc);
+
+    colorSort(P, order, color);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (cur + color[i] <= bestAns) return;
+
+        int v = order[i];
+        if (!bitTest(P, v)) continue;
+
+        vector<uint64_t> Q(W);
+        const uint64_t* av = &adjBits[(size_t)v * W];
+        for (int j = 0; j < W; ++j) Q[j] = P[j] & av[j];
+        Q[W - 1] &= LAST_MASK;
+
+        expandClique(cur + 1, std::move(Q));
+        bitClear(P, v);
+    }
+}
+
+int main() {
+    FastScanner fs;
+    if (!fs.readInt(N)) return 0;
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    LAST_MASK = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    vector<uint64_t> oldAdj((size_t)N * W, 0);
+    vector<vector<int>> comp(N);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = fs.readBit();
+            if (i == j) continue;
+            if (b) {
+                oldAdj[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+            } else if (i < j) {
+                comp[i].push_back(j);
+                comp[j].push_back(i);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        oldAdj[(size_t)i * W + (i >> 6)] &= ~(1ULL << (i & 63));
+        oldAdj[(size_t)i * W + W - 1] &= LAST_MASK;
+    }
+
+    vector<char> selected;
+    bestAns = greedyLowerBound(comp, oldAdj, selected);
+
+    vector<int> ord(N), pos(N), deg(N);
+    iota(ord.begin(), ord.end(), 0);
+    for (int i = 0; i < N; ++i) deg[i] = N - 1 - (int)comp[i].size();
+
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    for (int i = 0; i < N; ++i) pos[ord[i]] = i;
+
+    adjBits.assign((size_t)N * W, 0);
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = ord[ni];
+        uint64_t* row = &adjBits[(size_t)ni * W];
+        const uint64_t* oldRow = &oldAdj[(size_t)oi * W];
+
+        for (int ww = 0; ww < W; ++ww) {
+            uint64_t x = oldRow[ww];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (ww << 6) + b;
+                if (oj < N) {
+                    int nj = pos[oj];
+                    row[nj >> 6] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+        row[ni >> 6] &= ~(1ULL << (ni & 63));
+        row[W - 1] &= LAST_MASK;
+    }
+
+    oldAdj.clear();
+    oldAdj.shrink_to_fit();
+    comp.clear();
+    comp.shrink_to_fit();
+
+    vector<uint64_t> P(W, ~0ULL);
+    P[W - 1] = LAST_MASK;
+
+    if (bestAns < N) expandClique(0, std::move(P));
+
+    printf("%d\n", bestAns);
+    return 0;
+}

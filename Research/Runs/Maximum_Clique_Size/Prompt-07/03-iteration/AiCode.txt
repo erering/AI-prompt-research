@@ -1,0 +1,392 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+static inline int popcnt64(ull x) { return __builtin_popcountll(x); }
+static inline int ctz64(ull x) { return __builtin_ctzll(x); }
+
+struct MaxCliqueComplement {
+    int n, W;
+    ull lastMask;
+    vector<vector<ull>> nonEdge;
+    vector<vector<int>> neList;
+    int best;
+
+    MaxCliqueComplement(vector<vector<ull>> ne, vector<vector<int>> lst)
+        : n((int)ne.size()), W(n ? (int)ne[0].size() : 0), nonEdge(move(ne)), neList(move(lst)) {
+        int r = n & 63;
+        lastMask = (r == 0 ? ~0ULL : ((1ULL << r) - 1ULL));
+        best = 0;
+    }
+
+    bool emptyBits(const vector<ull>& a) const {
+        for (ull x : a) if (x) return false;
+        return true;
+    }
+
+    int countBits(const vector<ull>& a) const {
+        int s = 0;
+        for (ull x : a) s += popcnt64(x);
+        return s;
+    }
+
+    bool testBit(const vector<ull>& a, int v) const {
+        return (a[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    void clearBit(vector<ull>& a, int v) const {
+        a[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    int firstBit(const vector<ull>& a) const {
+        for (int i = 0; i < W; ++i) {
+            if (a[i]) return i * 64 + ctz64(a[i]);
+        }
+        return -1;
+    }
+
+    int greedyLower() const {
+        vector<char> active(n, 1);
+        vector<int> deg(n);
+        priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+        for (int i = 0; i < n; ++i) {
+            deg[i] = (int)neList[i].size();
+            pq.push({deg[i], i});
+        }
+
+        int res = 0, alive = n;
+        vector<int> rem;
+        while (alive > 0) {
+            int v = -1;
+            while (!pq.empty()) {
+                auto [d, x] = pq.top();
+                pq.pop();
+                if (active[x] && d == deg[x]) {
+                    v = x;
+                    break;
+                }
+            }
+            if (v < 0) break;
+
+            ++res;
+            rem.clear();
+            rem.push_back(v);
+            for (int u : neList[v]) if (active[u]) rem.push_back(u);
+
+            for (int x : rem) {
+                if (!active[x]) continue;
+                active[x] = 0;
+                --alive;
+                for (int y : neList[x]) {
+                    if (active[y]) {
+                        --deg[y];
+                        pq.push({deg[y], y});
+                    }
+                }
+            }
+        }
+        return res;
+    }
+
+    void colorSort(const vector<ull>& P, vector<int>& order, vector<int>& colors) const {
+        order.clear();
+        colors.clear();
+
+        vector<ull> U = P;
+        int color = 0;
+
+        while (!emptyBits(U)) {
+            ++color;
+            vector<ull> Q = U;
+
+            while (!emptyBits(Q)) {
+                int v = firstBit(Q);
+                order.push_back(v);
+                colors.push_back(color);
+
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                for (int i = 0; i < W; ++i) Q[i] &= nonEdge[v][i];
+            }
+        }
+    }
+
+    void expand(vector<ull> P, int sz) {
+        if (emptyBits(P)) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        vector<int> order, colors;
+        order.reserve(countBits(P));
+        colors.reserve(order.capacity());
+        colorSort(P, order, colors);
+
+        vector<ull> Pcur = P;
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (sz + colors[i] <= best) return;
+
+            int v = order[i];
+            if (!testBit(Pcur, v)) continue;
+
+            vector<ull> newP = Pcur;
+            for (int j = 0; j < W; ++j) newP[j] &= ~nonEdge[v][j];
+            clearBit(newP, v);
+            if (W) newP[W - 1] &= lastMask;
+
+            int ub = sz + 1 + countBits(newP);
+            if (ub > best) expand(move(newP), sz + 1);
+            else if (sz + 1 > best) best = sz + 1;
+
+            clearBit(Pcur, v);
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        best = greedyLower();
+        if (best == n) return best;
+
+        vector<ull> P(W, ~0ULL);
+        if (W) P[W - 1] = lastMask;
+        expand(move(P), 0);
+        return best;
+    }
+};
+
+int hopcroftKarpMIS(const vector<vector<int>>& adj) {
+    int n = (int)adj.size();
+    vector<int> color(n, -1);
+
+    for (int s = 0; s < n; ++s) {
+        if (color[s] != -1) continue;
+        queue<int> q;
+        color[s] = 0;
+        q.push(s);
+        while (!q.empty()) {
+            int v = q.front();
+            q.pop();
+            for (int u : adj[v]) {
+                if (color[u] == -1) {
+                    color[u] = color[v] ^ 1;
+                    q.push(u);
+                } else if (color[u] == color[v]) {
+                    return -1;
+                }
+            }
+        }
+    }
+
+    vector<int> pairU(n, -1), pairV(n, -1), dist(n);
+
+    auto bfs = [&]() {
+        queue<int> q;
+        bool found = false;
+        for (int u = 0; u < n; ++u) {
+            if (color[u] == 0 && pairU[u] == -1) {
+                dist[u] = 0;
+                q.push(u);
+            } else {
+                dist[u] = -1;
+            }
+        }
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            for (int v : adj[u]) {
+                if (color[v] != 1) continue;
+                int pu = pairV[v];
+                if (pu == -1) {
+                    found = true;
+                } else if (dist[pu] == -1) {
+                    dist[pu] = dist[u] + 1;
+                    q.push(pu);
+                }
+            }
+        }
+        return found;
+    };
+
+    function<bool(int)> dfs = [&](int u) {
+        for (int v : adj[u]) {
+            if (color[v] != 1) continue;
+            int pu = pairV[v];
+            if (pu == -1 || (dist[pu] == dist[u] + 1 && dfs(pu))) {
+                pairU[u] = v;
+                pairV[v] = u;
+                return true;
+            }
+        }
+        dist[u] = -1;
+        return false;
+    };
+
+    int matching = 0;
+    while (bfs()) {
+        for (int u = 0; u < n; ++u) {
+            if (color[u] == 0 && pairU[u] == -1) {
+                if (dfs(u)) ++matching;
+            }
+        }
+    }
+
+    return n - matching;
+}
+
+static inline bool bitTest(const vector<ull>& a, int v) {
+    return (a[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+static inline void bitClear(vector<ull>& a, int v) {
+    a[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    int W = (N + 63) >> 6;
+    int r = N & 63;
+    ull lastMask = (r == 0 ? ~0ULL : ((1ULL << r) - 1ULL));
+
+    vector<vector<ull>> orig(N, vector<ull>(W, 0));
+
+    char c;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            do {
+                if (!cin.get(c)) c = '0';
+            } while (c != '0' && c != '1');
+
+            if (i != j && c == '1') {
+                orig[i][j >> 6] |= 1ULL << (j & 63);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        bitClear(orig[i], i);
+        if (W) orig[i][W - 1] &= lastMask;
+    }
+
+    vector<vector<ull>> comp(N, vector<ull>(W));
+    for (int i = 0; i < N; ++i) {
+        for (int w = 0; w < W; ++w) comp[i][w] = ~orig[i][w];
+        if (W) comp[i][W - 1] &= lastMask;
+        bitClear(comp[i], i);
+    }
+    orig.clear();
+    orig.shrink_to_fit();
+
+    vector<ull> unseen(W, ~0ULL);
+    unseen[W - 1] = lastMask;
+
+    vector<int> pos(N, -1);
+    long long answer = 0;
+
+    for (int start = 0; start < N; ++start) {
+        if (!bitTest(unseen, start)) continue;
+
+        vector<int> verts;
+        vector<int> st;
+        bitClear(unseen, start);
+        st.push_back(start);
+
+        while (!st.empty()) {
+            int v = st.back();
+            st.pop_back();
+            verts.push_back(v);
+
+            for (int w = 0; w < W; ++w) {
+                ull b = comp[v][w] & unseen[w];
+                while (b) {
+                    int t = ctz64(b);
+                    int u = w * 64 + t;
+                    b &= b - 1;
+                    bitClear(unseen, u);
+                    st.push_back(u);
+                }
+            }
+        }
+
+        int k = (int)verts.size();
+        if (k == 1) {
+            answer += 1;
+            continue;
+        }
+
+        sort(verts.begin(), verts.end(), [&](int a, int b) {
+            int da = 0, db = 0;
+            for (ull x : comp[a]) da += popcnt64(x);
+            for (ull x : comp[b]) db += popcnt64(x);
+            return da > db;
+        });
+
+        for (int i = 0; i < k; ++i) pos[verts[i]] = i;
+
+        int LW = (k + 63) >> 6;
+        int lr = k & 63;
+        ull localLastMask = (lr == 0 ? ~0ULL : ((1ULL << lr) - 1ULL));
+
+        vector<vector<ull>> localNE(k, vector<ull>(LW, 0));
+        vector<vector<int>> localList(k);
+
+        for (int i = 0; i < k; ++i) {
+            int gv = verts[i];
+            for (int w = 0; w < W; ++w) {
+                ull b = comp[gv][w];
+                while (b) {
+                    int t = ctz64(b);
+                    int gu = w * 64 + t;
+                    b &= b - 1;
+                    int j = (gu >= 0 && gu < N) ? pos[gu] : -1;
+                    if (j >= 0) {
+                        localNE[i][j >> 6] |= 1ULL << (j & 63);
+                        localList[i].push_back(j);
+                    }
+                }
+            }
+            if (LW) localNE[i][LW - 1] &= localLastMask;
+        }
+
+        for (int v : verts) pos[v] = -1;
+
+        int mxdeg = 0;
+        bool allDeg2 = true;
+        for (int i = 0; i < k; ++i) {
+            int d = (int)localList[i].size();
+            mxdeg = max(mxdeg, d);
+            if (d != 2) allDeg2 = false;
+        }
+
+        int partAns = -1;
+        if (mxdeg <= 2) {
+            if (allDeg2) partAns = k / 2;
+            else partAns = (k + 1) / 2;
+        } else {
+            partAns = hopcroftKarpMIS(localList);
+        }
+
+        if (partAns < 0) {
+            MaxCliqueComplement solver(move(localNE), move(localList));
+            partAns = solver.solve();
+        }
+
+        answer += partAns;
+    }
+
+    cout << answer << '\n';
+    return 0;
+}

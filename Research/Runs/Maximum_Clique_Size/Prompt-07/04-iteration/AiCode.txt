@@ -1,0 +1,361 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+static inline bool bit_test(const vector<ull>& b, int i) {
+    return (b[i >> 6] >> (i & 63)) & 1ULL;
+}
+
+static inline void bit_set(vector<ull>& b, int i) {
+    b[i >> 6] |= 1ULL << (i & 63);
+}
+
+static inline void bit_clear(vector<ull>& b, int i) {
+    b[i >> 6] &= ~(1ULL << (i & 63));
+}
+
+static inline bool bits_any(const vector<ull>& b) {
+    for (ull x : b) if (x) return true;
+    return false;
+}
+
+static inline int bits_count(const vector<ull>& b) {
+    int r = 0;
+    for (ull x : b) r += __builtin_popcountll(x);
+    return r;
+}
+
+static inline int first_bit(const vector<ull>& b) {
+    for (int i = 0; i < (int)b.size(); ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+struct MaxCliqueSolver {
+    int n, W, best;
+    vector<vector<ull>> adj;
+    ull lastMask;
+
+    MaxCliqueSolver(const vector<int>& comp, const vector<vector<int>>& missAdj, vector<int>& pos) {
+        n = (int)comp.size();
+        W = (n + 63) >> 6;
+        lastMask = (n % 64 == 0) ? ~0ULL : ((1ULL << (n % 64)) - 1ULL);
+
+        vector<int> verts = comp;
+        sort(verts.begin(), verts.end(), [&](int a, int b) {
+            return missAdj[a].size() < missAdj[b].size();
+        });
+
+        for (int i = 0; i < n; ++i) pos[verts[i]] = i;
+
+        adj.assign(n, vector<ull>(W, ~0ULL));
+        for (int i = 0; i < n; ++i) {
+            adj[i][W - 1] &= lastMask;
+            bit_clear(adj[i], i);
+        }
+
+        for (int i = 0; i < n; ++i) {
+            int g = verts[i];
+            for (int h : missAdj[g]) {
+                int j = pos[h];
+                if (j >= 0) bit_clear(adj[i], j);
+            }
+        }
+
+        for (int v : verts) pos[v] = -1;
+    }
+
+    int count_intersection(const vector<ull>& a, const vector<ull>& b) const {
+        int r = 0;
+        for (int i = 0; i < W; ++i) r += __builtin_popcountll(a[i] & b[i]);
+        return r;
+    }
+
+    int greedy_clique(vector<ull> P) const {
+        int res = 0;
+        while (bits_any(P)) {
+            int bestv = -1, bestd = -1;
+            vector<ull> T = P;
+            while (bits_any(T)) {
+                int v = first_bit(T);
+                bit_clear(T, v);
+                int d = count_intersection(P, adj[v]);
+                if (d > bestd) {
+                    bestd = d;
+                    bestv = v;
+                }
+            }
+            ++res;
+            for (int i = 0; i < W; ++i) P[i] &= adj[bestv][i];
+        }
+        return res;
+    }
+
+    void color_sort(const vector<ull>& P, vector<int>& order, vector<int>& color) const {
+        order.clear();
+        color.clear();
+        order.reserve(bits_count(P));
+        color.reserve(order.capacity());
+
+        vector<ull> U = P, Q(W);
+        int c = 0;
+
+        while (bits_any(U)) {
+            ++c;
+            Q = U;
+            while (bits_any(Q)) {
+                int v = first_bit(Q);
+                order.push_back(v);
+                color.push_back(c);
+
+                bit_clear(U, v);
+                bit_clear(Q, v);
+                for (int i = 0; i < W; ++i) Q[i] &= ~adj[v][i];
+            }
+        }
+    }
+
+    void expand(vector<ull> P, int depth) {
+        if (depth + bits_count(P) <= best) return;
+
+        vector<int> order, color;
+        color_sort(P, order, color);
+
+        if (order.empty()) {
+            if (depth > best) best = depth;
+            return;
+        }
+
+        if (depth + color.back() <= best) return;
+
+        for (int idx = (int)order.size() - 1; idx >= 0; --idx) {
+            if (depth + color[idx] <= best) return;
+
+            int v = order[idx];
+            if (!bit_test(P, v)) continue;
+
+            bit_clear(P, v);
+
+            int nd = depth + 1;
+            if (nd > best) best = nd;
+
+            vector<ull> NP(W);
+            for (int i = 0; i < W; ++i) NP[i] = P[i] & adj[v][i];
+
+            if (bits_any(NP) && nd + bits_count(NP) > best) {
+                expand(std::move(NP), nd);
+            }
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        if (n == 1) return 1;
+
+        vector<ull> P(W, ~0ULL);
+        P[W - 1] &= lastMask;
+
+        best = greedy_clique(P);
+        expand(P, 0);
+        return best;
+    }
+};
+
+int hopcroft_karp_component(
+    const vector<int>& comp,
+    const vector<vector<int>>& missAdj,
+    const vector<int>& color,
+    vector<int>& pos
+) {
+    vector<int> L, R;
+    for (int v : comp) {
+        if (color[v] == 0) L.push_back(v);
+        else R.push_back(v);
+    }
+
+    for (int i = 0; i < (int)R.size(); ++i) pos[R[i]] = i;
+
+    vector<vector<int>> adjL(L.size());
+    for (int i = 0; i < (int)L.size(); ++i) {
+        for (int v : missAdj[L[i]]) {
+            int j = pos[v];
+            if (j >= 0) adjL[i].push_back(j);
+        }
+    }
+
+    for (int v : R) pos[v] = -1;
+
+    int nL = (int)L.size(), nR = (int)R.size();
+    vector<int> pairU(nL, -1), pairV(nR, -1), dist(nL);
+    int matching = 0;
+
+    auto bfs = [&]() {
+        queue<int> q;
+        bool found = false;
+        for (int u = 0; u < nL; ++u) {
+            if (pairU[u] == -1) {
+                dist[u] = 0;
+                q.push(u);
+            } else {
+                dist[u] = -1;
+            }
+        }
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            for (int v : adjL[u]) {
+                int pu = pairV[v];
+                if (pu == -1) {
+                    found = true;
+                } else if (dist[pu] == -1) {
+                    dist[pu] = dist[u] + 1;
+                    q.push(pu);
+                }
+            }
+        }
+        return found;
+    };
+
+    function<bool(int)> dfs = [&](int u) {
+        for (int v : adjL[u]) {
+            int pu = pairV[v];
+            if (pu == -1 || (dist[pu] == dist[u] + 1 && dfs(pu))) {
+                pairU[u] = v;
+                pairV[v] = u;
+                return true;
+            }
+        }
+        dist[u] = -1;
+        return false;
+    };
+
+    while (bfs()) {
+        for (int u = 0; u < nL; ++u) {
+            if (pairU[u] == -1 && dfs(u)) ++matching;
+        }
+    }
+
+    return matching;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    int W = (N + 63) >> 6;
+    vector<vector<ull>> orig(N, vector<ull>(W, 0));
+
+    char c;
+    int read = 0;
+    while (read < N * N && cin.get(c)) {
+        if (c != '0' && c != '1') continue;
+        int i = read / N;
+        int j = read % N;
+        if (i != j && c == '1') bit_set(orig[i], j);
+        ++read;
+    }
+
+    for (int i = 0; i < N; ++i) bit_clear(orig[i], i);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool e = bit_test(orig[i], j) || bit_test(orig[j], i);
+            if (e) {
+                bit_set(orig[i], j);
+                bit_set(orig[j], i);
+            } else {
+                bit_clear(orig[i], j);
+                bit_clear(orig[j], i);
+            }
+        }
+    }
+
+    vector<vector<int>> missAdj(N);
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            if (!bit_test(orig[i], j)) {
+                missAdj[i].push_back(j);
+                missAdj[j].push_back(i);
+            }
+        }
+    }
+
+    orig.clear();
+    orig.shrink_to_fit();
+
+    vector<char> vis(N, 0);
+    vector<int> color(N, -1), pos(N, -1);
+    int answer = 0;
+
+    for (int start = 0; start < N; ++start) {
+        if (vis[start]) continue;
+
+        vector<int> comp;
+        queue<int> q;
+        bool bip = true;
+
+        vis[start] = 1;
+        color[start] = 0;
+        q.push(start);
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            comp.push_back(u);
+
+            for (int v : missAdj[u]) {
+                if (!vis[v]) {
+                    vis[v] = 1;
+                    color[v] = color[u] ^ 1;
+                    q.push(v);
+                } else if (color[v] == color[u]) {
+                    bip = false;
+                }
+            }
+        }
+
+        int s = (int)comp.size();
+        if (s == 1) {
+            answer += 1;
+            continue;
+        }
+
+        long long edgeSum = 0;
+        int maxDeg = 0;
+        for (int v : comp) {
+            int d = (int)missAdj[v].size();
+            edgeSum += d;
+            maxDeg = max(maxDeg, d);
+        }
+        long long edges = edgeSum / 2;
+
+        if (edges == 1LL * s * (s - 1) / 2) {
+            answer += 1;
+            continue;
+        }
+
+        if (maxDeg <= 2) {
+            if (edges == s - 1) answer += (s + 1) / 2;
+            else answer += s / 2;
+            continue;
+        }
+
+        if (bip) {
+            int matching = hopcroft_karp_component(comp, missAdj, color, pos);
+            answer += s - matching;
+            continue;
+        }
+
+        MaxCliqueSolver solver(comp, missAdj, pos);
+        answer += solver.solve();
+    }
+
+    cout << answer << '\n';
+    return 0;
+}

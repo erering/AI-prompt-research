@@ -1,0 +1,135 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+extern vector<bool> send_packet(vector<bool> A);
+
+static int enc_tag(int j, int prv, int nxt) {
+    int pc = (prv < 0 ? 0 : prv + 1);
+    int nc = (nxt >= 31 ? 0 : nxt - j);
+    return pc * (31 - j) + nc;
+}
+
+struct DecTag {
+    bool ok;
+    int prv;
+    int nxt;
+};
+
+static DecTag dec_tag(int j, int code) {
+    int base = 31 - j;
+    int pc = code / base;
+    int nc = code % base;
+    if (pc < 0 || pc > j) return {false, -2, -2};
+    if (nc < 0 || nc > 30 - j) return {false, -2, -2};
+    int prv = (pc == 0 ? -1 : pc - 1);
+    int nxt = (nc == 0 ? 31 : j + nc);
+    if (prv >= j) return {false, -2, -2};
+    if (nxt <= j) return {false, -2, -2};
+    return {true, prv, nxt};
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    vector<int> G;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) G.push_back(i);
+    }
+
+    vector<int> prv(31, -1), nxt(31, 31), rank_of(31, -1);
+    for (int i = 0; i < (int)G.size(); ++i) {
+        rank_of[G[i]] = i;
+        if (i > 0) prv[G[i]] = G[i - 1];
+        if (i + 1 < (int)G.size()) nxt[G[i]] = G[i + 1];
+    }
+
+    for (int b = 0; b < 8; ++b) {
+        vector<bool> A(31, false);
+        for (int j : G) {
+            int code = enc_tag(j, prv[j], nxt[j]);
+            A[j] = (code >> b) & 1;
+        }
+        send_packet(A);
+    }
+
+    int S = (int)M.size();
+    int len = S - 1;
+    vector<bool> A(31, false);
+    for (int r = 0; r < 16; ++r) {
+        int j = G[r];
+        if (r < 10) A[j] = (len >> r) & 1;
+        else A[j] = false;
+    }
+    send_packet(A);
+
+    int D = (S + 15) / 16;
+    for (int p = 0; p < D; ++p) {
+        vector<bool> P(31, false);
+        for (int r = 0; r < 16; ++r) {
+            int idx = p * 16 + r;
+            if (idx < S) P[G[r]] = M[idx];
+        }
+        send_packet(P);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    vector<int> obs(31, 0);
+    for (int b = 0; b < 8 && b < (int)R.size(); ++b) {
+        for (int j = 0; j < 31; ++j) {
+            if (R[b][j]) obs[j] |= (1 << b);
+        }
+    }
+
+    vector<DecTag> tag(31);
+    for (int j = 0; j < 31; ++j) tag[j] = dec_tag(j, obs[j]);
+
+    vector<int> G;
+    for (int st = 0; st < 31 && G.empty(); ++st) {
+        if (!tag[st].ok || tag[st].prv != -1) continue;
+        vector<int> cur;
+        int x = st, prev = -1;
+        bool bad = false;
+        for (int cnt = 0; cnt < 16; ++cnt) {
+            if (x < 0 || x >= 31 || !tag[x].ok || tag[x].prv != prev) {
+                bad = true;
+                break;
+            }
+            cur.push_back(x);
+            prev = x;
+            x = tag[x].nxt;
+            if (cnt < 15 && x >= 31) {
+                bad = true;
+                break;
+            }
+        }
+        if (!bad && x == 31) G = cur;
+    }
+
+    if (G.empty()) {
+        vector<int> cand;
+        for (int mask = 0; mask < (1 << 31); ++mask) {
+            (void)mask;
+            break;
+        }
+        for (int i = 0; i < 16; ++i) G.push_back(i);
+    }
+
+    int len = 0;
+    if ((int)R.size() > 8) {
+        for (int r = 0; r < 10; ++r) {
+            if (R[8][G[r]]) len |= (1 << r);
+        }
+    }
+    int S = len + 1;
+
+    vector<bool> M;
+    M.reserve(S);
+    int ptr = 0;
+    for (int p = 9; p < (int)R.size() && ptr < S; ++p) {
+        for (int r = 0; r < 16 && ptr < S; ++r) {
+            M.push_back(R[p][G[r]]);
+            ++ptr;
+        }
+    }
+    while ((int)M.size() < S) M.push_back(false);
+    return M;
+}

@@ -1,0 +1,28 @@
+Time Limit: 1s
+You are given an undirected graph, find the largest clique in it. (A clique is a subgraph in which there is an edge between each pair of vertices.)
+
+Input Description
+
+Line 1: N, the number of nodes in the given graph.
+Each of the following N lines: The graph is described by an adjacency matrix. The j-th number in the i-th line is 0 if there is no edge (i, j), and 1 if there is an edge (i, j).
+
+The graph is generated randomly, where the edge (i, j) is set with a probability of e^(-ln(n)/n).
+
+Output Description
+
+Line 1: The size of the largest clique in the given graph.
+
+Example:
+Input:
+3
+011
+101
+110
+Output:
+3
+
+Scoring
+
+Test cases are ordered by increasing graph size. Your solution is evaluated sequentially, and testing stops at the first unsuccessful execution. The score depends on the largest graph size for which all preceding test cases are solved successfully.
+
+However, if any execution fails due to a Wrong Answer (WA) or Run-Time Error (RTE), testing terminates immediately and your score will be zero (this immediate zero penalty does not apply to Time Limit Exceeded).

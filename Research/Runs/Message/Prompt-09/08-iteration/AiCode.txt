@@ -1,0 +1,81 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static vector<int> reliable_indices_from_C(const vector<bool>& C) {
+    vector<int> idx;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) idx.push_back(i);
+    }
+    return idx;
+}
+
+static vector<bool> build_payload(const vector<bool>& M) {
+    vector<bool> payload;
+    int L = (int)M.size();
+    int x = L - 1;
+    for (int b = 0; b < 10; ++b) payload.push_back((x >> b) & 1);
+    for (bool bit : M) payload.push_back(bit);
+    return payload;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    vector<bool> reliable_mask(31);
+    for (int i = 0; i < 31; ++i) reliable_mask[i] = !C[i];
+
+    for (int j = 0; j < 31; ++j) {
+        vector<bool> A(31, reliable_mask[j]);
+        send_packet(A);
+    }
+
+    vector<int> good = reliable_indices_from_C(C);
+    vector<bool> payload = build_payload(M);
+
+    int ptr = 0;
+    while (ptr < (int)payload.size()) {
+        vector<bool> A(31, false);
+        for (int k = 0; k < 16; ++k) {
+            if (ptr < (int)payload.size()) A[good[k]] = payload[ptr++];
+            else A[good[k]] = false;
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    vector<bool> reliable_mask(31, false);
+
+    for (int j = 0; j < 31; ++j) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[j][i]) ++ones;
+        }
+        reliable_mask[j] = (ones >= 16);
+    }
+
+    vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (reliable_mask[i]) good.push_back(i);
+    }
+
+    vector<bool> payload;
+    for (int p = 31; p < (int)R.size(); ++p) {
+        for (int k = 0; k < (int)good.size(); ++k) {
+            payload.push_back(R[p][good[k]]);
+        }
+    }
+
+    int Lm1 = 0;
+    for (int b = 0; b < 10 && b < (int)payload.size(); ++b) {
+        if (payload[b]) Lm1 |= (1 << b);
+    }
+
+    int L = Lm1 + 1;
+    vector<bool> M;
+    for (int i = 0; i < L; ++i) {
+        M.push_back(payload[10 + i]);
+    }
+
+    return M;
+}

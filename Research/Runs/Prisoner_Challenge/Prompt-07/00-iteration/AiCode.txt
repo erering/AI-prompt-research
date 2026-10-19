@@ -1,0 +1,56 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    vector<int> base = {4, 3, 3, 3, 3, 3, 3, 3};
+    int L = (int)base.size();
+
+    vector<int> place(L, 1);
+    for (int i = L - 2; i >= 0; --i) place[i] = place[i + 1] * base[i + 1];
+
+    vector<vector<int>> id(L);
+    int rows = 1;
+    for (int i = 0; i < L; ++i) {
+        id[i].resize(base[i]);
+        for (int d = 0; d < base[i]; ++d) id[i][d] = rows++;
+    }
+
+    vector<vector<int>> s(rows, vector<int>(N + 1, 0));
+
+    auto digit = [&](int x, int pos) {
+        return (x / place[pos]) % base[pos];
+    };
+
+    s[0][0] = 0;
+    for (int x = 1; x <= N; ++x) {
+        s[0][x] = id[0][digit(x, 0)];
+    }
+
+    for (int pos = 0; pos < L; ++pos) {
+        for (int stored = 0; stored < base[pos]; ++stored) {
+            int cur = id[pos][stored];
+            int inspect = (pos % 2 == 0 ? 1 : 0);
+            s[cur][0] = inspect;
+
+            for (int x = 1; x <= N; ++x) {
+                int d = digit(x, pos);
+
+                if (d != stored) {
+                    if (inspect == 1) {
+                        s[cur][x] = (stored < d ? -1 : -2);
+                    } else {
+                        s[cur][x] = (d < stored ? -1 : -2);
+                    }
+                } else {
+                    if (pos == L - 1) {
+                        s[cur][x] = -1;
+                    } else {
+                        s[cur][x] = id[pos + 1][digit(x, pos + 1)];
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

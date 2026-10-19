@@ -1,0 +1,65 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    if (N <= 1) {
+        vector<vector<int>> s(1, vector<int>(N + 1, -1));
+        s[0][0] = 0;
+        return s;
+    }
+
+    int L = 0;
+    int prod = 1;
+    while (prod < N) {
+        prod *= 3;
+        ++L;
+    }
+
+    vector<int> pow3(L + 1, 1);
+    for (int i = 1; i <= L; ++i) pow3[i] = pow3[i - 1] * 3;
+
+    auto digit = [&](int j, int p) {
+        int v = j - 1;
+        return (v / pow3[L - 1 - p]) % 3;
+    };
+
+    auto id = [&](int p, int d) {
+        return 1 + p * 3 + d;
+    };
+
+    int rows = 1 + 3 * L;
+    vector<vector<int>> s(rows, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = id(0, digit(j, 0));
+    }
+
+    for (int p = 0; p < L; ++p) {
+        for (int d = 0; d < 3; ++d) {
+            int st = id(p, d);
+            int inspect = (p % 2 == 0) ? 1 : 0;
+            s[st][0] = inspect;
+
+            for (int j = 1; j <= N; ++j) {
+                int cur = digit(j, p);
+
+                if (cur != d) {
+                    if (inspect == 1) {
+                        s[st][j] = (d < cur) ? -1 : -2;
+                    } else {
+                        s[st][j] = (cur < d) ? -1 : -2;
+                    }
+                } else {
+                    if (p == L - 1) {
+                        s[st][j] = -1;
+                    } else {
+                        s[st][j] = id(p + 1, digit(j, p + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

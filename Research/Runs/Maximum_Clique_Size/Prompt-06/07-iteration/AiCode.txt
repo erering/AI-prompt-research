@@ -1,0 +1,265 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static const int BUFSIZE = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[BUFSIZE];
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int readInt() {
+        char c;
+        do { c = getChar(); } while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int readBit() {
+        char c;
+        do { c = getChar(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+uint64_t LAST_MASK;
+vector<uint64_t> compBits;
+vector<vector<int>> compList;
+vector<uint64_t> stackP, scratchU, scratchA;
+vector<vector<int>> orderAt, colorAt;
+int bestAns = 0;
+
+inline void setBit(uint64_t* b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+inline void clearBit(uint64_t* b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline bool testBit(const uint64_t* b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline int popcountBits(const uint64_t* b) {
+    int s = 0;
+    for (int i = 0; i < W; ++i) s += __builtin_popcountll(b[i]);
+    return s;
+}
+
+inline int firstBit(const uint64_t* b) {
+    for (int i = 0; i < W; ++i) {
+        uint64_t x = b[i];
+        if (x) return (i << 6) + __builtin_ctzll(x);
+    }
+    return -1;
+}
+
+int greedyClique(const uint64_t* start) {
+    vector<uint64_t> alive(W);
+    memcpy(alive.data(), start, W * sizeof(uint64_t));
+    int res = 0;
+
+    while (true) {
+        int chosen = -1, bestDeg = INT_MAX;
+
+        for (int wi = 0; wi < W; ++wi) {
+            uint64_t x = alive[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                x &= x - 1;
+                if (v >= N) continue;
+
+                int d = 0;
+                for (int u : compList[v]) d += testBit(alive.data(), u);
+                if (d < bestDeg) {
+                    bestDeg = d;
+                    chosen = v;
+                    if (d == 0) break;
+                }
+            }
+            if (bestDeg == 0) break;
+        }
+
+        if (chosen < 0) break;
+        ++res;
+        clearBit(alive.data(), chosen);
+        for (int u : compList[chosen]) clearBit(alive.data(), u);
+    }
+
+    return res;
+}
+
+void colorSort(const uint64_t* P, int cnt, int depth) {
+    vector<int>& order = orderAt[depth];
+    vector<int>& colors = colorAt[depth];
+
+    order.clear();
+    colors.clear();
+    if ((int)order.capacity() < cnt) order.reserve(cnt);
+    if ((int)colors.capacity() < cnt) colors.reserve(cnt);
+
+    memcpy(scratchU.data(), P, W * sizeof(uint64_t));
+    int left = cnt;
+    int color = 0;
+
+    while (left > 0) {
+        ++color;
+        memcpy(scratchA.data(), scratchU.data(), W * sizeof(uint64_t));
+
+        while (true) {
+            int v = firstBit(scratchA.data());
+            if (v < 0) break;
+
+            order.push_back(v);
+            colors.push_back(color);
+
+            clearBit(scratchU.data(), v);
+            clearBit(scratchA.data(), v);
+            --left;
+
+            const uint64_t* cb = &compBits[(size_t)v * W];
+            for (int i = 0; i < W; ++i) scratchA[i] &= cb[i];
+        }
+    }
+}
+
+void expand(uint64_t* P, int curSize, int depth) {
+    int pc = popcountBits(P);
+    if (curSize + pc <= bestAns) return;
+
+    colorSort(P, pc, depth);
+    vector<int>& order = orderAt[depth];
+    vector<int>& colors = colorAt[depth];
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (curSize + colors[i] <= bestAns) return;
+
+        int v = order[i];
+        if (!testBit(P, v)) continue;
+
+        uint64_t* child = &stackP[(size_t)(depth + 1) * W];
+        memcpy(child, P, W * sizeof(uint64_t));
+
+        clearBit(child, v);
+        for (int u : compList[v]) clearBit(child, u);
+
+        int childCnt = popcountBits(child);
+        int ns = curSize + 1;
+
+        if (ns + childCnt > bestAns) {
+            if (childCnt == 0) {
+                if (ns > bestAns) bestAns = ns;
+            } else {
+                expand(child, ns, depth + 1);
+            }
+        } else if (ns > bestAns) {
+            bestAns = ns;
+        }
+
+        clearBit(P, v);
+    }
+}
+
+int main() {
+    FastInput in;
+    N = in.readInt();
+    if (N <= 0) return 0;
+
+    W = (N + 63) >> 6;
+    LAST_MASK = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    vector<uint64_t> orig((size_t)N * W, 0);
+    vector<int> degOrig(N, 0);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int bit = in.readBit();
+            if (j > i && bit == 0) {
+                orig[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+                orig[(size_t)j * W + (i >> 6)] |= 1ULL << (i & 63);
+                ++degOrig[i];
+                ++degOrig[j];
+            }
+        }
+    }
+
+    vector<int> perm(N), inv(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (degOrig[a] != degOrig[b]) return degOrig[a] > degOrig[b];
+        return a < b;
+    });
+    for (int i = 0; i < N; ++i) inv[perm[i]] = i;
+
+    compBits.assign((size_t)N * W, 0);
+    compList.assign(N, {});
+    vector<int> deg(N);
+
+    for (int ni = 0; ni < N; ++ni) deg[ni] = degOrig[perm[ni]];
+    for (int i = 0; i < N; ++i) compList[i].reserve(deg[i]);
+
+    for (int oi = 0; oi < N; ++oi) {
+        const uint64_t* row = &orig[(size_t)oi * W];
+        for (int wi = 0; wi < W; ++wi) {
+            uint64_t x = row[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (wi << 6) + b;
+                x &= x - 1;
+                if (oj > oi && oj < N) {
+                    int a = inv[oi], c = inv[oj];
+                    compBits[(size_t)a * W + (c >> 6)] |= 1ULL << (c & 63);
+                    compBits[(size_t)c * W + (a >> 6)] |= 1ULL << (a & 63);
+                    compList[a].push_back(c);
+                    compList[c].push_back(a);
+                }
+            }
+        }
+    }
+
+    vector<uint64_t>().swap(orig);
+
+    int base = 0, nonIso = 0;
+    stackP.assign((size_t)(N + 2) * W, 0);
+    uint64_t* root = stackP.data();
+
+    for (int v = 0; v < N; ++v) {
+        if (deg[v] == 0) {
+            ++base;
+        } else {
+            setBit(root, v);
+            ++nonIso;
+        }
+    }
+    if (W) root[W - 1] &= LAST_MASK;
+
+    if (nonIso == 0) {
+        printf("%d\n", base);
+        return 0;
+    }
+
+    scratchU.assign(W, 0);
+    scratchA.assign(W, 0);
+    orderAt.resize(nonIso + 2);
+    colorAt.resize(nonIso + 2);
+
+    bestAns = base + greedyClique(root);
+    expand(root, base, 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

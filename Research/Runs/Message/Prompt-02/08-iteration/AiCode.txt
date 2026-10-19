@@ -1,0 +1,84 @@
+#include <vector>
+#include <cstdint>
+#include <unordered_map>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    for (int t = 0; t < 31; ++t) {
+        std::vector<bool> A(31, C[t]);
+        send_packet(A);
+    }
+
+    std::vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    std::vector<bool> payload;
+    int S = (int)M.size();
+    int L = S - 1;
+
+    for (int i = 0; i < 10; ++i) {
+        payload.push_back((L >> i) & 1);
+    }
+    for (bool b : M) {
+        payload.push_back(b);
+    }
+
+    int p = 0;
+    while (p < (int)payload.size()) {
+        std::vector<bool> A(31, false);
+        for (int k = 0; k < 16; ++k) {
+            if (p < (int)payload.size()) {
+                A[good[k]] = payload[p++];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    std::unordered_map<uint32_t, int> cnt;
+
+    for (int col = 0; col < 31; ++col) {
+        uint32_t mask = 0;
+        for (int row = 0; row < 31; ++row) {
+            if (R[row][col]) mask |= (1u << row);
+        }
+        cnt[mask]++;
+    }
+
+    uint32_t Cmask = 0;
+    for (auto &kv : cnt) {
+        if (kv.second >= 16) {
+            Cmask = kv.first;
+            break;
+        }
+    }
+
+    std::vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (((Cmask >> i) & 1u) == 0) good.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    for (int row = 31; row < (int)R.size(); ++row) {
+        for (int k = 0; k < 16; ++k) {
+            bits.push_back(R[row][good[k]]);
+        }
+    }
+
+    int S = 0;
+    for (int i = 0; i < 10; ++i) {
+        if (bits[i]) S |= (1 << i);
+    }
+    S++;
+
+    std::vector<bool> M;
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[10 + i]);
+    }
+
+    return M;
+}

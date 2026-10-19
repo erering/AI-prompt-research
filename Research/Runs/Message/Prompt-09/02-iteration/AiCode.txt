@@ -1,0 +1,137 @@
+#include <vector>
+#include <cstdint>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    uint64_t comb_table[32][32];
+    bool comb_ready = false;
+
+    void init_comb() {
+        if (comb_ready) return;
+        for (int n = 0; n <= 31; ++n) {
+            comb_table[n][0] = 1;
+            comb_table[n][n] = 1;
+            for (int k = 1; k < n; ++k) {
+                comb_table[n][k] = comb_table[n - 1][k - 1] + comb_table[n - 1][k];
+            }
+        }
+        comb_ready = true;
+    }
+
+    uint64_t choose_val(int n, int k) {
+        if (n < 0 || k < 0 || k > n) return 0;
+        return comb_table[n][k];
+    }
+
+    uint64_t rank_mask(const std::vector<bool>& C) {
+        init_comb();
+        uint64_t rank = 0;
+        int rem = 15;
+        for (int i = 0; i < 31; ++i) {
+            if (C[i]) {
+                rank += choose_val(30 - i, rem);
+                --rem;
+            }
+        }
+        return rank;
+    }
+
+    std::vector<bool> unrank_mask(uint64_t rank) {
+        init_comb();
+        std::vector<bool> C(31, false);
+        int rem = 15;
+        for (int i = 0; i < 31; ++i) {
+            if (rem == 0) {
+                C[i] = false;
+                continue;
+            }
+            uint64_t cnt0 = choose_val(30 - i, rem);
+            if (rank < cnt0) {
+                C[i] = false;
+            } else {
+                C[i] = true;
+                rank -= cnt0;
+                --rem;
+            }
+        }
+        return C;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    uint64_t r = rank_mask(C);
+
+    for (int b = 0; b < 29; ++b) {
+        bool bit = ((r >> b) & 1ULL) != 0;
+        std::vector<bool> A(31, bit);
+        std::vector<bool> unused = send_packet(A);
+        (void)unused;
+    }
+
+    std::vector<int> reliable;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) reliable.push_back(i);
+    }
+
+    std::vector<bool> payload;
+    int len_code = (int)M.size() - 1;
+    for (int b = 0; b < 10; ++b) {
+        payload.push_back(((len_code >> b) & 1) != 0);
+    }
+    for (bool x : M) payload.push_back(x);
+
+    int pos = 0;
+    while (pos < (int)payload.size()) {
+        std::vector<bool> A(31, false);
+        for (int idx : reliable) {
+            if (pos < (int)payload.size()) {
+                A[idx] = payload[pos];
+                ++pos;
+            }
+        }
+        std::vector<bool> unused = send_packet(A);
+        (void)unused;
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    if ((int)R.size() < 29) return {};
+
+    uint64_t r = 0;
+    for (int b = 0; b < 29; ++b) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) ++ones;
+        }
+        if (ones >= 16) r |= (1ULL << b);
+    }
+
+    std::vector<bool> C = unrank_mask(r);
+
+    std::vector<int> reliable;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) reliable.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    for (int row = 29; row < (int)R.size(); ++row) {
+        for (int idx : reliable) {
+            bits.push_back(R[row][idx]);
+        }
+    }
+
+    if ((int)bits.size() < 10) return {};
+
+    int len_code = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (bits[b]) len_code |= (1 << b);
+    }
+    int L = len_code + 1;
+
+    std::vector<bool> M;
+    for (int i = 0; i < L && 10 + i < (int)bits.size(); ++i) {
+        M.push_back(bits[10 + i]);
+    }
+    return M;
+}

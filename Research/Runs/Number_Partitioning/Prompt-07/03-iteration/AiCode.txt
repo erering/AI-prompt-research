@@ -1,0 +1,309 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <queue>
+#include <unordered_map>
+#include <cstdint>
+#include <limits>
+#include <string>
+
+using ull = unsigned long long;
+
+static ull best_ckk;
+static ull perfect_ckk;
+
+static void print_u128(unsigned __int128 x) {
+    if (x == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + x % 10));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static ull heuristic_bound(const std::vector<ull>& a) {
+    ull s1 = 0, s2 = 0;
+    for (ull x : a) {
+        if (s1 <= s2) s1 += x;
+        else s2 += x;
+    }
+    ull best = (s1 > s2) ? (s1 - s2) : (s2 - s1);
+
+    std::priority_queue<ull> pq;
+    for (ull x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        ull x = pq.top(); pq.pop();
+        ull y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    ull kk = pq.empty() ? 0 : pq.top();
+    if (kk < best) best = kk;
+    return best;
+}
+
+static bool try_dp(const std::vector<ull>& a, ull sum, ull& ans) {
+    ull target = sum / 2;
+    const ull TARGET_LIMIT = 300000000ULL;
+    const ull OP_LIMIT = 300000000ULL;
+
+    if (target > TARGET_LIMIT) return false;
+
+    std::unordered_map<ull, ull> cnt;
+    cnt.reserve(a.size() * 2 + 1);
+    for (ull x : a) {
+        if (x <= target) ++cnt[x];
+    }
+
+    std::vector<ull> items;
+    for (auto &p : cnt) {
+        ull w = p.first;
+        ull c = p.second;
+        ull maxc = target / w;
+        if (c > maxc) c = maxc;
+
+        ull k = 1;
+        while (c > 0) {
+            ull take = (k < c) ? k : c;
+            items.push_back(w * take);
+            c -= take;
+            if (k <= (std::numeric_limits<ull>::max() >> 1)) k <<= 1;
+            else k = c;
+        }
+    }
+
+    size_t T = static_cast<size_t>(target);
+    size_t words = T / 64 + 1;
+
+    if (!items.empty() && words > OP_LIMIT / items.size()) return false;
+
+    std::vector<uint64_t> bits(words, 0);
+    bits[0] = 1;
+
+    size_t last = words - 1;
+
+    for (ull xull : items) {
+        size_t x = static_cast<size_t>(xull);
+        size_t ws = x / 64;
+        unsigned bs = unsigned(x & 63);
+
+        if (ws >= words) continue;
+
+        for (size_t i = last + 1; i-- > ws;) {
+            uint64_t val = bits[i - ws] << bs;
+            if (bs && i > ws) {
+                val |= bits[i - ws - 1] >> (64 - bs);
+            }
+            bits[i] |= val;
+        }
+    }
+
+    size_t idx = T / 64;
+    unsigned off = unsigned(T & 63);
+    uint64_t mask = bits[idx] & (off == 63 ? ~0ULL : ((1ULL << (off + 1)) - 1));
+
+    while (true) {
+        if (mask) {
+            ull pos = 63ULL - (ull)__builtin_clzll(mask);
+            ull best = ull(idx) * 64ULL + pos;
+            ans = sum - 2ULL * best;
+            return true;
+        }
+        if (idx == 0) break;
+        --idx;
+        mask = bits[idx];
+    }
+
+    ans = sum;
+    return true;
+}
+
+static std::vector<ull> generate_sums(const std::vector<ull>& a, int l, int r, ull target) {
+    std::vector<ull> sums;
+    int len = r - l;
+    if (len < 26) sums.reserve(size_t(1) << len);
+    sums.push_back(0);
+
+    for (int i = l; i < r; ++i) {
+        ull x = a[i];
+        if (x > target) continue;
+        size_t sz = sums.size();
+        for (size_t j = 0; j < sz; ++j) {
+            ull y = sums[j] + x;
+            if (y <= target) sums.push_back(y);
+        }
+    }
+    return sums;
+}
+
+static ull meet_in_middle(const std::vector<ull>& a, ull sum) {
+    int n = (int)a.size();
+    int mid = n / 2;
+    ull target = sum / 2;
+
+    std::vector<ull> right = generate_sums(a, mid, n, target);
+    std::sort(right.begin(), right.end());
+    right.erase(std::unique(right.begin(), right.end()), right.end());
+
+    ull best = 0;
+
+    auto dfs = [&](auto&& self, int i, ull cur) -> void {
+        if (best == target) return;
+        if (cur > target) return;
+
+        if (i == mid) {
+            ull rem = target - cur;
+            auto it = std::upper_bound(right.begin(), right.end(), rem);
+            if (it != right.begin()) {
+                --it;
+                ull cand = cur + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+
+        self(self, i + 1, cur);
+        if (cur + a[i] <= target) self(self, i + 1, cur + a[i]);
+    };
+
+    dfs(dfs, 0, 0);
+    return sum - 2ULL * best;
+}
+
+static std::vector<ull> child_difference(const std::vector<ull>& v) {
+    ull x = v[0] - v[1];
+    std::vector<ull> r;
+    r.reserve(v.size() - 1);
+
+    bool inserted = (x == 0);
+    for (size_t i = 2; i < v.size(); ++i) {
+        if (!inserted && x >= v[i]) {
+            r.push_back(x);
+            inserted = true;
+        }
+        r.push_back(v[i]);
+    }
+    if (!inserted) r.push_back(x);
+    return r;
+}
+
+static void ckk_search(const std::vector<ull>& v, ull sum) {
+    if (best_ckk == perfect_ckk) return;
+
+    size_t n = v.size();
+    if (n == 0) {
+        best_ckk = 0;
+        return;
+    }
+    if (n == 1) {
+        if (v[0] < best_ckk) best_ckk = v[0];
+        return;
+    }
+
+    ull largest = v[0];
+    ull rest = sum - largest;
+
+    if (largest >= rest) {
+        ull cand = largest - rest;
+        if (cand < best_ckk) best_ckk = cand;
+        return;
+    }
+
+    ull a = v[0], b = v[1];
+
+    {
+        std::vector<ull> d = child_difference(v);
+        ckk_search(d, sum - 2ULL * b);
+    }
+
+    if (best_ckk == perfect_ckk) return;
+
+    {
+        std::vector<ull> s;
+        s.reserve(n - 1);
+        s.push_back(a + b);
+        for (size_t i = 2; i < n; ++i) s.push_back(v[i]);
+        ckk_search(s, sum);
+    }
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> input;
+    input.reserve(N);
+
+    ull g = 0;
+    for (size_t i = 0; i < N; ++i) {
+        ull x;
+        std::cin >> x;
+        input.push_back(x);
+        g = std::gcd(g, x);
+    }
+
+    if (input.empty()) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::vector<ull> a;
+    a.reserve(input.size());
+
+    ull sum = 0;
+    for (ull x : input) {
+        x /= g;
+        if (x) {
+            a.push_back(x);
+            sum += x;
+        }
+    }
+
+    if (a.empty()) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    ull perfect = sum & 1ULL;
+
+    if (a[0] >= sum - a[0]) {
+        ull ans = a[0] - (sum - a[0]);
+        print_u128((unsigned __int128)ans * g);
+        return 0;
+    }
+
+    ull h = heuristic_bound(a);
+    if (h == perfect) {
+        print_u128((unsigned __int128)h * g);
+        return 0;
+    }
+
+    ull ans = 0;
+    if (try_dp(a, sum, ans)) {
+        print_u128((unsigned __int128)ans * g);
+        return 0;
+    }
+
+    if (a.size() <= 46) {
+        ans = meet_in_middle(a, sum);
+        print_u128((unsigned __int128)ans * g);
+        return 0;
+    }
+
+    best_ckk = h;
+    perfect_ckk = perfect;
+    ckk_search(a, sum);
+
+    print_u128((unsigned __int128)best_ckk * g);
+    return 0;
+}

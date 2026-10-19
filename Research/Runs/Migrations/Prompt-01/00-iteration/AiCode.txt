@@ -1,0 +1,109 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static const int MAXN = 10005;
+static const int LOG = 16;
+
+static int up_tbl[MAXN][LOG];
+static int dep_tbl[MAXN];
+static int curN_global = 10000;
+static int diamA = 0, diamB = 0, diamD = 0;
+static bool initialized_global = false;
+
+static void reset_state(int N) {
+    curN_global = N;
+    initialized_global = true;
+    diamA = diamB = 0;
+    diamD = 0;
+    dep_tbl[0] = 0;
+    for (int k = 0; k < LOG; ++k) up_tbl[0][k] = 0;
+}
+
+static int lca_node(int a, int b) {
+    if (dep_tbl[a] < dep_tbl[b]) swap(a, b);
+    int diff = dep_tbl[a] - dep_tbl[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = up_tbl[a][k];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_tbl[a][k] != up_tbl[b][k]) {
+            a = up_tbl[a][k];
+            b = up_tbl[b][k];
+        }
+    }
+    return up_tbl[a][0];
+}
+
+static int dist_node(int a, int b) {
+    int c = lca_node(a, b);
+    return dep_tbl[a] + dep_tbl[b] - 2 * dep_tbl[c];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || !initialized_global) reset_state(N);
+
+    up_tbl[i][0] = Pi;
+    dep_tbl[i] = dep_tbl[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[i][k] = up_tbl[up_tbl[i][k - 1]][k - 1];
+    }
+
+    bool changed = false;
+    int other = -1;
+
+    int oldA = diamA, oldB = diamB;
+    int da = dist_node(i, oldA);
+    int db = dist_node(i, oldB);
+
+    if (da > diamD) {
+        diamA = i;
+        diamB = oldA;
+        diamD = da;
+        changed = true;
+        other = oldA;
+    } else if (db > diamD) {
+        diamA = i;
+        diamB = oldB;
+        diamD = db;
+        changed = true;
+        other = oldB;
+    }
+
+    int t0 = N - 3;
+    int t1 = N - 2;
+    int t2 = N - 1;
+
+    if (i == t0) {
+        return diamA + 1;
+    }
+
+    if (i == t1) {
+        if (changed) return other + 9999;
+        return diamB + 1;
+    }
+
+    if (i == t2) {
+        if (changed) return other + 9999;
+        return 0;
+    }
+
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+    int t0 = N - 3;
+    int t1 = N - 2;
+    int t2 = N - 1;
+
+    if (S[t2] > 9998) {
+        return {t2, S[t2] - 9999};
+    }
+
+    if (S[t1] > 9998) {
+        return {t1, S[t1] - 9999};
+    }
+
+    return {S[t0] - 1, S[t1] - 1};
+}

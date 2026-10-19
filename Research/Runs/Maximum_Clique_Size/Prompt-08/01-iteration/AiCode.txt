@@ -1,0 +1,247 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class MaxCliqueSolver {
+    using ull = unsigned long long;
+
+    int n, W;
+    ull lastMask;
+    vector<vector<ull>> adj, compAdj;
+    int best = 0;
+
+    static inline int pc64(ull x) {
+        return __builtin_popcountll(x);
+    }
+
+    inline void setBit(vector<ull>& b, int v) {
+        b[v >> 6] |= 1ULL << (v & 63);
+    }
+
+    inline void clearBit(vector<ull>& b, int v) {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline bool testBit(const vector<ull>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    bool emptyBits(const vector<ull>& b) const {
+        for (ull x : b) if (x) return false;
+        return true;
+    }
+
+    int countBits(const vector<ull>& b) const {
+        int s = 0;
+        for (ull x : b) s += pc64(x);
+        return s;
+    }
+
+    int firstBit(const vector<ull>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    int compDegreeInSet(int v, const vector<ull>& s) const {
+        int d = 0;
+        for (int i = 0; i < W; ++i) d += pc64(compAdj[v][i] & s[i]);
+        return d;
+    }
+
+    int chooseGreedyVertex(const vector<ull>& cand) const {
+        int bestV = -1;
+        int bestD = INT_MAX;
+        for (int wi = 0; wi < W; ++wi) {
+            ull x = cand[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                if (v < n) {
+                    int d = compDegreeInSet(v, cand);
+                    if (d < bestD) {
+                        bestD = d;
+                        bestV = v;
+                    }
+                }
+                x &= x - 1;
+            }
+        }
+        return bestV;
+    }
+
+    int greedyCliqueFrom(vector<ull> cand) const {
+        int res = 0;
+        while (!emptyBits(cand)) {
+            int v = chooseGreedyVertex(cand);
+            if (v < 0) break;
+            ++res;
+            for (int i = 0; i < W; ++i) cand[i] &= adj[v][i];
+        }
+        return res;
+    }
+
+    void colorSort(const vector<ull>& P, int sz, vector<int>& verts, vector<int>& colors) const {
+        verts.clear();
+        colors.clear();
+        vector<ull> U = P, Q(W);
+        int color = 0;
+
+        while (!emptyBits(U)) {
+            ++color;
+            Q = U;
+
+            while (!emptyBits(Q)) {
+                int v = firstBit(Q);
+
+                if (sz + color > best) {
+                    verts.push_back(v);
+                    colors.push_back(color);
+                }
+
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                for (int i = 0; i < W; ++i) Q[i] &= compAdj[v][i] & U[i];
+            }
+        }
+    }
+
+    void expand(vector<ull> P, int sz) {
+        if (emptyBits(P)) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        if (sz + countBits(P) <= best) return;
+
+        vector<int> verts, colors;
+        verts.reserve(n);
+        colors.reserve(n);
+        colorSort(P, sz, verts, colors);
+
+        for (int idx = (int)verts.size() - 1; idx >= 0; --idx) {
+            if (sz + colors[idx] <= best) return;
+
+            int v = verts[idx];
+            if (!testBit(P, v)) continue;
+
+            vector<ull> newP(W);
+            for (int i = 0; i < W; ++i) newP[i] = P[i] & adj[v][i];
+
+            if (emptyBits(newP)) {
+                if (sz + 1 > best) best = sz + 1;
+            } else {
+                expand(std::move(newP), sz + 1);
+            }
+
+            clearBit(P, v);
+        }
+    }
+
+public:
+    MaxCliqueSolver(int N, vector<vector<ull>>&& a)
+        : n(N), W((N + 63) >> 6), adj(std::move(a)) {
+        lastMask = (n & 63) ? ((1ULL << (n & 63)) - 1ULL) : ~0ULL;
+        compAdj.assign(n, vector<ull>(W, 0));
+
+        for (int i = 0; i < n; ++i) {
+            for (int j = 0; j < W; ++j) compAdj[i][j] = ~adj[i][j];
+            compAdj[i][W - 1] &= lastMask;
+            clearBit(compAdj[i], i);
+            clearBit(adj[i], i);
+            adj[i][W - 1] &= lastMask;
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+
+        vector<ull> all(W, ~0ULL);
+        all[W - 1] &= lastMask;
+
+        best = greedyCliqueFrom(all);
+
+        int tries = min(n, 12);
+        for (int t = 0; t < tries; ++t) {
+            int start = n - 1 - t;
+            if (start < 0) break;
+            vector<ull> cand = adj[start];
+            int val = 1 + greedyCliqueFrom(cand);
+            if (val > best) best = val;
+        }
+
+        expand(all, 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    int W = (N + 63) >> 6;
+    vector<vector<unsigned long long>> oldAdj(N, vector<unsigned long long>(W, 0));
+
+    auto setOld = [&](int i, int j) {
+        oldAdj[i][j >> 6] |= 1ULL << (j & 63);
+    };
+
+    char c;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            do {
+                if (!cin.get(c)) c = '0';
+            } while (c != '0' && c != '1');
+
+            if (c == '1' && i != j) setOld(i, j);
+        }
+    }
+
+    vector<int> compDeg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        int od = 0;
+        for (int k = 0; k < W; ++k) od += __builtin_popcountll(oldAdj[i][k]);
+        compDeg[i] = (N - 1) - od;
+    }
+
+    vector<int> order(N), pos(N);
+    iota(order.begin(), order.end(), 0);
+
+    sort(order.begin(), order.end(), [&](int a, int b) {
+        if (compDeg[a] != compDeg[b]) return compDeg[a] > compDeg[b];
+        return a < b;
+    });
+
+    for (int i = 0; i < N; ++i) pos[order[i]] = i;
+
+    vector<vector<unsigned long long>> adj(N, vector<unsigned long long>(W, 0));
+
+    for (int oldI = 0; oldI < N; ++oldI) {
+        int ni = pos[oldI];
+        for (int wi = 0; wi < W; ++wi) {
+            unsigned long long x = oldAdj[oldI][wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oldJ = (wi << 6) + b;
+                if (oldJ < N && oldJ != oldI) {
+                    int nj = pos[oldJ];
+                    adj[ni][nj >> 6] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+    }
+
+    MaxCliqueSolver solver(N, std::move(adj));
+    cout << solver.solve() << '\n';
+    return 0;
+}

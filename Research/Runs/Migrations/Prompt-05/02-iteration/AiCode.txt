@@ -1,0 +1,113 @@
+#include <vector>
+#include <utility>
+#include <algorithm>
+
+namespace {
+constexpr int MAXN = 10005;
+constexpr int LOG = 15;
+
+int up[LOG][MAXN];
+int depth_arr[MAXN];
+int dia_a = 0, dia_b = 0, dia_d = 0;
+
+int lca_node(int a, int b) {
+    if (depth_arr[a] < depth_arr[b]) std::swap(a, b);
+    int diff = depth_arr[a] - depth_arr[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = up[k][a];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up[k][a] != up[k][b]) {
+            a = up[k][a];
+            b = up[k][b];
+        }
+    }
+    return up[0][a];
+}
+
+int dist_node(int a, int b) {
+    int c = lca_node(a, b);
+    return depth_arr[a] + depth_arr[b] - 2 * depth_arr[c];
+}
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        for (int k = 0; k < LOG; ++k) up[k][0] = 0;
+        depth_arr[0] = 0;
+        dia_a = dia_b = dia_d = 0;
+    }
+
+    up[0][i] = Pi;
+    depth_arr[i] = depth_arr[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up[k][i] = up[k - 1][up[k - 1][i]];
+    }
+
+    int r = N - 50;
+    int da = dist_node(i, dia_a);
+    int db = dist_node(i, dia_b);
+
+    bool upd = false;
+    int opp = -1;
+    int nd = dia_d;
+
+    if (da > dia_d) {
+        upd = true;
+        opp = dia_a;
+        nd = da;
+    } else if (db > dia_d) {
+        upd = true;
+        opp = dia_b;
+        nd = db;
+    }
+
+    int ret = 0;
+
+    if (i < r) {
+        ret = 0;
+    } else if (i == r) {
+        ret = upd ? 0 : dia_a + 1;
+    } else if (i == r + 1) {
+        ret = upd ? 10001 + opp : dia_b + 1;
+    } else {
+        ret = upd ? opp + 1 : 0;
+    }
+
+    if (upd) {
+        dia_a = i;
+        dia_b = opp;
+        dia_d = nd;
+    }
+
+    return ret;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    int r = N - 50;
+
+    int u, v;
+
+    if (S[r + 1] > 10000) {
+        u = r + 1;
+        v = S[r + 1] - 10001;
+    } else {
+        v = S[r + 1] - 1;
+        if (S[r] == 0) {
+            u = r;
+        } else {
+            u = S[r] - 1;
+        }
+    }
+
+    for (int j = r + 2; j < N; ++j) {
+        if (S[j] != 0) {
+            u = j;
+            v = S[j] - 1;
+        }
+    }
+
+    return {u, v};
+}

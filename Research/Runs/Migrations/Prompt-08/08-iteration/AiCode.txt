@@ -1,0 +1,159 @@
+#include <bits/stdc++.h>
+
+static constexpr int MSG_LOG = 20;
+
+static int enc_N = -1;
+static int enc_C = 1;
+static std::vector<std::array<int, MSG_LOG>> enc_up;
+static std::vector<int> enc_depth;
+static int enc_A = 0, enc_B = 0, enc_D = 0;
+static int enc_initA = 0, enc_initB = 0;
+static int enc_pending1 = 0;
+
+static void enc_reset(int N) {
+    enc_N = N;
+    enc_C = std::max(1, N - 50);
+    enc_up.assign(N, {});
+    enc_depth.assign(N, 0);
+    for (int k = 0; k < MSG_LOG; ++k) enc_up[0][k] = 0;
+    enc_A = enc_B = enc_D = 0;
+    enc_initA = enc_initB = 0;
+    enc_pending1 = 0;
+}
+
+static int enc_lca(int a, int b) {
+    if (enc_depth[a] < enc_depth[b]) std::swap(a, b);
+    int diff = enc_depth[a] - enc_depth[b];
+    for (int k = 0; k < MSG_LOG; ++k) {
+        if (diff & (1 << k)) a = enc_up[a][k];
+    }
+    if (a == b) return a;
+    for (int k = MSG_LOG - 1; k >= 0; --k) {
+        if (enc_up[a][k] != enc_up[b][k]) {
+            a = enc_up[a][k];
+            b = enc_up[b][k];
+        }
+    }
+    return enc_up[a][0];
+}
+
+static int enc_dist(int a, int b) {
+    int c = enc_lca(a, b);
+    return enc_depth[a] + enc_depth[b] - 2 * enc_depth[c];
+}
+
+static int enc_add_and_get_action(int i) {
+    int da = enc_dist(i, enc_A);
+    int db = enc_dist(i, enc_B);
+    int action = 0;
+    if (da > enc_D || db > enc_D) {
+        if (da >= db) {
+            int oldA = enc_A;
+            enc_A = i;
+            enc_B = oldA;
+            enc_D = da;
+            action = 1;
+        } else {
+            enc_A = i;
+            enc_D = db;
+            action = 2;
+        }
+    }
+    return action;
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || N != enc_N) enc_reset(N);
+
+    if (N <= 50) return Pi + 1;
+
+    enc_up[i][0] = Pi;
+    for (int k = 1; k < MSG_LOG; ++k) {
+        enc_up[i][k] = enc_up[enc_up[i][k - 1]][k - 1];
+    }
+    enc_depth[i] = enc_depth[Pi] + 1;
+
+    int action = enc_add_and_get_action(i);
+
+    if (i < enc_C) return 0;
+
+    if (i == enc_C) {
+        enc_initA = enc_A;
+        enc_initB = enc_B;
+        return enc_initA + 1;
+    }
+
+    if (i == enc_C + 1) {
+        enc_pending1 = action;
+        return enc_initB + 1;
+    }
+
+    if (i == enc_C + 2) {
+        return enc_pending1 * 3 + action + 1;
+    }
+
+    return action + 1;
+}
+
+std::pair<int,int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+
+    if (N <= 50) {
+        std::vector<std::vector<int>> g(N);
+        for (int i = 1; i < N; ++i) {
+            int p = S[i] - 1;
+            if (p < 0) p = 0;
+            g[i].push_back(p);
+            g[p].push_back(i);
+        }
+
+        auto farthest = [&](int src) {
+            std::vector<int> d(N, -1);
+            std::queue<int> q;
+            d[src] = 0;
+            q.push(src);
+            int best = src;
+            while (!q.empty()) {
+                int v = q.front();
+                q.pop();
+                if (d[v] > d[best]) best = v;
+                for (int to : g[v]) {
+                    if (d[to] == -1) {
+                        d[to] = d[v] + 1;
+                        q.push(to);
+                    }
+                }
+            }
+            return best;
+        };
+
+        int a = farthest(0);
+        int b = farthest(a);
+        return {a, b};
+    }
+
+    int C = std::max(1, N - 50);
+    int A = S[C] - 1;
+    int B = S[C + 1] - 1;
+
+    auto apply_action = [&](int vertex, int action) {
+        if (action == 1) {
+            int oldA = A;
+            A = vertex;
+            B = oldA;
+        } else if (action == 2) {
+            A = vertex;
+        }
+    };
+
+    int packed = S[C + 2] - 1;
+    apply_action(C + 1, packed / 3);
+    apply_action(C + 2, packed % 3);
+
+    for (int i = C + 3; i < N; ++i) {
+        apply_action(i, S[i] - 1);
+    }
+
+    return {A, B};
+}

@@ -1,0 +1,75 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+void send_message(vector<bool> M, vector<bool> C) {
+    const int n = 31;
+    vector<int> P;
+    for (int i = 0; i < n; ++i) {
+        if (!C[i]) P.push_back(i);
+    }
+
+    for (int t = 0; t < n; ++t) {
+        vector<bool> A(n, false);
+        bool bit = !C[t];
+        for (int p : P) A[p] = bit;
+        send_packet(A);
+    }
+
+    int S = (int)M.size();
+    int rem = S % 16;
+    for (int b = 0; b < 4; ++b) {
+        vector<bool> A(n, false);
+        bool bit = ((rem >> b) & 1);
+        for (int p : P) A[p] = bit;
+        send_packet(A);
+    }
+
+    int blocks = (S + 15) / 16;
+    for (int blk = 0; blk < blocks; ++blk) {
+        vector<bool> A(n, false);
+        for (int j = 0; j < 16; ++j) {
+            int idx = blk * 16 + j;
+            A[P[j]] = (idx < S ? M[idx] : false);
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    const int n = 31;
+    vector<int> P;
+
+    for (int t = 0; t < n; ++t) {
+        int ones = 0;
+        for (int i = 0; i < n; ++i) {
+            if (R[t][i]) ++ones;
+        }
+        if (ones >= 16) P.push_back(t);
+    }
+
+    int rem = 0;
+    for (int b = 0; b < 4; ++b) {
+        int ones = 0;
+        for (int i = 0; i < n; ++i) {
+            if (R[n + b][i]) ++ones;
+        }
+        if (ones >= 16) rem |= (1 << b);
+    }
+
+    int blocks = (int)R.size() - 35;
+    int S = (blocks - 1) * 16 + (rem == 0 ? 16 : rem);
+
+    vector<bool> M;
+    M.reserve(S);
+
+    for (int blk = 0; blk < blocks; ++blk) {
+        int row = 35 + blk;
+        for (int j = 0; j < 16 && (int)M.size() < S; ++j) {
+            M.push_back(R[row][P[j]]);
+        }
+    }
+
+    return M;
+}

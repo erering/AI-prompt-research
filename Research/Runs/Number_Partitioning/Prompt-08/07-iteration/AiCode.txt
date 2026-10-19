@@ -1,0 +1,353 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <vector>
+
+using ll = long long;
+
+static ll solve_dp(const std::vector<ll>& a, ll total) {
+    ll half_ll = total / 2;
+    size_t half = static_cast<size_t>(half_ll);
+    size_t bitCount = half + 1;
+    size_t words = (bitCount + 63) / 64;
+    std::vector<uint64_t> bits(words, 0);
+    bits[0] = 1ULL;
+
+    int extra = static_cast<int>(bitCount & 63);
+    uint64_t lastMask = (extra == 0) ? ~0ULL : ((1ULL << extra) - 1ULL);
+
+    for (ll xll : a) {
+        if (xll <= 0 || xll > half_ll) continue;
+        size_t x = static_cast<size_t>(xll);
+        size_t ws = x >> 6;
+        unsigned bs = static_cast<unsigned>(x & 63);
+
+        for (size_t i = words; i-- > ws;) {
+            uint64_t v = bits[i - ws] << bs;
+            if (bs && i > ws) {
+                v |= bits[i - ws - 1] >> (64 - bs);
+            }
+            bits[i] |= v;
+        }
+        bits.back() &= lastMask;
+    }
+
+    for (size_t idx = half / 64 + 1; idx > 0; --idx) {
+        size_t i = idx - 1;
+        uint64_t w = bits[i];
+        if (w) {
+            int b = 63 - std::countl_zero(w);
+            ll best = static_cast<ll>(i * 64 + static_cast<size_t>(b));
+            return total - 2 * best;
+        }
+    }
+    return total;
+}
+
+static void gen_sums_rec(const std::vector<ll>& a, int l, int r, ll cap, ll cur, std::vector<ll>& out) {
+    if (cur > cap) return;
+    if (l == r) {
+        out.push_back(cur);
+        return;
+    }
+    gen_sums_rec(a, l + 1, r, cap, cur, out);
+    if (a[l] <= cap - cur) gen_sums_rec(a, l + 1, r, cap, cur + a[l], out);
+}
+
+static ll solve_mitm(const std::vector<ll>& a, ll total) {
+    int n = static_cast<int>(a.size());
+    int mid = n / 2;
+    ll half = total / 2;
+
+    std::vector<ll> right;
+    if (n - mid < 63) {
+        size_t reserveSize = size_t{1} << (n - mid);
+        right.reserve(reserveSize);
+    }
+    gen_sums_rec(a, mid, n, half, 0, right);
+    std::sort(right.begin(), right.end());
+    right.erase(std::unique(right.begin(), right.end()), right.end());
+
+    ll best = 0;
+
+    auto dfs_left = [&](auto&& self, int i, ll cur) -> void {
+        if (cur > half) return;
+        if (i == mid) {
+            ll target = half - cur;
+            auto it = std::upper_bound(right.begin(), right.end(), target);
+            if (it != right.begin()) {
+                --it;
+                ll s = cur + *it;
+                if (s > best) best = s;
+            }
+            return;
+        }
+        self(self, i + 1, cur);
+        if (a[i] <= half - cur) self(self, i + 1, cur + a[i]);
+    };
+
+    dfs_left(dfs_left, 0, 0);
+    return total - 2 * best;
+}
+
+static std::vector<ll> make_sums(const std::vector<ll>& a, int l, int r, ll cap) {
+    std::vector<ll> sums;
+    sums.push_back(0);
+    for (int i = l; i < r; ++i) {
+        ll x = a[i];
+        if (x > cap) continue;
+        size_t old = sums.size();
+        for (size_t j = 0; j < old; ++j) {
+            if (sums[j] <= cap - x) sums.push_back(sums[j] + x);
+        }
+    }
+    std::sort(sums.begin(), sums.end());
+    sums.erase(std::unique(sums.begin(), sums.end()), sums.end());
+    return sums;
+}
+
+struct Node {
+    ll sum;
+    uint32_t i;
+    uint32_t j;
+};
+
+struct MinCmp {
+    bool operator()(const Node& x, const Node& y) const {
+        return x.sum > y.sum;
+    }
+};
+
+struct MaxCmp {
+    bool operator()(const Node& x, const Node& y) const {
+        return x.sum < y.sum;
+    }
+};
+
+class AscPairs {
+    const std::vector<ll>* row;
+    const std::vector<ll>* col;
+    std::priority_queue<Node, std::vector<Node>, MinCmp> pq;
+
+public:
+    AscPairs(const std::vector<ll>& a, const std::vector<ll>& b) {
+        if (a.size() <= b.size()) {
+            row = &a;
+            col = &b;
+        } else {
+            row = &b;
+            col = &a;
+        }
+        if (!row->empty() && !col->empty()) {
+            for (uint32_t i = 0; i < row->size(); ++i) {
+                pq.push({(*row)[i] + (*col)[0], i, 0});
+            }
+        }
+    }
+
+    bool valid() const { return !pq.empty(); }
+    ll value() const { return pq.top().sum; }
+
+    void next() {
+        Node t = pq.top();
+        pq.pop();
+        ++t.j;
+        if (t.j < col->size()) {
+            t.sum = (*row)[t.i] + (*col)[t.j];
+            pq.push(t);
+        }
+    }
+};
+
+class DescPairs {
+    const std::vector<ll>* row;
+    const std::vector<ll>* col;
+    std::priority_queue<Node, std::vector<Node>, MaxCmp> pq;
+
+public:
+    DescPairs(const std::vector<ll>& a, const std::vector<ll>& b) {
+        if (a.size() <= b.size()) {
+            row = &a;
+            col = &b;
+        } else {
+            row = &b;
+            col = &a;
+        }
+        if (!row->empty() && !col->empty()) {
+            uint32_t last = static_cast<uint32_t>(col->size() - 1);
+            for (uint32_t i = 0; i < row->size(); ++i) {
+                pq.push({(*row)[i] + (*col)[last], i, last});
+            }
+        }
+    }
+
+    bool valid() const { return !pq.empty(); }
+    ll value() const { return pq.top().sum; }
+
+    void next() {
+        Node t = pq.top();
+        pq.pop();
+        if (t.j > 0) {
+            --t.j;
+            t.sum = (*row)[t.i] + (*col)[t.j];
+            pq.push(t);
+        }
+    }
+};
+
+static ll solve_schroeppel_shamir(const std::vector<ll>& a, ll total) {
+    int n = static_cast<int>(a.size());
+    ll half = total / 2;
+
+    int h1 = n / 2;
+    int h2 = n - h1;
+    int n1 = h1 / 2;
+    int n2 = h1 - n1;
+    int n3 = h2 / 2;
+    int p0 = 0;
+    int p1 = p0 + n1;
+    int p2 = p1 + n2;
+    int p3 = p2 + n3;
+    int p4 = n;
+
+    std::vector<ll> A = make_sums(a, p0, p1, half);
+    std::vector<ll> B = make_sums(a, p1, p2, half);
+    std::vector<ll> C = make_sums(a, p2, p3, half);
+    std::vector<ll> D = make_sums(a, p3, p4, half);
+
+    AscPairs ab(A, B);
+    DescPairs cd(C, D);
+
+    ll best = 0;
+    while (ab.valid()) {
+        ll x = ab.value();
+        if (x > half) break;
+        ll need = half - x;
+
+        while (cd.valid() && cd.value() > need) cd.next();
+        if (!cd.valid()) break;
+
+        ll s = x + cd.value();
+        if (s > best) {
+            best = s;
+            if (best == half) return total - 2 * best;
+        }
+        ab.next();
+    }
+
+    return total - 2 * best;
+}
+
+static ll solve_branch_bound(std::vector<ll> a, ll total) {
+    ll half = total / 2;
+    a.erase(std::remove_if(a.begin(), a.end(), [&](ll x) { return x > half; }), a.end());
+    std::sort(a.begin(), a.end(), std::greater<ll>());
+
+    int n = static_cast<int>(a.size());
+    std::vector<ll> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) {
+        ll v = suffix[i + 1] + a[i];
+        suffix[i] = (v > half ? half : v);
+    }
+
+    std::vector<int> nextDiff(n + 1, n);
+    for (int i = n - 1; i >= 0; --i) {
+        if (i + 1 < n && a[i + 1] == a[i]) nextDiff[i] = nextDiff[i + 1];
+        else nextDiff[i] = i + 1;
+    }
+
+    ll best = 0;
+    bool done = false;
+
+    auto dfs = [&](auto&& self, int idx, ll cur) -> void {
+        if (done) return;
+        if (cur > best) {
+            best = cur;
+            if (best == half) {
+                done = true;
+                return;
+            }
+        }
+        if (idx >= n) return;
+        if (cur + suffix[idx] <= best) return;
+
+        if (a[idx] <= half - cur) self(self, idx + 1, cur + a[idx]);
+        self(self, nextDiff[idx], cur);
+    };
+
+    dfs(dfs, 0, 0);
+    return total - 2 * best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ll> a(N);
+    ll g = 0;
+    ll totalOriginal = 0;
+
+    for (int i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        totalOriginal += a[i];
+        g = std::gcd(g, a[i]);
+    }
+
+    if (N == 0 || totalOriginal == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    if (g <= 0) g = 1;
+    for (ll& x : a) x /= g;
+    ll total = totalOriginal / g;
+
+    ll half = total / 2;
+    const size_t DP_WORD_LIMIT = 8000000;
+    const long double DP_OP_LIMIT = 350000000.0L;
+
+    bool memOK = false;
+    bool opOK = false;
+
+    if (half >= 0 && static_cast<unsigned long long>(half) < std::numeric_limits<size_t>::max() - 64) {
+        size_t words = (static_cast<size_t>(half) + 64) / 64;
+        memOK = words <= DP_WORD_LIMIT;
+
+        long double est = 0;
+        if (memOK) {
+            for (ll x : a) {
+                if (x <= half) {
+                    size_t ws = static_cast<size_t>(x / 64);
+                    if (ws < words) est += static_cast<long double>(words - ws);
+                }
+                if (est > DP_OP_LIMIT) break;
+            }
+            opOK = est <= DP_OP_LIMIT;
+        }
+    }
+
+    ll diffReduced;
+    if (memOK && opOK) {
+        diffReduced = solve_dp(a, total);
+    } else if (N <= 44) {
+        diffReduced = solve_mitm(a, total);
+    } else if (memOK && N > 56) {
+        diffReduced = solve_dp(a, total);
+    } else if (N <= 56) {
+        diffReduced = solve_schroeppel_shamir(a, total);
+    } else if (memOK) {
+        diffReduced = solve_dp(a, total);
+    } else {
+        diffReduced = solve_branch_bound(a, total);
+    }
+
+    std::cout << diffReduced * g << '\n';
+    return 0;
+}

@@ -1,0 +1,130 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static const int MAXN = 10005;
+static const int LOG = 16;
+
+static int up_[LOG][MAXN];
+static int depth_[MAXN];
+static int diaA_, diaB_, diaD_;
+static int initA_, initB_, initD_;
+
+static int lca_(int a, int b) {
+    if (depth_[a] < depth_[b]) swap(a, b);
+    int diff = depth_[a] - depth_[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = up_[k][a];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_[k][a] != up_[k][b]) {
+            a = up_[k][a];
+            b = up_[k][b];
+        }
+    }
+    return up_[0][a];
+}
+
+static int dist_(int a, int b) {
+    int c = lca_(a, b);
+    return depth_[a] + depth_[b] - 2 * depth_[c];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        depth_[0] = 0;
+        for (int k = 0; k < LOG; ++k) up_[k][0] = 0;
+        diaA_ = diaB_ = 0;
+        diaD_ = 0;
+        initA_ = initB_ = initD_ = 0;
+    }
+
+    up_[0][i] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up_[k][i] = up_[k - 1][up_[k - 1][i]];
+    }
+    depth_[i] = depth_[Pi] + 1;
+
+    int oldA = diaA_;
+    int oldB = diaB_;
+    int oldD = diaD_;
+
+    int da = dist_(i, oldA);
+    int db = dist_(i, oldB);
+
+    bool updated = false;
+    int other = -1;
+
+    if (da > oldD) {
+        diaA_ = i;
+        diaB_ = oldA;
+        diaD_ = da;
+        updated = true;
+        other = oldA;
+    } else if (db > oldD) {
+        diaA_ = i;
+        diaB_ = oldB;
+        diaD_ = db;
+        updated = true;
+        other = oldB;
+    }
+
+    int t = N - 50;
+
+    if (i < t) return 0;
+
+    if (i == t) {
+        initA_ = diaA_;
+        initB_ = diaB_;
+        initD_ = diaD_;
+        return initA_ + 1;
+    }
+
+    if (i == t + 1) {
+        if (!updated) {
+            return 2 * initB_ + 1;
+        }
+        if (other == initA_) {
+            return 0;
+        }
+        return 2 * initB_ + 2;
+    }
+
+    if (updated) {
+        return (other == oldA) ? 1 : 2;
+    }
+
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+    int t = N - 50;
+
+    int a = S[t] - 1;
+    int b;
+
+    int x = S[t + 1];
+
+    if (x == 0) {
+        b = a;
+        a = t + 1;
+    } else {
+        b = (x - 1) / 2;
+        if (x % 2 == 0) {
+            a = t + 1;
+        }
+    }
+
+    for (int i = t + 2; i < N; ++i) {
+        if (S[i] == 1) {
+            int oldA = a;
+            a = i;
+            b = oldA;
+        } else if (S[i] == 2) {
+            a = i;
+        }
+    }
+
+    return {a, b};
+}

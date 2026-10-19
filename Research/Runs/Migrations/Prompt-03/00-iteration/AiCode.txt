@@ -1,0 +1,96 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int MAXN = 10005;
+    constexpr int LOG = 16;
+    int up[LOG][MAXN];
+    int depth_arr[MAXN];
+    int diamA = 0, diamB = 0, diamD = 0;
+
+    int lca_node(int a, int b) {
+        if (depth_arr[a] < depth_arr[b]) swap(a, b);
+        int diff = depth_arr[a] - depth_arr[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[k][a];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[k][a] != up[k][b]) {
+                a = up[k][a];
+                b = up[k][b];
+            }
+        }
+        return up[0][a];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return depth_arr[a] + depth_arr[b] - 2 * depth_arr[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        diamA = diamB = 0;
+        diamD = 0;
+        depth_arr[0] = 0;
+        for (int k = 0; k < LOG; ++k) up[k][0] = 0;
+    }
+
+    int oldA = diamA;
+    int oldB = diamB;
+    int oldD = diamD;
+
+    up[0][i] = Pi;
+    depth_arr[i] = depth_arr[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up[k][i] = up[k - 1][up[k - 1][i]];
+    }
+
+    int da = dist_node(i, oldA);
+    int db = dist_node(i, oldB);
+
+    bool changed = false;
+    int other = -1;
+
+    if (da > oldD || db > oldD) {
+        changed = true;
+        if (da >= db) {
+            diamA = oldA;
+            diamB = i;
+            diamD = da;
+            other = oldA;
+        } else {
+            diamA = i;
+            diamB = oldB;
+            diamD = db;
+            other = oldB;
+        }
+    }
+
+    if (i == N - 2) {
+        return diamA + 1;
+    }
+
+    if (i == N - 1) {
+        if (changed) return 10001 + other;
+        return oldB + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+
+    int x = S[N - 2];
+    int y = S[N - 1];
+
+    if (y > 10000) {
+        return {N - 1, y - 10001};
+    }
+
+    return {x - 1, y - 1};
+}

@@ -1,0 +1,233 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class MaxCliqueSolver {
+public:
+    int N, W;
+    vector<unsigned long long> adj;
+    vector<vector<int>> compAdj;
+    vector<int> deg, compDeg;
+    vector<int> mark;
+    int stamp = 1;
+    int best = 0;
+    int cur = 0;
+
+    inline bool edge(int u, int v) const {
+        return (adj[(size_t)u * W + (v >> 6)] >> (v & 63)) & 1ULL;
+    }
+
+    static uint64_t splitmix64(uint64_t x) {
+        x += 0x9e3779b97f4a7c15ULL;
+        x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+        return x ^ (x >> 31);
+    }
+
+    int greedy_clique_complement(int variant) {
+        vector<int> cnt = compDeg;
+        vector<unsigned char> active(N, 1);
+        int remaining = N;
+        int got = 0;
+
+        while (remaining > 0) {
+            int v = -1;
+            long long bestKey = LLONG_MAX;
+
+            for (int i = 0; i < N; ++i) {
+                if (!active[i]) continue;
+
+                long long key;
+                if (variant == 0) {
+                    key = (long long)cnt[i] * (N + 1LL) - deg[i];
+                } else if (variant <= 4) {
+                    key = (long long)cnt[i] * 1000003LL +
+                          (long long)(splitmix64((uint64_t)i + 10000019ULL * variant) % 1000003ULL);
+                } else {
+                    key = (long long)cnt[i] * 257LL +
+                          (long long)(splitmix64((uint64_t)i + 10000019ULL * variant) % 257ULL);
+                }
+
+                if (key < bestKey) {
+                    bestKey = key;
+                    v = i;
+                }
+            }
+
+            ++got;
+            vector<int> rem;
+            rem.push_back(v);
+            active[v] = 0;
+
+            for (int u : compAdj[v]) {
+                if (active[u]) {
+                    active[u] = 0;
+                    rem.push_back(u);
+                }
+            }
+
+            remaining -= (int)rem.size();
+
+            for (int r : rem) {
+                for (int u : compAdj[r]) {
+                    if (active[u]) --cnt[u];
+                }
+            }
+        }
+
+        return got;
+    }
+
+    void initial_lower_bound() {
+        int variants = (N <= 2000 ? 10 : 4);
+        for (int v = 0; v < variants; ++v) {
+            best = max(best, greedy_clique_complement(v));
+        }
+    }
+
+    void color_sort(const vector<int>& P, vector<int>& ordered, vector<int>& colors) {
+        ordered.clear();
+        colors.clear();
+        ordered.reserve(P.size());
+        colors.reserve(P.size());
+
+        vector<int> U = P;
+        vector<int> newU;
+        vector<int> Q;
+        vector<int> nextQ;
+
+        int myStamp = ++stamp;
+        if (stamp == INT_MAX) {
+            fill(mark.begin(), mark.end(), 0);
+            stamp = 1;
+            myStamp = ++stamp;
+        }
+
+        for (int v : U) mark[v] = myStamp;
+
+        int color = 0;
+        while (!U.empty()) {
+            ++color;
+
+            int v = U[0];
+            ordered.push_back(v);
+            colors.push_back(color);
+            mark[v] = 0;
+
+            Q.clear();
+            for (int u : compAdj[v]) {
+                if (mark[u] == myStamp) Q.push_back(u);
+            }
+
+            while (!Q.empty()) {
+                int x = Q[0];
+                if (mark[x] != myStamp) {
+                    Q.erase(Q.begin());
+                    continue;
+                }
+
+                ordered.push_back(x);
+                colors.push_back(color);
+                mark[x] = 0;
+
+                nextQ.clear();
+                nextQ.reserve(Q.size());
+                for (int u : Q) {
+                    if (mark[u] == myStamp && !edge(x, u)) {
+                        nextQ.push_back(u);
+                    }
+                }
+                Q.swap(nextQ);
+            }
+
+            newU.clear();
+            newU.reserve(U.size());
+            for (int u : U) {
+                if (mark[u] == myStamp) newU.push_back(u);
+            }
+            U.swap(newU);
+        }
+    }
+
+    void expand(const vector<int>& P) {
+        if (cur + (int)P.size() <= best) return;
+        if (cur > best) best = cur;
+        if (P.empty()) return;
+
+        vector<int> S, C;
+        color_sort(P, S, C);
+
+        for (int i = (int)S.size() - 1; i >= 0; --i) {
+            if (cur + C[i] <= best) return;
+
+            int v = S[i];
+            vector<int> NP;
+            NP.reserve(i);
+
+            for (int j = 0; j < i; ++j) {
+                int u = S[j];
+                if (edge(v, u)) NP.push_back(u);
+            }
+
+            ++cur;
+            if (cur > best) best = cur;
+            if (cur + (int)NP.size() > best) expand(NP);
+            --cur;
+        }
+    }
+
+    int solve() {
+        if (N == 0) return 0;
+        if (N == 1) return 1;
+
+        compDeg.resize(N);
+        for (int i = 0; i < N; ++i) compDeg[i] = (int)compAdj[i].size();
+
+        initial_lower_bound();
+
+        vector<int> P(N);
+        iota(P.begin(), P.end(), 0);
+
+        sort(P.begin(), P.end(), [&](int a, int b) {
+            if (compDeg[a] != compDeg[b]) return compDeg[a] < compDeg[b];
+            if (deg[a] != deg[b]) return deg[a] > deg[b];
+            return a < b;
+        });
+
+        mark.assign(N, 0);
+        expand(P);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    MaxCliqueSolver solver;
+    if (!(cin >> solver.N)) return 0;
+
+    solver.W = (solver.N + 63) >> 6;
+    solver.adj.assign((size_t)solver.N * solver.W, 0);
+    solver.compAdj.assign(solver.N, {});
+    solver.deg.assign(solver.N, 0);
+
+    for (int i = 0; i < solver.N; ++i) {
+        for (int j = 0; j < solver.N; ++j) {
+            char c;
+            cin >> c;
+            while (c != '0' && c != '1') cin >> c;
+
+            if (i == j) continue;
+
+            if (c == '1') {
+                solver.adj[(size_t)i * solver.W + (j >> 6)] |= 1ULL << (j & 63);
+                ++solver.deg[i];
+            } else {
+                solver.compAdj[i].push_back(j);
+            }
+        }
+    }
+
+    cout << solver.solve() << '\n';
+    return 0;
+}

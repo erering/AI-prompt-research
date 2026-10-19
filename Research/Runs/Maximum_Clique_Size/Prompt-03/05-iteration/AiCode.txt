@@ -1,0 +1,373 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ULL = unsigned long long;
+
+static int readBit() {
+    char ch;
+    while (cin.get(ch)) {
+        if (ch == '0' || ch == '1') return ch - '0';
+    }
+    return 0;
+}
+
+struct HopcroftKarpBipMIS {
+    const vector<vector<int>>& g;
+    const vector<int>& color;
+    int n;
+    vector<int> pairv, dist;
+
+    HopcroftKarpBipMIS(const vector<vector<int>>& g_, const vector<int>& color_)
+        : g(g_), color(color_), n((int)g_.size()), pairv(n, -1), dist(n) {}
+
+    bool bfs() {
+        queue<int> q;
+        bool found = false;
+        const int INF = 1e9;
+
+        for (int u = 0; u < n; ++u) {
+            if (color[u] == 0 && pairv[u] == -1) {
+                dist[u] = 0;
+                q.push(u);
+            } else {
+                dist[u] = INF;
+            }
+        }
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+
+            for (int v : g[u]) {
+                int pu = pairv[v];
+                if (pu == -1) {
+                    found = true;
+                } else if (dist[pu] == INF) {
+                    dist[pu] = dist[u] + 1;
+                    q.push(pu);
+                }
+            }
+        }
+
+        return found;
+    }
+
+    bool dfs(int u) {
+        for (int v : g[u]) {
+            int pu = pairv[v];
+            if (pu == -1 || (dist[pu] == dist[u] + 1 && dfs(pu))) {
+                pairv[u] = v;
+                pairv[v] = u;
+                return true;
+            }
+        }
+        dist[u] = 1e9;
+        return false;
+    }
+
+    int maxMatching() {
+        int matching = 0;
+        while (bfs()) {
+            for (int u = 0; u < n; ++u) {
+                if (color[u] == 0 && pairv[u] == -1 && dfs(u)) {
+                    ++matching;
+                }
+            }
+        }
+        return matching;
+    }
+};
+
+static int greedyMISLowerBound(const vector<vector<int>>& h) {
+    int n = (int)h.size();
+    vector<int> deg(n);
+    vector<char> active(n, 1);
+    priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> pq;
+
+    for (int i = 0; i < n; ++i) {
+        deg[i] = (int)h[i].size();
+        pq.push({deg[i], i});
+    }
+
+    int remain = n;
+    int ans = 0;
+
+    while (remain > 0) {
+        int v = -1;
+        while (!pq.empty()) {
+            auto [d, u] = pq.top();
+            pq.pop();
+            if (active[u] && d == deg[u]) {
+                v = u;
+                break;
+            }
+        }
+        if (v == -1) break;
+
+        ++ans;
+
+        vector<int> removed;
+        if (active[v]) {
+            active[v] = 0;
+            --remain;
+            removed.push_back(v);
+        }
+
+        for (int u : h[v]) {
+            if (active[u]) {
+                active[u] = 0;
+                --remain;
+                removed.push_back(u);
+            }
+        }
+
+        for (int r : removed) {
+            for (int x : h[r]) {
+                if (active[x]) {
+                    --deg[x];
+                    pq.push({deg[x], x});
+                }
+            }
+        }
+    }
+
+    return ans;
+}
+
+struct MaxCliqueBBMC {
+    int n, W;
+    vector<vector<ULL>> adj;
+    int best;
+    ULL lastMask;
+
+    MaxCliqueBBMC(int n_, vector<vector<ULL>>&& adj_, int lower)
+        : n(n_), W((n_ + 63) >> 6), adj(std::move(adj_)), best(lower) {
+        int rem = n & 63;
+        lastMask = rem ? ((1ULL << rem) - 1ULL) : ~0ULL;
+    }
+
+    inline bool emptyBS(const vector<ULL>& b) const {
+        for (ULL x : b) if (x) return false;
+        return true;
+    }
+
+    inline int countBS(const vector<ULL>& b) const {
+        int s = 0;
+        for (ULL x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline void resetBit(vector<ULL>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline bool testBit(const vector<ULL>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline int firstBit(const vector<ULL>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    void colorSort(const vector<ULL>& P, vector<int>& verts, vector<int>& colors) const {
+        verts.clear();
+        colors.clear();
+
+        vector<ULL> U = P;
+        int color = 0;
+
+        while (!emptyBS(U)) {
+            ++color;
+            vector<ULL> Q = U;
+
+            while (!emptyBS(Q)) {
+                int v = firstBit(Q);
+                verts.push_back(v);
+                colors.push_back(color);
+
+                resetBit(U, v);
+                resetBit(Q, v);
+
+                for (int i = 0; i < W; ++i) {
+                    Q[i] &= ~adj[v][i];
+                }
+                Q[W - 1] &= lastMask;
+            }
+        }
+    }
+
+    void expand(vector<ULL> P, int sz) {
+        if (P[W - 1] & ~lastMask) P[W - 1] &= lastMask;
+
+        if (emptyBS(P)) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        if (sz + countBS(P) <= best) return;
+
+        vector<int> verts, colors;
+        colorSort(P, verts, colors);
+
+        for (int i = (int)verts.size() - 1; i >= 0; --i) {
+            if (sz + colors[i] <= best) return;
+
+            int v = verts[i];
+            if (!testBit(P, v)) continue;
+
+            vector<ULL> NP(W);
+            for (int j = 0; j < W; ++j) {
+                NP[j] = P[j] & adj[v][j];
+            }
+            NP[W - 1] &= lastMask;
+
+            if (emptyBS(NP)) {
+                if (sz + 1 > best) best = sz + 1;
+            } else {
+                expand(std::move(NP), sz + 1);
+            }
+
+            resetBit(P, v);
+
+            if (sz + countBS(P) <= best) return;
+        }
+    }
+
+    int run() {
+        vector<ULL> P(W, ~0ULL);
+        P[W - 1] = lastMask;
+        expand(std::move(P), 0);
+        return best;
+    }
+};
+
+static int solveComponent(const vector<int>& comp, const vector<vector<int>>& compAdj, vector<int>& id) {
+    int s = (int)comp.size();
+    if (s == 1) return 1;
+
+    vector<int> verts = comp;
+    sort(verts.begin(), verts.end(), [&](int a, int b) {
+        return compAdj[a].size() < compAdj[b].size();
+    });
+
+    for (int i = 0; i < s; ++i) id[verts[i]] = i;
+
+    vector<vector<int>> h(s);
+    for (int i = 0; i < s; ++i) {
+        int gv = verts[i];
+        h[i].reserve(compAdj[gv].size());
+        for (int nb : compAdj[gv]) {
+            int j = id[nb];
+            if (j >= 0) h[i].push_back(j);
+        }
+    }
+
+    for (int gv : verts) id[gv] = -1;
+
+    vector<int> color(s, -1);
+    bool bip = true;
+
+    for (int st = 0; st < s && bip; ++st) {
+        if (color[st] != -1) continue;
+        queue<int> q;
+        color[st] = 0;
+        q.push(st);
+
+        while (!q.empty() && bip) {
+            int u = q.front();
+            q.pop();
+
+            for (int v : h[u]) {
+                if (color[v] == -1) {
+                    color[v] = color[u] ^ 1;
+                    q.push(v);
+                } else if (color[v] == color[u]) {
+                    bip = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (bip) {
+        HopcroftKarpBipMIS hk(h, color);
+        return s - hk.maxMatching();
+    }
+
+    int lower = greedyMISLowerBound(h);
+
+    int W = (s + 63) >> 6;
+    ULL lastMask = (s & 63) ? ((1ULL << (s & 63)) - 1ULL) : ~0ULL;
+
+    vector<vector<ULL>> orig(s, vector<ULL>(W, ~0ULL));
+    for (int i = 0; i < s; ++i) {
+        orig[i][W - 1] &= lastMask;
+        orig[i][i >> 6] &= ~(1ULL << (i & 63));
+    }
+
+    for (int i = 0; i < s; ++i) {
+        for (int j : h[i]) {
+            if (j > i) {
+                orig[i][j >> 6] &= ~(1ULL << (j & 63));
+                orig[j][i >> 6] &= ~(1ULL << (i & 63));
+            }
+        }
+    }
+
+    MaxCliqueBBMC mc(s, std::move(orig), lower);
+    return mc.run();
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    vector<vector<int>> compAdj(N);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int a = readBit();
+            if (i < j && a == 0) {
+                compAdj[i].push_back(j);
+                compAdj[j].push_back(i);
+            }
+        }
+    }
+
+    vector<char> vis(N, 0);
+    vector<int> id(N, -1);
+    int answer = 0;
+
+    for (int st = 0; st < N; ++st) {
+        if (vis[st]) continue;
+
+        vector<int> comp;
+        queue<int> q;
+        vis[st] = 1;
+        q.push(st);
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            comp.push_back(u);
+
+            for (int v : compAdj[u]) {
+                if (!vis[v]) {
+                    vis[v] = 1;
+                    q.push(v);
+                }
+            }
+        }
+
+        answer += solveComponent(comp, compAdj, id);
+    }
+
+    cout << answer << '\n';
+    return 0;
+}

@@ -1,0 +1,77 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const long long CAP = 1000000000LL;
+    vector<long long> dp(61, -1);
+    vector<int> par(61, -1);
+    dp[0] = 1;
+
+    for (int s = 1; s <= 60; ++s) {
+        dp[s] = 0;
+        for (int b = 2; b <= s; ++b) {
+            if (dp[s - b] <= 0) continue;
+            long long val = min(CAP, dp[s - b] * 1LL * b);
+            if (val > dp[s]) {
+                dp[s] = val;
+                par[s] = b;
+            }
+        }
+    }
+
+    int S = 2;
+    while (dp[S] < N) ++S;
+
+    vector<int> base;
+    for (int t = S; t > 0; t -= par[t]) base.push_back(par[t]);
+
+    int D = (int)base.size();
+
+    vector<int> offset(D);
+    offset[0] = 1;
+    for (int i = 1; i < D; ++i) offset[i] = offset[i - 1] + base[i - 1];
+
+    vector<int> place(D, 1);
+    for (int i = D - 2; i >= 0; --i) place[i] = place[i + 1] * base[i + 1];
+
+    auto digit = [&](int v, int p) {
+        return ((v - 1) / place[p]) % base[p];
+    };
+
+    auto id = [&](int p, int d) {
+        return offset[p] + d;
+    };
+
+    vector<vector<int>> s(S + 1, vector<int>(N + 1, -1));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = id(0, digit(j, 0));
+    }
+
+    for (int p = 0; p < D; ++p) {
+        bool inspectB = (p % 2 == 0);
+        for (int d = 0; d < base[p]; ++d) {
+            int st = id(p, d);
+            s[st][0] = inspectB ? 1 : 0;
+
+            for (int j = 1; j <= N; ++j) {
+                int cur = digit(j, p);
+
+                if (cur < d) {
+                    s[st][j] = inspectB ? -2 : -1;
+                } else if (cur > d) {
+                    s[st][j] = inspectB ? -1 : -2;
+                } else {
+                    if (p + 1 == D) {
+                        s[st][j] = -1;
+                    } else {
+                        s[st][j] = id(p + 1, digit(j, p + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

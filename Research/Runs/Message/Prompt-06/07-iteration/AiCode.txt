@@ -1,0 +1,117 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static uint64_t COMB[32][32];
+static bool COMB_INIT = false;
+
+static void init_comb() {
+    if (COMB_INIT) return;
+    COMB_INIT = true;
+    for (int n = 0; n <= 31; ++n) {
+        COMB[n][0] = COMB[n][n] = 1;
+        for (int k = 1; k < n; ++k) COMB[n][k] = COMB[n - 1][k - 1] + COMB[n - 1][k];
+    }
+}
+
+static uint64_t rank_bad_mask(const vector<bool>& C) {
+    init_comb();
+    vector<int> pos;
+    for (int i = 0; i < 31; ++i) if (C[i]) pos.push_back(i);
+
+    uint64_t r = 0;
+    int prev = -1;
+    for (int t = 0; t < 15; ++t) {
+        for (int x = prev + 1; x < pos[t]; ++x) {
+            r += COMB[31 - 1 - x][15 - 1 - t];
+        }
+        prev = pos[t];
+    }
+    return r;
+}
+
+static vector<bool> unrank_bad_mask(uint64_t r) {
+    init_comb();
+    vector<bool> C(31, false);
+    int prev = -1;
+    for (int t = 0; t < 15; ++t) {
+        for (int x = prev + 1; x < 31; ++x) {
+            uint64_t cnt = COMB[31 - 1 - x][15 - 1 - t];
+            if (r >= cnt) {
+                r -= cnt;
+            } else {
+                C[x] = true;
+                prev = x;
+                break;
+            }
+        }
+    }
+    return C;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    init_comb();
+
+    uint64_t r = rank_bad_mask(C);
+
+    for (int i = 0; i < 29; ++i) {
+        bool b = (r >> i) & 1ULL;
+        vector<bool> A(31, b);
+        send_packet(A);
+    }
+
+    vector<int> good;
+    for (int i = 0; i < 31; ++i) if (!C[i]) good.push_back(i);
+
+    vector<bool> stream = M;
+    stream.push_back(true);
+
+    int packets = ((int)stream.size() + 15) / 16;
+    int ptr = 0;
+
+    for (int q = 0; q < packets; ++q) {
+        vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            if (ptr < (int)stream.size()) A[good[j]] = stream[ptr++];
+            else A[good[j]] = false;
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    init_comb();
+
+    uint64_t r = 0;
+    for (int i = 0; i < 29; ++i) {
+        int cnt = 0;
+        for (int j = 0; j < 31; ++j) if (R[i][j]) ++cnt;
+        if (cnt > 15) r |= (1ULL << i);
+    }
+
+    vector<bool> C = unrank_bad_mask(r);
+
+    vector<int> good;
+    for (int i = 0; i < 31; ++i) if (!C[i]) good.push_back(i);
+
+    vector<bool> stream;
+    for (int q = 29; q < (int)R.size(); ++q) {
+        for (int j = 0; j < 16; ++j) {
+            stream.push_back(R[q][good[j]]);
+        }
+    }
+
+    int last = -1;
+    for (int i = (int)stream.size() - 1; i >= 0; --i) {
+        if (stream[i]) {
+            last = i;
+            break;
+        }
+    }
+
+    vector<bool> M;
+    if (last < 0) return M;
+    for (int i = 0; i < last; ++i) M.push_back(stream[i]);
+    return M;
+}

@@ -1,0 +1,298 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static const int SZ = 1 << 20;
+    char buf[SZ];
+    int idx = 0, size = 0;
+    inline char getch() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (!size) return 0;
+        }
+        return buf[idx++];
+    }
+    int nextInt() {
+        char c;
+        do { c = getch(); } while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getch();
+        }
+        return x;
+    }
+    int nextBit() {
+        char c;
+        do { c = getch(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+struct Node {
+    int d, v;
+    uint64_t tie;
+    bool operator>(const Node& o) const {
+        if (d != o.d) return d > o.d;
+        if (tie != o.tie) return tie > o.tie;
+        return v > o.v;
+    }
+};
+
+static inline uint64_t splitmix64(uint64_t x) {
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+}
+
+int N, W;
+uint64_t lastMask;
+vector<uint64_t> compBits;
+vector<vector<int>> compList;
+vector<uint64_t> Pstack, Ubuf, Qbuf;
+vector<vector<int>> orders, colors;
+int bestAns = 0;
+
+inline uint64_t* rowComp(int v) {
+    return &compBits[(size_t)v * W];
+}
+inline uint64_t* pAt(int d) {
+    return &Pstack[(size_t)d * W];
+}
+inline void clearBit(uint64_t* b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+inline bool testBit(const uint64_t* b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+inline int popcnt64(uint64_t x) {
+    return __builtin_popcountll(x);
+}
+inline int firstBit(const uint64_t* b) {
+    for (int i = 0; i < W; ++i) {
+        uint64_t x = b[i];
+        if (x) return (i << 6) + __builtin_ctzll(x);
+    }
+    return -1;
+}
+
+int greedyRun(const vector<unsigned char>& baseActive, int seed) {
+    vector<unsigned char> active = baseActive;
+    vector<int> deg(N, 0);
+    priority_queue<Node, vector<Node>, greater<Node>> pq;
+    int alive = 0;
+    uint64_t salt = splitmix64((uint64_t)seed * 1000003ULL + 12345ULL);
+
+    for (int v = 0; v < N; ++v) if (active[v]) {
+        ++alive;
+        int d = 0;
+        for (int u : compList[v]) if (active[u]) ++d;
+        deg[v] = d;
+        uint64_t tie = seed == 0 ? (uint64_t)v : splitmix64(salt + (uint64_t)v);
+        pq.push({d, v, tie});
+    }
+
+    int res = 0;
+    vector<int> rem;
+    while (alive > 0) {
+        Node cur;
+        do {
+            if (pq.empty()) return res;
+            cur = pq.top(); pq.pop();
+        } while (!active[cur.v] || deg[cur.v] != cur.d);
+
+        int v = cur.v;
+        ++res;
+        rem.clear();
+        rem.push_back(v);
+        for (int u : compList[v]) if (active[u]) rem.push_back(u);
+
+        for (int u : rem) if (active[u]) {
+            active[u] = 0;
+            --alive;
+            for (int w : compList[u]) if (active[w]) {
+                --deg[w];
+                uint64_t tie = seed == 0 ? (uint64_t)w : splitmix64(salt + (uint64_t)w);
+                pq.push({deg[w], w, tie});
+            }
+        }
+    }
+    return res;
+}
+
+int colorSort(int depth, const uint64_t* P) {
+    memcpy(Ubuf.data(), P, (size_t)W * sizeof(uint64_t));
+    auto& ord = orders[depth];
+    auto& col = colors[depth];
+    ord.clear();
+    col.clear();
+
+    int color = 0;
+    while (true) {
+        int f = firstBit(Ubuf.data());
+        if (f < 0) break;
+        ++color;
+        memcpy(Qbuf.data(), Ubuf.data(), (size_t)W * sizeof(uint64_t));
+
+        while (true) {
+            int v = firstBit(Qbuf.data());
+            if (v < 0 || v >= N) break;
+
+            ord.push_back(v);
+            col.push_back(color);
+
+            clearBit(Ubuf.data(), v);
+            clearBit(Qbuf.data(), v);
+
+            uint64_t* cr = rowComp(v);
+            for (int i = 0; i < W; ++i) Qbuf[i] &= cr[i];
+        }
+    }
+    return (int)ord.size();
+}
+
+void expand(int depth, int psize) {
+    if (depth + psize <= bestAns) return;
+
+    uint64_t* P = pAt(depth);
+    int m = colorSort(depth, P);
+    auto& ord = orders[depth];
+    auto& col = colors[depth];
+
+    for (int i = m - 1; i >= 0; --i) {
+        if (depth + col[i] <= bestAns) return;
+
+        int v = ord[i];
+        if (!testBit(P, v)) continue;
+
+        uint64_t* child = pAt(depth + 1);
+        uint64_t* cr = rowComp(v);
+        int cnt = 0;
+
+        for (int j = 0; j < W; ++j) {
+            uint64_t x = P[j] & ~cr[j];
+            child[j] = x;
+        }
+        child[W - 1] &= lastMask;
+        clearBit(child, v);
+
+        for (int j = 0; j < W; ++j) cnt += popcnt64(child[j]);
+
+        int nd = depth + 1;
+        if (nd + cnt > bestAns) {
+            if (cnt == 0) {
+                bestAns = nd;
+            } else {
+                expand(nd, cnt);
+            }
+        } else if (nd > bestAns) {
+            bestAns = nd;
+        }
+
+        clearBit(P, v);
+    }
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    compBits.assign((size_t)N * W, 0);
+    compList.assign(N, {});
+
+    for (int i = 0; i < N; ++i) {
+        uint64_t* ri = rowComp(i);
+        for (int j = 0; j < N; ++j) {
+            int b = in.nextBit();
+            if (i == j) continue;
+            if (!b) {
+                ri[j >> 6] |= 1ULL << (j & 63);
+                if (i < j) {
+                    compList[i].push_back(j);
+                    compList[j].push_back(i);
+                }
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        uint64_t* r = rowComp(i);
+        r[W - 1] &= lastMask;
+        clearBit(r, i);
+    }
+
+    vector<unsigned char> active(N, 1);
+    vector<int> deg(N);
+    queue<int> q;
+    int offset = 0, activeCount = N;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)compList[i].size();
+        if (deg[i] <= 1) q.push(i);
+    }
+
+    while (!q.empty()) {
+        int v = q.front(); q.pop();
+        if (!active[v] || deg[v] > 1) continue;
+
+        ++offset;
+        vector<int> rem;
+        rem.push_back(v);
+        if (deg[v] == 1) {
+            for (int u : compList[v]) {
+                if (active[u]) {
+                    rem.push_back(u);
+                    break;
+                }
+            }
+        }
+
+        for (int u : rem) if (active[u]) {
+            active[u] = 0;
+            --activeCount;
+            for (int w : compList[u]) if (active[w]) {
+                --deg[w];
+                if (deg[w] <= 1) q.push(w);
+            }
+        }
+    }
+
+    bestAns = offset;
+    if (activeCount == 0) {
+        printf("%d\n", bestAns);
+        return 0;
+    }
+
+    int runs = (N <= 3000 ? 16 : (N <= 8000 ? 10 : 6));
+    for (int s = 0; s < runs; ++s) {
+        bestAns = max(bestAns, offset + greedyRun(active, s));
+    }
+
+    Pstack.assign((size_t)(N + 1) * W, 0);
+    Ubuf.assign(W, 0);
+    Qbuf.assign(W, 0);
+    orders.resize(N + 1);
+    colors.resize(N + 1);
+
+    uint64_t* root = pAt(offset);
+    int pcnt = 0;
+    for (int i = 0; i < N; ++i) if (active[i]) {
+        root[i >> 6] |= 1ULL << (i & 63);
+        ++pcnt;
+    }
+    root[W - 1] &= lastMask;
+
+    expand(offset, pcnt);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

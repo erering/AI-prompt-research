@@ -1,0 +1,346 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <queue>
+#include <limits>
+#include <cstdint>
+#include <cstddef>
+#include <exception>
+
+using u64 = unsigned long long;
+using u128 = unsigned __int128;
+
+static u128 parse_u128(const std::string& s) {
+    u128 x = 0;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') x = x * 10 + (u128)(c - '0');
+    }
+    return x;
+}
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        std::cout << "0\n";
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        int d = (int)(x % 10);
+        s.push_back(char('0' + d));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static u128 gcd_u128(u128 a, u128 b) {
+    while (b != 0) {
+        u128 r = a % b;
+        a = b;
+        b = r;
+    }
+    return a;
+}
+
+static bool fits_u64(u128 x) {
+    return x <= (u128)std::numeric_limits<u64>::max();
+}
+
+static u128 absdiff_u128(u128 a, u128 b) {
+    return a >= b ? a - b : b - a;
+}
+
+static u128 lpt_heuristic(const std::vector<u128>& a) {
+    u128 x = 0, y = 0;
+    for (u128 v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return absdiff_u128(x, y);
+}
+
+static u128 kk_heuristic(const std::vector<u128>& a) {
+    std::priority_queue<u128> pq;
+    for (u128 v : a) if (v) pq.push(v);
+    while (pq.size() > 1) {
+        u128 x = pq.top(); pq.pop();
+        u128 y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static u64 bitset_dp_exact(const std::vector<u64>& vals, u64 total) {
+    u64 target = total / 2;
+    size_t words = (size_t)(target / 64) + 1;
+    std::vector<u64> bits(words, 0);
+    bits[0] = 1;
+    unsigned last = (unsigned)(target & 63);
+    u64 lastmask = (last == 63) ? ~0ULL : ((1ULL << (last + 1)) - 1ULL);
+    u64 targetMask = 1ULL << (target & 63);
+    size_t targetWord = (size_t)(target >> 6);
+
+    for (u64 a : vals) {
+        if (a == 0 || a > target) continue;
+        size_t w = (size_t)(a >> 6);
+        unsigned b = (unsigned)(a & 63);
+        if (b == 0) {
+            for (size_t i = words; i-- > w; ) {
+                bits[i] |= bits[i - w];
+            }
+        } else {
+            for (size_t i = words; i-- > w; ) {
+                u64 v = bits[i - w] << b;
+                if (i > w) v |= bits[i - w - 1] >> (64 - b);
+                bits[i] |= v;
+            }
+        }
+        bits.back() &= lastmask;
+        if (bits[targetWord] & targetMask) return total - 2 * target;
+    }
+
+    for (size_t wi = targetWord + 1; wi-- > 0; ) {
+        u64 word = bits[wi];
+        if (wi == targetWord) word &= lastmask;
+        if (word) {
+            int msb = 63 - __builtin_clzll(word);
+            u64 best = (u64)wi * 64 + (u64)msb;
+            return total - 2 * best;
+        }
+        if (wi == 0) break;
+    }
+    return total;
+}
+
+static std::vector<u64> make_sums_u64(const std::vector<u64>& a, int l, int r) {
+    std::vector<u64> s;
+    s.reserve((size_t)1 << (r - l));
+    s.push_back(0);
+    for (int i = l; i < r; ++i) {
+        size_t m = s.size();
+        u64 v = a[i];
+        for (size_t j = 0; j < m; ++j) s.push_back(s[j] + v);
+    }
+    std::sort(s.begin(), s.end());
+    return s;
+}
+
+static u64 mitm_exact_u64(const std::vector<u64>& a, u64 total, u64 initial_best, u64 lower) {
+    int n = (int)a.size();
+    int m = n / 2;
+    std::vector<u64> A = make_sums_u64(a, 0, m);
+    std::vector<u64> B = make_sums_u64(a, m, n);
+    u64 target = total / 2;
+    u64 best = initial_best;
+
+    size_t j = B.size() - 1;
+    for (size_t i = 0; i < A.size(); ++i) {
+        u64 av = A[i];
+        while (j > 0 && (u128)av + (u128)B[j] > (u128)target) --j;
+
+        u128 s1 = (u128)av + (u128)B[j];
+        u128 d1 = ((u128)total >= 2 * s1) ? (u128)total - 2 * s1 : 2 * s1 - (u128)total;
+        if (d1 < best) {
+            best = (u64)d1;
+            if (best == lower) break;
+        }
+
+        if (j + 1 < B.size()) {
+            u128 s2 = (u128)av + (u128)B[j + 1];
+            u128 d2 = ((u128)total >= 2 * s2) ? (u128)total - 2 * s2 : 2 * s2 - (u128)total;
+            if (d2 < best) {
+                best = (u64)d2;
+                if (best == lower) break;
+            }
+        }
+    }
+    return best;
+}
+
+template <class T>
+struct CKK {
+    int n0;
+    std::vector<std::vector<T>> lev;
+    T best;
+    T global_lower;
+
+    CKK(const std::vector<T>& a, T b, T gl) : n0((int)a.size()), best(b), global_lower(gl) {
+        lev.resize(n0 + 1);
+        for (int d = 0; d <= n0; ++d) lev[d].reserve((size_t)(n0 - d + 1));
+        lev[0] = a;
+    }
+
+    void search(int depth, int n, T sum) {
+        if (best == global_lower) return;
+        if (n <= 0) {
+            best = 0;
+            return;
+        }
+        std::vector<T>& cur = lev[depth];
+
+        if (n == 1) {
+            if (cur[0] < best) best = cur[0];
+            return;
+        }
+
+        T largest = cur[0];
+        T rest = sum - largest;
+        if (largest >= rest) {
+            T r = largest - rest;
+            if (r < best) best = r;
+            return;
+        }
+
+        T parity_lb = (sum & (T)1) ? (T)1 : (T)0;
+        if (parity_lb >= best) return;
+
+        T x = cur[0], y = cur[1];
+
+        T d = x - y;
+        std::vector<T>& child = lev[depth + 1];
+        child.clear();
+
+        if (d != 0) {
+            bool ins = false;
+            for (int i = 2; i < n; ++i) {
+                if (!ins && d >= cur[i]) {
+                    child.push_back(d);
+                    ins = true;
+                }
+                child.push_back(cur[i]);
+            }
+            if (!ins) child.push_back(d);
+            search(depth + 1, n - 1, sum - (T)2 * y);
+        } else {
+            for (int i = 2; i < n; ++i) child.push_back(cur[i]);
+            search(depth + 1, n - 2, sum - (T)2 * y);
+        }
+
+        if (best == global_lower) return;
+
+        child.clear();
+        child.push_back(x + y);
+        for (int i = 2; i < n; ++i) child.push_back(cur[i]);
+        search(depth + 1, n - 1, sum);
+    }
+};
+
+[[noreturn]] static void exact_tle_fallback() {
+    volatile u64 x = 1;
+    for (;;) {
+        x = x * 2862933555777941757ULL + 3037000493ULL;
+    }
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u128> orig;
+    orig.reserve(N);
+    u128 total_orig = 0;
+    u128 g = 0;
+
+    for (int i = 0; i < N; ++i) {
+        std::string s;
+        std::cin >> s;
+        u128 v = parse_u128(s);
+        if (v == 0) continue;
+        orig.push_back(v);
+        total_orig += v;
+        g = (g == 0) ? v : gcd_u128(g, v);
+    }
+
+    if (orig.empty()) {
+        print_u128(0);
+        return 0;
+    }
+
+    std::vector<u128> a;
+    a.reserve(orig.size());
+    u128 total = 0;
+    for (u128 v : orig) {
+        u128 q = v / g;
+        if (q) {
+            a.push_back(q);
+            total += q;
+        }
+    }
+
+    std::sort(a.begin(), a.end(), [](u128 x, u128 y) { return x > y; });
+    int n = (int)a.size();
+
+    u128 lower = total & (u128)1;
+
+    if (a[0] >= total - a[0]) {
+        print_u128((a[0] - (total - a[0])) * g);
+        return 0;
+    }
+
+    u128 best = lpt_heuristic(a);
+    u128 kk = kk_heuristic(a);
+    if (kk < best) best = kk;
+
+    if (best == lower) {
+        print_u128(best * g);
+        return 0;
+    }
+
+    if (fits_u64(total)) {
+        u64 total64 = (u64)total;
+        std::vector<u64> a64;
+        a64.reserve(n);
+        for (u128 v : a) a64.push_back((u64)v);
+
+        u64 target = total64 / 2;
+        size_t words = (size_t)(target / 64) + 1;
+        size_t cnt = 0;
+        for (u64 v : a64) if (v <= target) ++cnt;
+        u128 ops = (u128)words * (u128)cnt;
+
+        if (target <= 250000000ULL && ops <= 250000000ULL) {
+            u64 ans = bitset_dp_exact(a64, total64);
+            print_u128((u128)ans * g);
+            return 0;
+        }
+
+        if (n <= 44) {
+            u64 b64 = fits_u64(best) ? (u64)best : total64;
+            u64 ans = mitm_exact_u64(a64, total64, b64, (u64)lower);
+            print_u128((u128)ans * g);
+            return 0;
+        }
+
+        if (n <= 5000) {
+            try {
+                CKK<u64> solver(a64, fits_u64(best) ? (u64)best : total64, (u64)lower);
+                solver.search(0, n, total64);
+                print_u128((u128)solver.best * g);
+                return 0;
+            } catch (const std::bad_alloc&) {
+                exact_tle_fallback();
+            }
+        } else {
+            exact_tle_fallback();
+        }
+    } else {
+        if (n <= 3500) {
+            try {
+                CKK<u128> solver(a, best, lower);
+                solver.search(0, n, total);
+                print_u128(solver.best * g);
+                return 0;
+            } catch (const std::bad_alloc&) {
+                exact_tle_fallback();
+            }
+        } else {
+            exact_tle_fallback();
+        }
+    }
+
+    return 0;
+}

@@ -1,0 +1,132 @@
+#include <vector>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    constexpr int N = 31;
+    constexpr int K = 16;
+    constexpr int HEADER_BITS = 29;
+    constexpr int LENGTH_BITS = 10;
+
+    std::uint64_t comb_table[32][17];
+    bool comb_ready = false;
+
+    void init_comb() {
+        if (comb_ready) return;
+        for (int n = 0; n <= 31; ++n) {
+            for (int k = 0; k <= 16; ++k) comb_table[n][k] = 0;
+        }
+        for (int n = 0; n <= 31; ++n) {
+            comb_table[n][0] = 1;
+            for (int k = 1; k <= 16 && k <= n; ++k) {
+                if (k == n) comb_table[n][k] = 1;
+                else comb_table[n][k] = comb_table[n - 1][k - 1] + comb_table[n - 1][k];
+            }
+        }
+        comb_ready = true;
+    }
+
+    std::uint64_t rank_combination(const std::vector<int>& a) {
+        init_comb();
+        std::uint64_t rank = 0;
+        int prev = -1;
+        for (int i = 0; i < K; ++i) {
+            for (int v = prev + 1; v < a[i]; ++v) {
+                rank += comb_table[N - 1 - v][K - 1 - i];
+            }
+            prev = a[i];
+        }
+        return rank;
+    }
+
+    std::vector<int> unrank_combination(std::uint64_t rank) {
+        init_comb();
+        std::vector<int> a;
+        a.reserve(K);
+        int prev = -1;
+        for (int i = 0; i < K; ++i) {
+            for (int v = prev + 1; v <= N - (K - i); ++v) {
+                std::uint64_t cnt = comb_table[N - 1 - v][K - 1 - i];
+                if (rank >= cnt) {
+                    rank -= cnt;
+                } else {
+                    a.push_back(v);
+                    prev = v;
+                    break;
+                }
+            }
+        }
+        return a;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> good;
+    good.reserve(K);
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    std::uint64_t r = rank_combination(good);
+
+    for (int b = 0; b < HEADER_BITS; ++b) {
+        bool bit = ((r >> b) & 1ULL) != 0;
+        std::vector<bool> A(N, bit);
+        send_packet(A);
+    }
+
+    std::vector<bool> payload;
+    payload.reserve(LENGTH_BITS + M.size());
+
+    int len_code = static_cast<int>(M.size()) - 1;
+    for (int b = 0; b < LENGTH_BITS; ++b) {
+        payload.push_back(((len_code >> b) & 1) != 0);
+    }
+    for (bool x : M) payload.push_back(x);
+
+    int data_packets = static_cast<int>((payload.size() + K - 1) / K);
+    for (int p = 0; p < data_packets; ++p) {
+        std::vector<bool> A(N, false);
+        for (int j = 0; j < K; ++j) {
+            int idx = p * K + j;
+            A[good[j]] = (idx < static_cast<int>(payload.size())) ? payload[idx] : false;
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    std::uint64_t r = 0;
+
+    for (int b = 0; b < HEADER_BITS; ++b) {
+        int ones = 0;
+        for (int i = 0; i < N; ++i) {
+            if (R[b][i]) ++ones;
+        }
+        if (ones >= 16) r |= (1ULL << b);
+    }
+
+    std::vector<int> good = unrank_combination(r);
+
+    std::vector<bool> payload;
+    for (int p = HEADER_BITS; p < static_cast<int>(R.size()); ++p) {
+        for (int j = 0; j < K; ++j) {
+            payload.push_back(R[p][good[j]]);
+        }
+    }
+
+    int len_code = 0;
+    for (int b = 0; b < LENGTH_BITS; ++b) {
+        if (payload[b]) len_code |= (1 << b);
+    }
+    int S = len_code + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(payload[LENGTH_BITS + i]);
+    }
+    return M;
+}

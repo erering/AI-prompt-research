@@ -1,0 +1,132 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    int gN = 0;
+    int LOG = 15;
+    vector<int> depth_;
+    vector<array<int, 15>> up_;
+    int diaA = 0, diaB = 0, diaD = 0;
+    int savedA = -1, savedB = -1, savedD = 0;
+
+    int lca_(int a, int b) {
+        if (depth_[a] < depth_[b]) swap(a, b);
+        int diff = depth_[a] - depth_[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up_[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up_[a][k] != up_[b][k]) {
+                a = up_[a][k];
+                b = up_[b][k];
+            }
+        }
+        return up_[a][0];
+    }
+
+    int dist_(int a, int b) {
+        int c = lca_(a, b);
+        return depth_[a] + depth_[b] - 2 * depth_[c];
+    }
+
+    int rank_excluding_(int x, int excluded) {
+        return x < excluded ? x : x - 1;
+    }
+
+    int unrank_excluding_(int r, int excluded) {
+        return r < excluded ? r : r + 1;
+    }
+
+    void init_(int N) {
+        gN = N;
+        depth_.assign(N, 0);
+        up_.assign(N, {});
+        for (int k = 0; k < LOG; ++k) up_[0][k] = 0;
+        diaA = diaB = 0;
+        diaD = 0;
+        savedA = savedB = -1;
+        savedD = 0;
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || gN != N) init_(N);
+
+    depth_[i] = depth_[Pi] + 1;
+    up_[i][0] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up_[i][k] = up_[up_[i][k - 1]][k - 1];
+    }
+
+    if (N <= 2) {
+        int dA = dist_(i, diaA);
+        int dB = dist_(i, diaB);
+        if (dA > diaD) {
+            diaD = dA;
+            diaB = diaA;
+            diaA = i;
+        } else if (dB > diaD) {
+            diaD = dB;
+            diaA = i;
+        }
+        return 0;
+    }
+
+    if (i == N - 1) {
+        int dA = dist_(i, savedA);
+        int dB = dist_(i, savedB);
+
+        if (dA > savedD) {
+            return 1;
+        }
+
+        int bit = 0;
+        if (dB > savedD) bit = 1;
+
+        int r = rank_excluding_(savedB, savedA);
+        return 2 + 2 * r + bit;
+    }
+
+    int dA = dist_(i, diaA);
+    int dB = dist_(i, diaB);
+    if (dA > diaD) {
+        diaD = dA;
+        diaB = diaA;
+        diaA = i;
+    } else if (dB > diaD) {
+        diaD = dB;
+        diaA = i;
+    }
+
+    if (i == N - 2) {
+        savedA = diaA;
+        savedB = diaB;
+        savedD = diaD;
+        return savedA + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    int a = S[N - 2] - 1;
+    int v = S[N - 1];
+
+    if (v == 1) {
+        return {N - 1, a};
+    }
+
+    int x = v - 2;
+    int bit = x & 1;
+    int r = x >> 1;
+    int b = unrank_excluding_(r, a);
+
+    if (bit == 0) return {a, b};
+    return {N - 1, b};
+}

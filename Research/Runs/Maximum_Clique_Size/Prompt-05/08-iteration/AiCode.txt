@@ -1,0 +1,262 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class MaxCliqueSolver {
+public:
+    int n, W;
+    uint64_t lastMask;
+    vector<uint64_t> adj, comp;
+    int best = 0;
+
+    MaxCliqueSolver(int n_, vector<uint64_t> adj_)
+        : n(n_), W((n_ + 63) >> 6), adj(std::move(adj_)) {
+        lastMask = (n % 64 == 0) ? ~0ULL : ((1ULL << (n % 64)) - 1ULL);
+        comp.assign((size_t)n * W, 0);
+
+        for (int i = 0; i < n; ++i) {
+            adj[(size_t)i * W + (i >> 6)] &= ~(1ULL << (i & 63));
+        }
+
+        for (int i = 0; i < n; ++i) {
+            uint64_t *cr = &comp[(size_t)i * W];
+            uint64_t *ar = &adj[(size_t)i * W];
+            for (int w = 0; w < W; ++w) cr[w] = ~ar[w];
+            cr[W - 1] &= lastMask;
+            cr[i >> 6] &= ~(1ULL << (i & 63));
+        }
+    }
+
+    inline bool getBit(const vector<uint64_t>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline void clearBit(vector<uint64_t>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline int popcountBits(const vector<uint64_t>& b) const {
+        int s = 0;
+        for (uint64_t x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline int firstBit(const vector<uint64_t>& b) const {
+        for (int w = 0; w < W; ++w) {
+            if (b[w]) return (w << 6) + __builtin_ctzll(b[w]);
+        }
+        return -1;
+    }
+
+    int greedyClique(int start = -1) {
+        vector<uint64_t> cand(W, 0);
+        for (int w = 0; w < W; ++w) cand[w] = ~0ULL;
+        cand[W - 1] &= lastMask;
+
+        int sz = 0;
+        if (start >= 0) {
+            ++sz;
+            const uint64_t *ar = &adj[(size_t)start * W];
+            for (int w = 0; w < W; ++w) cand[w] &= ar[w];
+        }
+
+        while (true) {
+            int m = popcountBits(cand);
+            if (m == 0) break;
+
+            int bestv = -1;
+            int bestNonDeg = INT_MAX;
+
+            for (int ww = 0; ww < W; ++ww) {
+                uint64_t x = cand[ww];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (ww << 6) + b;
+                    if (v < n) {
+                        const uint64_t *cr = &comp[(size_t)v * W];
+                        int nd = 0;
+                        for (int w = 0; w < W; ++w)
+                            nd += __builtin_popcountll(cand[w] & cr[w]);
+                        if (nd < bestNonDeg) {
+                            bestNonDeg = nd;
+                            bestv = v;
+                        }
+                    }
+                    x &= x - 1;
+                }
+            }
+
+            if (bestv < 0) break;
+            ++sz;
+            const uint64_t *ar = &adj[(size_t)bestv * W];
+            for (int w = 0; w < W; ++w) cand[w] &= ar[w];
+        }
+        return sz;
+    }
+
+    void initialHeuristic() {
+        best = max(best, greedyClique());
+
+        auto startTime = chrono::steady_clock::now();
+        int trials = min(n, 40);
+        if (n > 1200) trials = min(n, 10);
+        if (n > 3000) trials = min(n, 4);
+
+        for (int i = 0; i < trials; ++i) {
+            best = max(best, greedyClique(i));
+            auto now = chrono::steady_clock::now();
+            if (chrono::duration_cast<chrono::milliseconds>(now - startTime).count() > 120)
+                break;
+        }
+    }
+
+    void colorSort(const vector<uint64_t>& P, vector<int>& order, vector<int>& colors) {
+        order.clear();
+        colors.clear();
+
+        vector<uint64_t> U = P;
+        vector<uint64_t> Q(W);
+
+        int color = 0;
+        while (true) {
+            int ufirst = firstBit(U);
+            if (ufirst < 0) break;
+
+            ++color;
+            Q = U;
+
+            while (true) {
+                int v = firstBit(Q);
+                if (v < 0) break;
+
+                order.push_back(v);
+                colors.push_back(color);
+
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                const uint64_t *cr = &comp[(size_t)v * W];
+                for (int w = 0; w < W; ++w) Q[w] &= cr[w];
+            }
+        }
+    }
+
+    void expand(vector<uint64_t> P, int depth) {
+        if (depth + popcountBits(P) <= best) return;
+
+        vector<int> order, colors;
+        order.reserve(n);
+        colors.reserve(n);
+        colorSort(P, order, colors);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (depth + colors[i] <= best) return;
+
+            int v = order[i];
+            if (!getBit(P, v)) continue;
+
+            vector<uint64_t> newP(W);
+            const uint64_t *ar = &adj[(size_t)v * W];
+
+            int cnt = 0;
+            for (int w = 0; w < W; ++w) {
+                newP[w] = P[w] & ar[w];
+                cnt += __builtin_popcountll(newP[w]);
+            }
+
+            if (depth + 1 + cnt > best) {
+                if (cnt == 0) {
+                    best = depth + 1;
+                } else {
+                    expand(std::move(newP), depth + 1);
+                }
+            }
+
+            clearBit(P, v);
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        initialHeuristic();
+
+        vector<uint64_t> P(W, ~0ULL);
+        P[W - 1] &= lastMask;
+
+        expand(std::move(P), 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    if (N <= 0) {
+        cout << 0;
+        return 0;
+    }
+
+    int W = (N + 63) >> 6;
+    vector<uint64_t> oldAdj((size_t)N * W, 0);
+
+    auto setOld = [&](int i, int j) {
+        oldAdj[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+    };
+
+    char ch;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            do {
+                if (!(cin >> ch)) ch = '0';
+            } while (ch != '0' && ch != '1');
+
+            if (ch == '1' && i != j) {
+                setOld(i, j);
+                setOld(j, i);
+            }
+        }
+    }
+
+    vector<int> deg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        oldAdj[(size_t)i * W + (i >> 6)] &= ~(1ULL << (i & 63));
+        int d = 0;
+        for (int w = 0; w < W; ++w) d += __builtin_popcountll(oldAdj[(size_t)i * W + w]);
+        deg[i] = d;
+    }
+
+    vector<int> ord(N);
+    iota(ord.begin(), ord.end(), 0);
+
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        int ca = (N - 1) - deg[a];
+        int cb = (N - 1) - deg[b];
+        if (ca != cb) return ca > cb;
+        return a < b;
+    });
+
+    vector<uint64_t> adj((size_t)N * W, 0);
+
+    auto getOld = [&](int i, int j) -> bool {
+        return (oldAdj[(size_t)i * W + (j >> 6)] >> (j & 63)) & 1ULL;
+    };
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = ord[ni];
+        for (int nj = 0; nj < N; ++nj) {
+            if (ni == nj) continue;
+            int oj = ord[nj];
+            if (getOld(oi, oj)) {
+                adj[(size_t)ni * W + (nj >> 6)] |= 1ULL << (nj & 63);
+            }
+        }
+    }
+
+    MaxCliqueSolver solver(N, std::move(adj));
+    cout << solver.solve();
+
+    return 0;
+}

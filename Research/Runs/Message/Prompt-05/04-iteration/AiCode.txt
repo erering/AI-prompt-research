@@ -1,0 +1,122 @@
+#include <vector>
+#include <cstdint>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    unsigned long long comb_table[32][17];
+    bool comb_ready = false;
+
+    void init_comb() {
+        if (comb_ready) return;
+        for (int n = 0; n <= 31; ++n) {
+            comb_table[n][0] = 1;
+        }
+        for (int n = 1; n <= 31; ++n) {
+            for (int k = 1; k <= 16; ++k) {
+                comb_table[n][k] = comb_table[n - 1][k];
+                if (k - 1 <= 16) comb_table[n][k] += comb_table[n - 1][k - 1];
+            }
+        }
+        comb_ready = true;
+    }
+
+    unsigned long long rank_subset(const std::vector<int>& pos) {
+        init_comb();
+        unsigned long long r = 0;
+        for (int j = 0; j < (int)pos.size(); ++j) {
+            r += comb_table[pos[j]][j + 1];
+        }
+        return r;
+    }
+
+    std::vector<int> unrank_subset(unsigned long long r) {
+        init_comb();
+        std::vector<int> pos(16);
+        int upper = 30;
+        for (int j = 16; j >= 1; --j) {
+            int x = upper;
+            while (x >= j - 1 && comb_table[x][j] > r) --x;
+            if (x < j - 1) x = j - 1;
+            pos[j - 1] = x;
+            r -= comb_table[x][j];
+            upper = x - 1;
+        }
+        return pos;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    unsigned long long r = rank_subset(good);
+
+    for (int b = 0; b < 29; ++b) {
+        bool bit = ((r >> b) & 1ULL) != 0;
+        std::vector<bool> A(31, bit);
+        send_packet(A);
+    }
+
+    std::vector<bool> payload;
+    int s = (int)M.size();
+    int len_code = s - 1;
+
+    for (int b = 0; b < 10; ++b) {
+        payload.push_back(((len_code >> b) & 1) != 0);
+    }
+    for (bool x : M) payload.push_back(x);
+
+    int ptr = 0;
+    while (ptr < (int)payload.size()) {
+        std::vector<bool> A(31, false);
+        for (int p : good) {
+            if (ptr < (int)payload.size()) {
+                A[p] = payload[ptr++];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    if ((int)R.size() < 29) return {};
+
+    unsigned long long r = 0;
+    for (int b = 0; b < 29; ++b) {
+        int cnt = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) ++cnt;
+        }
+        if (cnt >= 16) r |= (1ULL << b);
+    }
+
+    std::vector<int> good = unrank_subset(r);
+
+    std::vector<bool> bits;
+    for (int row = 29; row < (int)R.size(); ++row) {
+        for (int p : good) {
+            bits.push_back(R[row][p]);
+        }
+    }
+
+    if ((int)bits.size() < 10) return {};
+
+    int len_code = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (bits[b]) len_code |= (1 << b);
+    }
+
+    int s = len_code + 1;
+    std::vector<bool> M;
+    M.reserve(s);
+
+    for (int i = 0; i < s; ++i) {
+        int idx = 10 + i;
+        M.push_back(idx < (int)bits.size() ? bits[idx] : false);
+    }
+
+    return M;
+}

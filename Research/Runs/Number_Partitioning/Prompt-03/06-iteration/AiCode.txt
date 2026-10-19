@@ -1,0 +1,349 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <exception>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <vector>
+
+using u64 = std::uint64_t;
+
+static u64 parity_adjust(u64 lb, u64 parity) {
+    if ((lb & 1ULL) != parity) ++lb;
+    return lb;
+}
+
+static bool solve_dp(const std::vector<u64>& a, u64 total, u64& ans) {
+    const u64 target = total / 2;
+    std::size_t effective = 0;
+    for (u64 x : a) {
+        if (x != 0 && x <= target) ++effective;
+    }
+    if (effective == 0) {
+        ans = total;
+        return true;
+    }
+
+    const u64 WORD_CAP = 8000000ULL;
+    const u64 OP_CAP = 300000000ULL;
+
+    if (target / 64 + 1 > WORD_CAP) return false;
+    const u64 words64 = target / 64 + 1;
+    if (words64 > OP_CAP / effective) return false;
+
+    try {
+        const std::size_t words = static_cast<std::size_t>(words64);
+        std::vector<u64> bits(words, 0);
+        bits[0] = 1ULL;
+
+        const std::size_t target_word = static_cast<std::size_t>(target / 64);
+        const unsigned target_bit = static_cast<unsigned>(target & 63ULL);
+
+        for (u64 x : a) {
+            if (x == 0 || x > target) continue;
+
+            const std::size_t ws = static_cast<std::size_t>(x / 64);
+            const unsigned bs = static_cast<unsigned>(x & 63ULL);
+
+            for (std::size_t i = words; i-- > ws;) {
+                u64 v = bits[i - ws] << bs;
+                if (bs && i > ws) {
+                    v |= bits[i - ws - 1] >> (64 - bs);
+                }
+                bits[i] |= v;
+            }
+
+            if ((bits[target_word] >> target_bit) & 1ULL) {
+                ans = total - 2 * target;
+                return true;
+            }
+        }
+
+        for (std::size_t i = words; i-- > 0;) {
+            u64 w = bits[i];
+            if (i == words - 1) {
+                const unsigned valid = static_cast<unsigned>((target & 63ULL) + 1);
+                if (valid < 64) w &= ((1ULL << valid) - 1ULL);
+            }
+            if (w) {
+                const int pos = 63 - std::countl_zero(w);
+                const u64 best_sum = static_cast<u64>(i) * 64ULL + static_cast<u64>(pos);
+                ans = total - 2 * best_sum;
+                return true;
+            }
+        }
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+
+    return false;
+}
+
+static std::vector<u64> subset_sums_limited(const std::vector<u64>& a, std::size_t l, std::size_t r, u64 target) {
+    std::vector<u64> sums;
+    const std::size_t len = r - l;
+    if (len < 63 && len <= 23) sums.reserve(std::size_t{1} << len);
+    sums.push_back(0);
+
+    for (std::size_t i = l; i < r; ++i) {
+        const u64 x = a[i];
+        if (x > target) continue;
+        const std::size_t sz = sums.size();
+        for (std::size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= target - x) sums.push_back(sums[j] + x);
+        }
+    }
+
+    return sums;
+}
+
+static bool solve_mitm(const std::vector<u64>& a, u64 total, u64& ans) {
+    const std::size_t n = a.size();
+    if (n > 46) return false;
+
+    const u64 target = total / 2;
+
+    try {
+        const std::size_t mid = n / 2;
+        std::vector<u64> right = subset_sums_limited(a, 0, mid, target);
+        std::sort(right.begin(), right.end());
+        right.erase(std::unique(right.begin(), right.end()), right.end());
+
+        u64 best = 0;
+        bool done = false;
+
+        auto dfs = [&](auto&& self, std::size_t idx, u64 sum) -> void {
+            if (done) return;
+            if (idx == n) {
+                const u64 rem = target - sum;
+                auto it = std::upper_bound(right.begin(), right.end(), rem);
+                if (it != right.begin()) {
+                    --it;
+                    const u64 cand = sum + *it;
+                    if (cand > best) {
+                        best = cand;
+                        if (best == target) done = true;
+                    }
+                }
+                return;
+            }
+
+            self(self, idx + 1, sum);
+            if (a[idx] <= target - sum) self(self, idx + 1, sum + a[idx]);
+        };
+
+        dfs(dfs, mid, 0);
+
+        ans = total - 2 * best;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+static u64 greedy_bound(const std::vector<u64>& a) {
+    u64 s0 = 0, s1 = 0;
+    for (u64 x : a) {
+        if (s0 <= s1) s0 += x;
+        else s1 += x;
+    }
+    return s0 >= s1 ? s0 - s1 : s1 - s0;
+}
+
+static u64 kk_bound(const std::vector<u64>& a) {
+    std::priority_queue<u64> pq;
+    for (u64 x : a) {
+        if (x) pq.push(x);
+    }
+
+    while (pq.size() > 1) {
+        u64 x = pq.top(); pq.pop();
+        u64 y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+
+    return pq.empty() ? 0 : pq.top();
+}
+
+struct CKK {
+    u64 best;
+    u64 perfect;
+
+    static std::vector<u64> make_child(const std::vector<u64>& v, u64 x) {
+        std::vector<u64> child;
+        child.reserve(v.size() - 1);
+
+        bool inserted = (x == 0);
+        for (std::size_t i = 2; i < v.size(); ++i) {
+            if (!inserted && x >= v[i]) {
+                child.push_back(x);
+                inserted = true;
+            }
+            child.push_back(v[i]);
+        }
+        if (!inserted) child.push_back(x);
+
+        return child;
+    }
+
+    void search(const std::vector<u64>& v, u64 sum) {
+        if (best == perfect) return;
+
+        const std::size_t n = v.size();
+        if (n == 0) {
+            best = 0;
+            return;
+        }
+        if (n == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+
+        const u64 rest = sum - v[0];
+        u64 lb = (v[0] > rest) ? (v[0] - rest) : 0;
+        if (parity_adjust(lb, perfect) >= best) return;
+
+        if (v[0] >= rest) {
+            if (lb < best) best = lb;
+            return;
+        }
+
+        const u64 a = v[0];
+        const u64 b = v[1];
+
+        std::vector<u64> diff_child = make_child(v, a - b);
+        search(diff_child, sum - 2 * b);
+        if (best == perfect) return;
+
+        std::vector<u64> sum_child = make_child(v, a + b);
+        search(sum_child, sum);
+    }
+};
+
+struct SignDFS {
+    const std::vector<u64>& a;
+    std::vector<u64> suffix;
+    u64 best;
+    u64 perfect;
+
+    SignDFS(const std::vector<u64>& vals, u64 initial_best, u64 parity)
+        : a(vals), suffix(vals.size() + 1, 0), best(initial_best), perfect(parity) {
+        for (std::size_t i = vals.size(); i-- > 0;) {
+            suffix[i] = suffix[i + 1] + vals[i];
+        }
+    }
+
+    void dfs(std::size_t i, u64 d) {
+        if (best == perfect) return;
+
+        const u64 rem = suffix[i];
+        u64 lb = (d > rem) ? (d - rem) : 0;
+        if (parity_adjust(lb, perfect) >= best) return;
+
+        if (i == a.size()) {
+            if (d < best) best = d;
+            return;
+        }
+
+        if (d >= rem) {
+            const u64 cand = d - rem;
+            if (cand < best) best = cand;
+            return;
+        }
+
+        const u64 x = a[i];
+        const u64 d1 = (d >= x) ? (d - x) : (x - d);
+        const u64 d2 = d + x;
+
+        if (d1 <= d2) {
+            dfs(i + 1, d1);
+            dfs(i + 1, d2);
+        } else {
+            dfs(i + 1, d2);
+            dfs(i + 1, d1);
+        }
+    }
+};
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t n;
+    if (!(std::cin >> n)) return 0;
+
+    std::vector<u64> a;
+    a.reserve(n);
+
+    u64 total = 0;
+    u64 g = 0;
+
+    for (std::size_t i = 0; i < n; ++i) {
+        u64 x;
+        std::cin >> x;
+        a.push_back(x);
+        total += x;
+        g = std::gcd(g, x);
+    }
+
+    if (n == 0 || total == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    if (g == 0) g = 1;
+    if (g > 1) {
+        for (u64& x : a) x /= g;
+        total /= g;
+    }
+
+    a.erase(std::remove(a.begin(), a.end(), 0), a.end());
+    n = a.size();
+
+    if (n == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    u64 maxv = *std::max_element(a.begin(), a.end());
+    if (maxv >= total - maxv) {
+        std::cout << (maxv - (total - maxv)) * g << '\n';
+        return 0;
+    }
+
+    u64 ans = 0;
+
+    if (solve_dp(a, total, ans)) {
+        std::cout << ans * g << '\n';
+        return 0;
+    }
+
+    if (solve_mitm(a, total, ans)) {
+        std::cout << ans * g << '\n';
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<u64>());
+
+    const u64 perfect = total & 1ULL;
+    u64 initial = std::min(greedy_bound(a), kk_bound(a));
+
+    if (initial == perfect) {
+        std::cout << initial * g << '\n';
+        return 0;
+    }
+
+    try {
+        CKK solver{initial, perfect};
+        solver.search(a, total);
+        std::cout << solver.best * g << '\n';
+    } catch (const std::bad_alloc&) {
+        SignDFS solver(a, initial, perfect);
+        solver.dfs(0, 0);
+        std::cout << solver.best * g << '\n';
+    }
+
+    return 0;
+}

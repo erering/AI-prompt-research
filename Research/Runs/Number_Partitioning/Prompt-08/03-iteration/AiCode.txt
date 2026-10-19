@@ -1,0 +1,229 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <string>
+#include <vector>
+
+using U64 = unsigned long long;
+using U128 = unsigned __int128;
+using I128 = __int128_t;
+
+static void print_u128(U128 x) {
+    if (x == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + int(x % 10)));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static U128 abs_i128(I128 x) {
+    return x < 0 ? U128(-x) : U128(x);
+}
+
+static U128 solve_dp(const std::vector<U64>& a, U64 target, U128 total) {
+    const std::size_t words = std::size_t(target / 64) + 1;
+    std::vector<U64> dp(words, 0);
+    dp[0] = 1;
+
+    U64 max_reach = 0;
+
+    for (U64 x : a) {
+        if (x > target) continue;
+
+        std::size_t wshift = std::size_t(x / 64);
+        unsigned bshift = unsigned(x & 63);
+
+        U64 new_max_reach = max_reach + x;
+        if (new_max_reach > target) new_max_reach = target;
+
+        std::size_t old_max_word = std::size_t(max_reach / 64);
+        std::size_t new_max_word = std::size_t(new_max_reach / 64);
+
+        for (std::size_t i = new_max_word + 1; i-- > wshift; ) {
+            std::size_t src = i - wshift;
+            U64 val = 0;
+
+            if (src <= old_max_word) {
+                val |= dp[src] << bshift;
+            }
+            if (bshift && src > 0 && src - 1 <= old_max_word) {
+                val |= dp[src - 1] >> (64 - bshift);
+            }
+
+            dp[i] |= val;
+        }
+
+        max_reach = new_max_reach;
+        if ((dp[target / 64] & (1ULL << (target & 63))) != 0) {
+            return total - U128(2) * U128(target);
+        }
+    }
+
+    std::size_t idx = std::size_t(target / 64);
+    unsigned rem = unsigned(target & 63);
+
+    U64 mask;
+    if (rem == 63) {
+        mask = dp[idx];
+    } else {
+        mask = dp[idx] & ((1ULL << (rem + 1)) - 1);
+    }
+
+    while (true) {
+        if (mask != 0) {
+            unsigned pos = std::bit_width(mask) - 1;
+            U64 best = U64(idx) * 64 + pos;
+            return total - U128(2) * U128(best);
+        }
+        if (idx == 0) break;
+        --idx;
+        mask = dp[idx];
+    }
+
+    return total;
+}
+
+static U128 solve_mitm(std::vector<U64> a, U64 target, U128 total) {
+    std::sort(a.begin(), a.end(), std::greater<U64>());
+
+    int n = int(a.size());
+    int nB = n / 2;
+    int nA = n - nB;
+
+    std::vector<U64> sumsB;
+    if (nB < 24) sumsB.reserve(std::size_t(1) << nB);
+    sumsB.push_back(0);
+
+    for (int i = 0; i < nB; ++i) {
+        U64 v = a[i];
+        if (v > target) continue;
+
+        std::size_t m = sumsB.size();
+        U64 limit = target - v;
+        for (std::size_t j = 0; j < m; ++j) {
+            if (sumsB[j] <= limit) {
+                sumsB.push_back(sumsB[j] + v);
+            }
+        }
+    }
+
+    std::sort(sumsB.begin(), sumsB.end());
+    sumsB.erase(std::unique(sumsB.begin(), sumsB.end()), sumsB.end());
+
+    U64 best = 0;
+
+    auto dfs = [&](auto&& self, int idx, U64 sum) -> void {
+        if (best == target) return;
+
+        if (idx == n) {
+            U64 rem = target - sum;
+            auto it = std::upper_bound(sumsB.begin(), sumsB.end(), rem);
+            if (it != sumsB.begin()) {
+                --it;
+                U64 cand = sum + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+
+        self(self, idx + 1, sum);
+
+        U64 v = a[idx];
+        if (v <= target - sum) {
+            self(self, idx + 1, sum + v);
+        }
+    };
+
+    (void)nA;
+    dfs(dfs, nB, 0);
+
+    return total - U128(2) * U128(best);
+}
+
+static U128 solve_branch_bound(std::vector<U64> a) {
+    std::sort(a.begin(), a.end(), std::greater<U64>());
+
+    int n = int(a.size());
+
+    std::vector<U128> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) {
+        suffix[i] = suffix[i + 1] + U128(a[i]);
+    }
+
+    I128 greedy_diff = 0;
+    for (U64 v : a) {
+        if (greedy_diff >= 0) greedy_diff -= I128(v);
+        else greedy_diff += I128(v);
+    }
+
+    U128 best = abs_i128(greedy_diff);
+
+    auto dfs = [&](auto&& self, int idx, I128 diff) -> void {
+        U128 ad = abs_i128(diff);
+        U128 rem = suffix[idx];
+        U128 lower = (ad > rem ? ad - rem : U128(0));
+
+        if (lower >= best) return;
+
+        if (idx == n) {
+            if (ad < best) best = ad;
+            return;
+        }
+
+        I128 v = I128(a[idx]);
+
+        if (diff >= 0) {
+            self(self, idx + 1, diff - v);
+            if (best == 0) return;
+            self(self, idx + 1, diff + v);
+        } else {
+            self(self, idx + 1, diff + v);
+            if (best == 0) return;
+            self(self, idx + 1, diff - v);
+        }
+    };
+
+    dfs(dfs, 0, 0);
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<U64> a(N);
+    U128 total = 0;
+
+    for (int i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        total += U128(a[i]);
+    }
+
+    U128 target128 = total / 2;
+
+    constexpr U64 DP_TARGET_LIMIT = 200000000ULL;
+
+    if (target128 <= U128(DP_TARGET_LIMIT)) {
+        print_u128(solve_dp(a, U64(target128), total));
+        return 0;
+    }
+
+    if (N <= 46 && target128 <= U128(std::numeric_limits<U64>::max())) {
+        print_u128(solve_mitm(a, U64(target128), total));
+        return 0;
+    }
+
+    print_u128(solve_branch_bound(a));
+    return 0;
+}

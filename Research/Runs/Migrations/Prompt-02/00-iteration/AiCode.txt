@@ -1,0 +1,106 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static const int MAXN = 10005;
+static const int LOG = 15;
+
+static int up_tbl[MAXN][LOG];
+static int depth_tbl[MAXN];
+static int diam_a = 0, diam_b = 0, diam_len = 0;
+static int saved_class_a = 0;
+
+static void reset_sender() {
+    depth_tbl[0] = 0;
+    for (int k = 0; k < LOG; ++k) up_tbl[0][k] = 0;
+    diam_a = 0;
+    diam_b = 0;
+    diam_len = 0;
+    saved_class_a = 0;
+}
+
+static int lca_node(int a, int b) {
+    if (depth_tbl[a] < depth_tbl[b]) swap(a, b);
+    int diff = depth_tbl[a] - depth_tbl[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = up_tbl[a][k];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_tbl[a][k] != up_tbl[b][k]) {
+            a = up_tbl[a][k];
+            b = up_tbl[b][k];
+        }
+    }
+    return up_tbl[a][0];
+}
+
+static int dist_node(int a, int b) {
+    int c = lca_node(a, b);
+    return depth_tbl[a] + depth_tbl[b] - 2 * depth_tbl[c];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) reset_sender();
+
+    up_tbl[i][0] = Pi;
+    depth_tbl[i] = depth_tbl[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[i][k] = up_tbl[up_tbl[i][k - 1]][k - 1];
+    }
+
+    int d_to_a = dist_node(i, diam_a);
+    int d_to_b = dist_node(i, diam_b);
+
+    if (d_to_a > diam_len) {
+        diam_b = i;
+        diam_len = d_to_a;
+    } else if (d_to_b > diam_len) {
+        diam_a = i;
+        diam_len = d_to_b;
+    }
+
+    if (i == N - 2) {
+        saved_class_a = min(diam_a, diam_b);
+        return saved_class_a + 1;
+    }
+
+    if (i == N - 1) {
+        int prev = N - 2;
+        int last = N - 1;
+        int a = saved_class_a;
+
+        int u = diam_a, v = diam_b;
+        if (u > v) swap(u, v);
+
+        int idx;
+        if (v == last) {
+            int x = u;
+            idx = (prev - a) + (x - a);
+        } else {
+            idx = v - (a + 1);
+        }
+
+        return idx + 1;
+    }
+
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+    int prev = N - 2;
+    int last = N - 1;
+
+    int a = S[prev] - 1;
+    int idx = S[last] - 1;
+
+    int first_block = prev - a;
+
+    if (idx < first_block) {
+        int b = a + 1 + idx;
+        return {a, b};
+    } else {
+        int x = a + (idx - first_block);
+        return {x, last};
+    }
+}

@@ -1,0 +1,274 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ULL = unsigned long long;
+
+struct FastInput {
+    static const int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (!size) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int readInt() {
+        char c;
+        int x = 0;
+        do { c = getChar(); } while (c && (c < '0' || c > '9'));
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int readBit() {
+        char c;
+        do { c = getChar(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+vector<ULL> adjFlat;
+vector<vector<int>> compAdj;
+int bestAns = 0;
+vector<vector<ULL>> work;
+
+inline ULL* adjPtr(int v) {
+    return adjFlat.data() + (size_t)v * W;
+}
+
+inline bool bitTest(const vector<ULL>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void bitClear(vector<ULL>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline bool edgeOrig(int u, int v) {
+    ULL* a = adjPtr(u);
+    return (a[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline int popcntBits(const vector<ULL>& b) {
+    int s = 0;
+    for (ULL x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline bool anyBits(const vector<ULL>& b) {
+    for (ULL x : b) if (x) return true;
+    return false;
+}
+
+inline int firstBit(const vector<ULL>& b) {
+    for (int i = 0; i < W; ++i) {
+        ULL x = b[i];
+        if (x) return (i << 6) + __builtin_ctzll(x);
+    }
+    return -1;
+}
+
+void colorSort(const vector<ULL>& P, vector<int>& order, vector<int>& color) {
+    order.clear();
+    color.clear();
+    vector<ULL> U = P, Q(W);
+    int c = 0;
+
+    while (anyBits(U)) {
+        ++c;
+        Q = U;
+        while (anyBits(Q)) {
+            int v = firstBit(Q);
+            if (v < 0 || v >= N) break;
+
+            order.push_back(v);
+            color.push_back(c);
+
+            bitClear(U, v);
+            bitClear(Q, v);
+
+            ULL* av = adjPtr(v);
+            for (int i = 0; i < W; ++i) Q[i] &= ~av[i];
+        }
+    }
+}
+
+void expand(vector<ULL>& P, int sz) {
+    if (sz > bestAns) bestAns = sz;
+
+    int pc = popcntBits(P);
+    if (pc == 0 || sz + pc <= bestAns) return;
+
+    vector<int> order;
+    vector<int> color;
+    order.reserve(pc);
+    color.reserve(pc);
+    colorSort(P, order, color);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (sz + color[i] <= bestAns) return;
+
+        int v = order[i];
+        if (!bitTest(P, v)) continue;
+
+        vector<ULL>& P2 = work[sz + 1];
+        ULL* av = adjPtr(v);
+        for (int j = 0; j < W; ++j) P2[j] = P[j] & av[j];
+
+        if (sz + 1 > bestAns) bestAns = sz + 1;
+        if (sz + 1 + popcntBits(P2) > bestAns) expand(P2, sz + 1);
+
+        bitClear(P, v);
+        if (sz + popcntBits(P) <= bestAns) return;
+    }
+}
+
+vector<int> greedyMIS() {
+    vector<int> deg(N), chosen;
+    vector<char> active(N, 1);
+    set<pair<int,int>> st;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)compAdj[i].size();
+        st.insert({deg[i], i});
+    }
+
+    while (!st.empty()) {
+        int v = st.begin()->second;
+        chosen.push_back(v);
+
+        vector<int> rem;
+        rem.push_back(v);
+        for (int u : compAdj[v]) if (active[u]) rem.push_back(u);
+
+        for (int x : rem) {
+            if (!active[x]) continue;
+            st.erase({deg[x], x});
+            active[x] = 0;
+            for (int y : compAdj[x]) {
+                if (active[y]) {
+                    st.erase({deg[y], y});
+                    --deg[y];
+                    st.insert({deg[y], y});
+                }
+            }
+        }
+    }
+
+    return chosen;
+}
+
+int improveMIS(vector<int> S) {
+    vector<char> inS(N, 0);
+    for (int v : S) inS[v] = 1;
+
+    vector<int> conf(N, 0);
+    for (int v = 0; v < N; ++v) {
+        if (!inS[v]) {
+            int c = 0;
+            for (int u : compAdj[v]) if (inS[u]) ++c;
+            conf[v] = c;
+        }
+    }
+
+    bool improved = true;
+    while (improved) {
+        improved = false;
+
+        for (int s = 0; s < N && !improved; ++s) {
+            if (!inS[s]) continue;
+
+            vector<int> cand;
+            for (int x : compAdj[s]) {
+                if (!inS[x] && conf[x] == 1) cand.push_back(x);
+            }
+
+            int u = -1, v = -1;
+            int cs = (int)cand.size();
+            for (int i = 0; i < cs && u < 0; ++i) {
+                for (int j = i + 1; j < cs; ++j) {
+                    if (edgeOrig(cand[i], cand[j])) {
+                        u = cand[i];
+                        v = cand[j];
+                        break;
+                    }
+                }
+            }
+
+            if (u >= 0) {
+                inS[s] = 0;
+                conf[s] = 0;
+
+                for (int y : compAdj[s]) {
+                    if (!inS[y]) --conf[y];
+                }
+
+                inS[u] = 1;
+                inS[v] = 1;
+
+                for (int y : compAdj[u]) {
+                    if (!inS[y]) ++conf[y];
+                }
+                for (int y : compAdj[v]) {
+                    if (!inS[y]) ++conf[y];
+                }
+
+                improved = true;
+            }
+        }
+    }
+
+    int cnt = 0;
+    for (int i = 0; i < N; ++i) cnt += inS[i];
+    return cnt;
+}
+
+int main() {
+    FastInput in;
+    N = in.readInt();
+    W = (N + 63) >> 6;
+
+    adjFlat.assign((size_t)N * W, 0);
+    compAdj.assign(N, {});
+
+    for (int i = 0; i < N; ++i) {
+        ULL* row = adjPtr(i);
+        for (int j = 0; j < N; ++j) {
+            int b = in.readBit();
+            if (b) row[j >> 6] |= 1ULL << (j & 63);
+            else if (i < j) {
+                compAdj[i].push_back(j);
+                compAdj[j].push_back(i);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        ULL* row = adjPtr(i);
+        row[i >> 6] &= ~(1ULL << (i & 63));
+        if ((N & 63) && W) row[W - 1] &= (1ULL << (N & 63)) - 1ULL;
+    }
+
+    vector<int> init = greedyMIS();
+    bestAns = (int)init.size();
+    bestAns = max(bestAns, improveMIS(init));
+
+    work.assign(N + 1, vector<ULL>(W, 0));
+
+    vector<ULL> P(W, ~0ULL);
+    if (N & 63) P[W - 1] = (1ULL << (N & 63)) - 1ULL;
+
+    expand(P, 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

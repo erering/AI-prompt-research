@@ -1,0 +1,106 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static uint64_t CMB[32][32];
+static bool CMB_INIT = false;
+
+static void init_cmb() {
+    if (CMB_INIT) return;
+    CMB_INIT = true;
+    for (int n = 0; n <= 31; ++n) {
+        CMB[n][0] = CMB[n][n] = 1;
+        for (int k = 1; k < n; ++k) CMB[n][k] = CMB[n - 1][k - 1] + CMB[n - 1][k];
+    }
+}
+
+static uint64_t rank_mask(const vector<bool>& C) {
+    init_cmb();
+    uint64_t r = 0;
+    int k = 15;
+    for (int i = 0; i < 31; ++i) {
+        if (C[i]) {
+            r += CMB[30 - i][k];
+            --k;
+        }
+    }
+    return r;
+}
+
+static vector<bool> unrank_mask(uint64_t r) {
+    init_cmb();
+    vector<bool> C(31, false);
+    int k = 15;
+    for (int i = 0; i < 31; ++i) {
+        if (k == 0) break;
+        uint64_t cnt0 = CMB[30 - i][k];
+        if (r >= cnt0) {
+            C[i] = true;
+            r -= cnt0;
+            --k;
+        }
+    }
+    return C;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    int n = (int)M.size();
+    int D = (n + 15) / 16;
+    int p = 0;
+
+    for (int q = 0; q < D; ++q) {
+        vector<bool> A(31, false);
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i]) {
+                if (p < n) A[i] = M[p++];
+                else A[i] = false;
+            }
+        }
+        send_packet(A);
+    }
+
+    uint64_t r = rank_mask(C);
+    int rem = (n - 1) & 15;
+
+    for (int t = 0; t < 33; ++t) {
+        bool b;
+        if (t < 29) b = (r >> t) & 1ULL;
+        else b = (rem >> (t - 29)) & 1;
+        vector<bool> A(31, b);
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    int Q = (int)R.size();
+    int D = Q - 33;
+
+    uint64_t r = 0;
+    int rem = 0;
+
+    for (int t = 0; t < 33; ++t) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) if (R[D + t][i]) ++ones;
+        bool b = (ones >= 16);
+        if (t < 29) {
+            if (b) r |= (1ULL << t);
+        } else {
+            if (b) rem |= (1 << (t - 29));
+        }
+    }
+
+    vector<bool> C = unrank_mask(r);
+    int n = (D - 1) * 16 + rem + 1;
+
+    vector<bool> M;
+    M.reserve(n);
+
+    for (int q = 0; q < D && (int)M.size() < n; ++q) {
+        for (int i = 0; i < 31 && (int)M.size() < n; ++i) {
+            if (!C[i]) M.push_back(R[q][i]);
+        }
+    }
+
+    return M;
+}

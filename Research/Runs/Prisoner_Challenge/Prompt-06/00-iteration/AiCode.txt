@@ -1,0 +1,97 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    if (N <= 1) {
+        vector<vector<int>> s(1, vector<int>(N + 1, -1));
+        s[0][0] = 0;
+        return s;
+    }
+
+    const int INF = 1e9;
+    vector<int> dist(N + 1, INF), parP(N + 1, -1), parB(N + 1, -1);
+    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+    dist[1] = 0;
+    pq.push({0, 1});
+
+    while (!pq.empty()) {
+        auto [cd, p] = pq.top();
+        pq.pop();
+        if (cd != dist[p]) continue;
+        if (p == N) break;
+
+        for (int b = 2; b <= N; ++b) {
+            int np = (long long)p * b >= N ? N : p * b;
+            int nd = cd + b;
+            if (nd < dist[np]) {
+                dist[np] = nd;
+                parP[np] = p;
+                parB[np] = b;
+                pq.push({nd, np});
+            }
+        }
+    }
+
+    vector<int> base;
+    for (int cur = N; cur > 1; cur = parP[cur]) {
+        base.push_back(parB[cur]);
+    }
+    reverse(base.begin(), base.end());
+
+    int L = (int)base.size();
+    vector<int> offset(L + 1, 1);
+    for (int i = 0; i < L; ++i) offset[i + 1] = offset[i] + base[i];
+
+    int states = offset[L];
+    vector<vector<int>> s(states, vector<int>(N + 1, 0));
+
+    vector<int> place(L);
+    int prod = 1;
+    for (int i = L - 1; i >= 0; --i) {
+        place[i] = prod;
+        prod *= base[i];
+    }
+
+    auto digit = [&](int val, int level) {
+        int y = val - 1;
+        return (y / place[level]) % base[level];
+    };
+
+    auto id = [&](int level, int d) {
+        return offset[level] + d;
+    };
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = id(0, digit(j, 0));
+    }
+
+    for (int level = 0; level < L; ++level) {
+        for (int d = 0; d < base[level]; ++d) {
+            int st = id(level, d);
+            int curBag = (level + 1) & 1;
+            s[st][0] = curBag;
+
+            for (int j = 1; j <= N; ++j) {
+                int c = digit(j, level);
+
+                if (c != d) {
+                    if (curBag == 1) {
+                        s[st][j] = (c < d ? -2 : -1);
+                    } else {
+                        s[st][j] = (c < d ? -1 : -2);
+                    }
+                } else {
+                    if (level + 1 == L) {
+                        s[st][j] = 0;
+                    } else {
+                        s[st][j] = id(level + 1, digit(j, level + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

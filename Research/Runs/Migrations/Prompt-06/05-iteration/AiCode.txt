@@ -1,0 +1,99 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int MAXN = 10005;
+    constexpr int LOG = 15;
+
+    int curN = -1;
+    int up_tbl[LOG][MAXN];
+    int dep_tbl[MAXN];
+    int dia_a = 0, dia_b = 0, dia_len = 0;
+
+    void reset_sender_state(int N) {
+        curN = N;
+        dia_a = dia_b = dia_len = 0;
+        dep_tbl[0] = 0;
+        for (int k = 0; k < LOG; ++k) up_tbl[k][0] = 0;
+    }
+
+    int lca_sender(int x, int y) {
+        if (dep_tbl[x] < dep_tbl[y]) swap(x, y);
+        int d = dep_tbl[x] - dep_tbl[y];
+        for (int k = 0; k < LOG; ++k) {
+            if (d & (1 << k)) x = up_tbl[k][x];
+        }
+        if (x == y) return x;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up_tbl[k][x] != up_tbl[k][y]) {
+                x = up_tbl[k][x];
+                y = up_tbl[k][y];
+            }
+        }
+        return up_tbl[0][x];
+    }
+
+    int dist_sender(int x, int y) {
+        int z = lca_sender(x, y);
+        return dep_tbl[x] + dep_tbl[y] - 2 * dep_tbl[z];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || curN != N) reset_sender_state(N);
+
+    up_tbl[0][i] = Pi;
+    dep_tbl[i] = dep_tbl[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[k][i] = up_tbl[k - 1][up_tbl[k - 1][i]];
+    }
+
+    int old_a = dia_a, old_b = dia_b, old_len = dia_len;
+    int da = dist_sender(i, old_a);
+    int db = dist_sender(i, old_b);
+
+    bool updated = false;
+    int retained = -1;
+
+    if (da > old_len) {
+        dia_a = i;
+        dia_b = old_a;
+        dia_len = da;
+        retained = old_a;
+        updated = true;
+    } else if (db > old_len) {
+        dia_a = i;
+        dia_b = old_b;
+        dia_len = db;
+        retained = old_b;
+        updated = true;
+    }
+
+    if (N >= 3 && i == N - 2) {
+        return dia_a + 1;
+    }
+
+    if (i == N - 1) {
+        if (N == 2) return 10001;
+        if (updated) return 10001 + retained;
+        return dia_b + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int,int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    int first = S[N - 2] - 1;
+    int last = S[N - 1];
+
+    if (last > 10000) {
+        return {N - 1, last - 10001};
+    }
+
+    return {first, last - 1};
+}

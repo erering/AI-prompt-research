@@ -1,0 +1,5 @@
+Implement an exact C++20 solver. Read an integer N. Read the following N rows of a 0/1 adjacency matrix for a simple undirected graph; handle both compact digit-string rows and whitespace-separated digits. Treat A[i][j] = 1 as an edge and A[i][j] = 0 as no edge. Use the fact that the input graph is random with independent edge probability e^(-ln(N)/N) to choose a strong strategy, but still return the exact maximum clique size. A clique means every pair of chosen vertices has an edge. Print only the largest clique size as one integer.
+
+Respect the 1 second time limit. Testing is sequential by increasing N and stops at the first failure; any incorrect output, runtime error, crash, or non-integer/invalid output yields zero score. Optimize aggressively and avoid unsafe behavior.
+
+Respond with only valid C++20 code. Do not write prose, explanations, markdown, or code fences.

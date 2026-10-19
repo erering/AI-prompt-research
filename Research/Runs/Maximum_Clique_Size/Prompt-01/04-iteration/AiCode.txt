@@ -1,0 +1,278 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class MaxCliqueSolver {
+    using ull = unsigned long long;
+
+    int n, W;
+    ull lastMask;
+    vector<ull> adj;
+    int bestSize = 0;
+    int curSize = 0;
+
+    inline ull* row(int v) {
+        return adj.data() + (size_t)v * W;
+    }
+
+    inline const ull* row(int v) const {
+        return adj.data() + (size_t)v * W;
+    }
+
+    inline void clearBit(vector<ull>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline bool testBit(const vector<ull>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline int firstBit(const vector<ull>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    inline bool emptySet(const vector<ull>& b) const {
+        for (ull x : b) if (x) return false;
+        return true;
+    }
+
+    inline int popcountSet(const vector<ull>& b) const {
+        int s = 0;
+        for (ull x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline void intersectWithAdj(vector<ull>& dst, const vector<ull>& src, int v) const {
+        const ull* av = row(v);
+        for (int i = 0; i < W; ++i) dst[i] = src[i] & av[i];
+    }
+
+    bool isUniversalInSet(const vector<ull>& P, int v) const {
+        const ull* av = row(v);
+        int vw = v >> 6;
+        ull vb = 1ULL << (v & 63);
+        for (int i = 0; i < W; ++i) {
+            ull x = P[i] & ~av[i];
+            if (i == vw) x &= ~vb;
+            if (x) return false;
+        }
+        return true;
+    }
+
+    int findUniversal(const vector<ull>& P) const {
+        for (int wi = 0; wi < W; ++wi) {
+            ull x = P[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                if (v < n && isUniversalInSet(P, v)) return v;
+                x &= x - 1;
+            }
+        }
+        return -1;
+    }
+
+    void colorSort(const vector<ull>& P, vector<int>& order, vector<int>& colors) const {
+        order.clear();
+        colors.clear();
+        vector<ull> U = P, Q(W);
+        int color = 0;
+
+        while (!emptySet(U)) {
+            ++color;
+            Q = U;
+
+            while (true) {
+                int v = firstBit(Q);
+                if (v < 0) break;
+
+                order.push_back(v);
+                colors.push_back(color);
+
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                const ull* av = row(v);
+                for (int i = 0; i < W; ++i) Q[i] &= ~av[i];
+                Q[W - 1] &= lastMask;
+            }
+        }
+    }
+
+    int greedyCliqueFrom(vector<ull> cand, int initial) const {
+        int s = initial;
+        while (true) {
+            int v = firstBit(cand);
+            if (v < 0) break;
+            ++s;
+            const ull* av = row(v);
+            for (int i = 0; i < W; ++i) cand[i] &= av[i];
+        }
+        return s;
+    }
+
+    void initialGreedy() {
+        vector<ull> all(W, ~0ULL);
+        all[W - 1] = lastMask;
+
+        bestSize = max(bestSize, greedyCliqueFrom(all, 0));
+
+        int tries = min(n, 128);
+        for (int s = 0; s < tries; ++s) {
+            vector<ull> cand(W);
+            const ull* as = row(s);
+            for (int i = 0; i < W; ++i) cand[i] = all[i] & as[i];
+            bestSize = max(bestSize, greedyCliqueFrom(cand, 1));
+        }
+    }
+
+    void expand(vector<ull> P) {
+        int cnt = popcountSet(P);
+        if (curSize + cnt <= bestSize) return;
+
+        int added = 0;
+
+        if (cnt <= 2048) {
+            while (cnt > 0) {
+                int v = findUniversal(P);
+                if (v < 0) break;
+                clearBit(P, v);
+                ++curSize;
+                ++added;
+                --cnt;
+                if (curSize + cnt <= bestSize) {
+                    curSize -= added;
+                    return;
+                }
+            }
+        }
+
+        if (cnt == 0) {
+            if (curSize > bestSize) bestSize = curSize;
+            curSize -= added;
+            return;
+        }
+
+        vector<int> order, colors;
+        order.reserve(cnt);
+        colors.reserve(cnt);
+        colorSort(P, order, colors);
+
+        vector<ull> Pwork = P;
+
+        for (int idx = (int)order.size() - 1; idx >= 0; --idx) {
+            if (curSize + colors[idx] <= bestSize) {
+                curSize -= added;
+                return;
+            }
+
+            int v = order[idx];
+            if (!testBit(Pwork, v)) continue;
+
+            vector<ull> newP(W);
+            intersectWithAdj(newP, Pwork, v);
+
+            ++curSize;
+            if (emptySet(newP)) {
+                if (curSize > bestSize) bestSize = curSize;
+            } else {
+                expand(std::move(newP));
+            }
+            --curSize;
+
+            clearBit(Pwork, v);
+        }
+
+        curSize -= added;
+    }
+
+public:
+    MaxCliqueSolver(int n_, vector<ull>&& adj_)
+        : n(n_), W((n_ + 63) >> 6), adj(std::move(adj_)) {
+        int rem = n & 63;
+        lastMask = rem ? ((1ULL << rem) - 1ULL) : ~0ULL;
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        initialGreedy();
+
+        vector<ull> P(W, ~0ULL);
+        P[W - 1] = lastMask;
+
+        curSize = 0;
+        expand(std::move(P));
+        return bestSize;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    int W = (N + 63) >> 6;
+    int rem = N & 63;
+    unsigned long long lastMask = rem ? ((1ULL << rem) - 1ULL) : ~0ULL;
+
+    vector<unsigned long long> oldAdj((size_t)N * W, 0);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            char c;
+            cin >> c;
+            while (c != '0' && c != '1') cin >> c;
+            if (c == '1' && i != j) {
+                oldAdj[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+            }
+        }
+    }
+
+    vector<int> deg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        oldAdj[(size_t)i * W + (i >> 6)] &= ~(1ULL << (i & 63));
+        oldAdj[(size_t)i * W + W - 1] &= lastMask;
+        int d = 0;
+        for (int w = 0; w < W; ++w) d += __builtin_popcountll(oldAdj[(size_t)i * W + w]);
+        deg[i] = d;
+    }
+
+    vector<int> ord(N), inv(N);
+    iota(ord.begin(), ord.end(), 0);
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+    for (int i = 0; i < N; ++i) inv[ord[i]] = i;
+
+    vector<unsigned long long> adj((size_t)N * W, 0);
+
+    for (int oi = 0; oi < N; ++oi) {
+        int ni = inv[oi];
+        for (int w = 0; w < W; ++w) {
+            unsigned long long x = oldAdj[(size_t)oi * W + w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (w << 6) + b;
+                if (oj < N) {
+                    int nj = inv[oj];
+                    adj[(size_t)ni * W + (nj >> 6)] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        adj[(size_t)i * W + (i >> 6)] &= ~(1ULL << (i & 63));
+        adj[(size_t)i * W + W - 1] &= lastMask;
+    }
+
+    MaxCliqueSolver solver(N, std::move(adj));
+    cout << solver.solve() << '\n';
+    return 0;
+}

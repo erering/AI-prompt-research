@@ -1,0 +1,92 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    static const int LOG = 20;
+    static int encN = 0;
+    static vector<array<int, LOG>> up;
+    static vector<int> dep;
+    static int diaA = 0, diaB = 0, diaD = 0;
+
+    int lca_enc(int a, int b) {
+        if (dep[a] < dep[b]) swap(a, b);
+        int diff = dep[a] - dep[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[a][k] != up[b][k]) {
+                a = up[a][k];
+                b = up[b][k];
+            }
+        }
+        return up[a][0];
+    }
+
+    int dist_enc(int a, int b) {
+        int c = lca_enc(a, b);
+        return dep[a] + dep[b] - 2 * dep[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        encN = N;
+        up.assign(N, {});
+        dep.assign(N, 0);
+        for (int k = 0; k < LOG; ++k) up[0][k] = 0;
+        diaA = diaB = diaD = 0;
+    }
+
+    up[i][0] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up[i][k] = up[up[i][k - 1]][k - 1];
+    }
+    dep[i] = dep[Pi] + 1;
+
+    int oldA = diaA, oldB = diaB, oldD = diaD;
+
+    int dA = dist_enc(i, oldA);
+    int dB = dist_enc(i, oldB);
+
+    if (dA > diaD) {
+        diaA = i;
+        diaB = oldA;
+        diaD = dA;
+    } else if (dB > diaD) {
+        diaA = i;
+        diaB = oldB;
+        diaD = dB;
+    }
+
+    if (i == N - 2) {
+        return diaA + 1;
+    }
+
+    if (i == N - 1) {
+        if (diaD > oldD) {
+            return 10001 + diaB;
+        } else {
+            return oldB + 1;
+        }
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    int a = S[N - 2];
+    int b = S[N - 1];
+
+    if (b > 10000) {
+        return {N - 1, b - 10001};
+    }
+
+    return {a - 1, b - 1};
+}

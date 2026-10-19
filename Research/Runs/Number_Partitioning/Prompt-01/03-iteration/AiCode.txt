@@ -1,0 +1,338 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <string>
+#include <bit>
+
+using ull = unsigned long long;
+using u128 = unsigned __int128;
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + int(x % 10)));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static void wait_tle() {
+    for (;;) {}
+}
+
+static ull bitset_dp(const std::vector<ull>& a, ull target) {
+    size_t words = size_t(target / 64) + 1;
+    std::vector<ull> bits(words, 0);
+    bits[0] = 1;
+
+    ull lastRem = target & 63;
+    ull lastMask = (lastRem == 63) ? ~0ULL : ((1ULL << (lastRem + 1)) - 1);
+
+    for (ull x : a) {
+        if (x > target) continue;
+        size_t ws = size_t(x / 64);
+        unsigned bs = unsigned(x & 63);
+
+        if (ws >= words) continue;
+
+        for (size_t i = words; i-- > ws;) {
+            ull v = bits[i - ws] << bs;
+            if (bs && i > ws) {
+                v |= bits[i - ws - 1] >> (64 - bs);
+            }
+            bits[i] |= v;
+        }
+        bits.back() &= lastMask;
+    }
+
+    for (size_t i = words; i-- > 0;) {
+        ull w = bits[i];
+        if (w) {
+            int b = 63 - std::countl_zero(w);
+            ull ans = ull(i) * 64 + ull(b);
+            if (ans <= target) return ans;
+        }
+    }
+    return 0;
+}
+
+static bool make_sums(const std::vector<ull>& a, std::vector<ull>& sums, ull target, size_t cap) {
+    sums.clear();
+    sums.push_back(0);
+
+    size_t reserve_amount = 1;
+    if (a.size() < 23) reserve_amount = size_t(1) << a.size();
+    else reserve_amount = cap;
+    sums.reserve(reserve_amount);
+
+    for (ull x : a) {
+        if (x > target) continue;
+        size_t old = sums.size();
+        for (size_t i = 0; i < old; ++i) {
+            if (sums[i] <= target - x) {
+                if (sums.size() == cap) return false;
+                sums.push_back(sums[i] + x);
+            }
+        }
+    }
+
+    std::sort(sums.begin(), sums.end());
+    sums.erase(std::unique(sums.begin(), sums.end()), sums.end());
+    return true;
+}
+
+static bool mitm_two_vectors(const std::vector<ull>& vals, ull target, ull& best) {
+    const size_t CAP = size_t(1) << 23;
+
+    std::vector<ull> p1, p2;
+    p1.reserve((vals.size() + 1) / 2);
+    p2.reserve(vals.size() / 2);
+
+    for (size_t i = 0; i < vals.size(); ++i) {
+        if (i & 1) p2.push_back(vals[i]);
+        else p1.push_back(vals[i]);
+    }
+
+    std::vector<ull> s1, s2;
+    if (!make_sums(p1, s1, target, CAP)) return false;
+    if (!make_sums(p2, s2, target, CAP)) return false;
+
+    size_t i = 0;
+    size_t j = s2.size();
+
+    while (i < s1.size() && j > 0) {
+        ull b = s2[j - 1];
+        if (s1[i] <= target - b) {
+            ull cur = s1[i] + b;
+            if (cur > best) {
+                best = cur;
+                if (best == target) return true;
+            }
+            ++i;
+        } else {
+            --j;
+        }
+    }
+
+    return true;
+}
+
+struct MitmDfs {
+    const std::vector<ull>* stored;
+    std::vector<ull> rest;
+    std::vector<ull> suffix;
+    ull target;
+    ull best;
+    ull maxStored;
+
+    void dfs(size_t pos, ull sum) {
+        if (best == target) return;
+
+        ull upper;
+        if (sum >= target || suffix[pos] >= target - sum) upper = target;
+        else {
+            ull t = sum + suffix[pos];
+            if (maxStored >= target - t) upper = target;
+            else upper = t + maxStored;
+        }
+
+        if (upper <= best) return;
+
+        if (pos == rest.size()) {
+            ull rem = target - sum;
+            auto it = std::upper_bound(stored->begin(), stored->end(), rem);
+            if (it != stored->begin()) {
+                --it;
+                ull cur = sum + *it;
+                if (cur > best) best = cur;
+            }
+            return;
+        }
+
+        ull x = rest[pos];
+        if (x <= target - sum) dfs(pos + 1, sum + x);
+        dfs(pos + 1, sum);
+    }
+};
+
+static bool mitm_one_vector(const std::vector<ull>& vals, ull target, ull& best) {
+    const size_t CAP = size_t(1) << 23;
+
+    std::vector<ull> p1, p2;
+    p1.reserve(23);
+
+    for (size_t i = 0; i < vals.size(); ++i) {
+        if (i < 46 && (i % 2 == 0)) p1.push_back(vals[i]);
+        else p2.push_back(vals[i]);
+    }
+
+    std::vector<ull> sums;
+    if (!make_sums(p1, sums, target, CAP)) return false;
+
+    std::sort(p2.begin(), p2.end(), std::greater<ull>());
+
+    MitmDfs solver;
+    solver.stored = &sums;
+    solver.rest = std::move(p2);
+    solver.target = target;
+    solver.best = best;
+    solver.maxStored = sums.empty() ? 0 : sums.back();
+
+    solver.suffix.assign(solver.rest.size() + 1, 0);
+    for (size_t i = solver.rest.size(); i-- > 0;) {
+        if (solver.suffix[i + 1] >= target - solver.rest[i]) solver.suffix[i] = target;
+        else solver.suffix[i] = solver.suffix[i + 1] + solver.rest[i];
+    }
+
+    solver.dfs(0, 0);
+    best = solver.best;
+    return true;
+}
+
+struct BranchBound {
+    std::vector<ull> a;
+    std::vector<ull> suffix;
+    ull target;
+    ull best;
+
+    void dfs(size_t idx, ull sum) {
+        if (best == target) return;
+
+        if (sum > best) best = sum;
+        if (idx == a.size()) return;
+
+        if (suffix[idx] <= best - sum) return;
+
+        ull x = a[idx];
+        if (x <= target - sum) dfs(idx + 1, sum + x);
+        dfs(idx + 1, sum);
+    }
+};
+
+static ull branch_bound(std::vector<ull> vals, ull target, ull best) {
+    std::sort(vals.begin(), vals.end(), std::greater<ull>());
+
+    BranchBound bb;
+    bb.a = std::move(vals);
+    bb.target = target;
+    bb.best = best;
+    bb.suffix.assign(bb.a.size() + 1, 0);
+
+    for (size_t i = bb.a.size(); i-- > 0;) {
+        if (bb.suffix[i + 1] >= target - bb.a[i]) bb.suffix[i] = target;
+        else bb.suffix[i] = bb.suffix[i + 1] + bb.a[i];
+    }
+
+    bb.dfs(0, 0);
+    return bb.best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a;
+    a.reserve(N);
+
+    u128 total = 0;
+    for (int i = 0; i < N; ++i) {
+        ull x;
+        std::cin >> x;
+        a.push_back(x);
+        total += u128(x);
+    }
+
+    std::vector<ull> desc = a;
+    std::sort(desc.begin(), desc.end(), std::greater<ull>());
+
+    u128 g1 = 0, g2 = 0;
+    for (ull x : desc) {
+        if (g1 <= g2) g1 += u128(x);
+        else g2 += u128(x);
+    }
+
+    u128 gdiff = (g1 > g2) ? (g1 - g2) : (g2 - g1);
+    if (gdiff == (total & 1)) {
+        print_u128(gdiff);
+        return 0;
+    }
+
+    u128 target128 = total / 2;
+    if (target128 > u128(std::numeric_limits<ull>::max())) {
+        wait_tle();
+    }
+
+    ull target = ull(target128);
+    ull best = 0;
+
+    u128 smaller = (g1 < g2) ? g1 : g2;
+    if (smaller <= target128) best = ull(smaller);
+
+    ull fill = 0;
+    for (ull x : desc) {
+        if (x <= target - fill) fill += x;
+    }
+    if (fill > best) best = fill;
+
+    if (best == target) {
+        print_u128(total - u128(2) * u128(best));
+        return 0;
+    }
+
+    std::vector<ull> vals;
+    vals.reserve(N);
+    ull filteredSum = 0;
+
+    for (ull x : a) {
+        if (x <= target) {
+            vals.push_back(x);
+            if (filteredSum <= target - x) filteredSum += x;
+            else filteredSum = target + 1;
+        }
+    }
+
+    if (filteredSum <= target) {
+        best = std::max(best, filteredSum);
+        print_u128(total - u128(2) * u128(best));
+        return 0;
+    }
+
+    constexpr ull BIT_LIMIT = 100000000ULL;
+    if (target <= BIT_LIMIT) {
+        best = bitset_dp(a, target);
+        print_u128(total - u128(2) * u128(best));
+        return 0;
+    }
+
+    std::sort(vals.begin(), vals.end(), std::greater<ull>());
+
+    if (vals.size() <= 46) {
+        if (mitm_two_vectors(vals, target, best)) {
+            print_u128(total - u128(2) * u128(best));
+            return 0;
+        }
+    } else if (vals.size() <= 52) {
+        if (mitm_one_vector(vals, target, best)) {
+            print_u128(total - u128(2) * u128(best));
+            return 0;
+        }
+    }
+
+    if (vals.size() > 220) {
+        wait_tle();
+    }
+
+    best = branch_bound(vals, target, best);
+    print_u128(total - u128(2) * u128(best));
+    return 0;
+}

@@ -1,0 +1,275 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <new>
+
+using u64 = std::uint64_t;
+
+static bool solve_dp(const std::vector<u64>& a, u64 total, u64& best) {
+    u64 target = total / 2;
+    std::size_t words = static_cast<std::size_t>(target / 64) + 1;
+
+    std::vector<u64> bits(words, 0);
+    bits[0] = 1;
+
+    int last = static_cast<int>(target & 63);
+    u64 lastMask = (last == 63) ? ~0ULL : ((1ULL << (last + 1)) - 1ULL);
+
+    for (u64 x : a) {
+        if (x > target) continue;
+
+        std::size_t shiftWords = static_cast<std::size_t>(x >> 6);
+        int shiftBits = static_cast<int>(x & 63);
+
+        for (std::size_t i = words; i-- > shiftWords; ) {
+            u64 v = bits[i - shiftWords] << shiftBits;
+            if (shiftBits && i > shiftWords) {
+                v |= bits[i - shiftWords - 1] >> (64 - shiftBits);
+            }
+            bits[i] |= v;
+        }
+        bits.back() &= lastMask;
+    }
+
+    for (u64 s = target;; --s) {
+        if (bits[static_cast<std::size_t>(s >> 6)] & (1ULL << (s & 63))) {
+            best = s;
+            return true;
+        }
+        if (s == 0) break;
+    }
+
+    best = 0;
+    return true;
+}
+
+static bool generate_sums_limited(
+    const std::vector<u64>& vals,
+    u64 target,
+    std::vector<u64>& sums,
+    std::size_t limit
+) {
+    try {
+        sums.clear();
+        std::size_t reserveCount = 1;
+        if (vals.size() < 23) reserveCount = std::size_t(1) << vals.size();
+        else reserveCount = std::min<std::size_t>(limit, std::size_t(1) << 22);
+        sums.reserve(reserveCount);
+        sums.push_back(0);
+
+        for (u64 x : vals) {
+            if (x > target) continue;
+            std::size_t oldSize = sums.size();
+            u64 cap = target - x;
+
+            for (std::size_t i = 0; i < oldSize; ++i) {
+                if (sums[i] <= cap) {
+                    if (sums.size() >= limit) return false;
+                    sums.push_back(sums[i] + x);
+                }
+            }
+        }
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool solve_mitm(const std::vector<u64>& input, u64 total, u64& best) {
+    const std::size_t LIMIT = 10000000;
+    u64 target = total / 2;
+
+    std::vector<u64> b = input;
+    std::sort(b.begin(), b.end(), std::greater<u64>());
+
+    std::size_t rsz = b.size() / 2;
+    std::vector<u64> right(b.begin(), b.begin() + static_cast<std::ptrdiff_t>(rsz));
+    std::vector<u64> left(b.begin() + static_cast<std::ptrdiff_t>(rsz), b.end());
+
+    std::vector<u64> rightSums;
+    if (!generate_sums_limited(right, target, rightSums, LIMIT)) return false;
+
+    std::sort(rightSums.begin(), rightSums.end());
+    rightSums.erase(std::unique(rightSums.begin(), rightSums.end()), rightSums.end());
+
+    std::sort(left.begin(), left.end(), std::greater<u64>());
+
+    std::vector<u64> suffix(left.size() + 1, 0);
+    for (std::size_t i = left.size(); i-- > 0; ) {
+        suffix[i] = suffix[i + 1] + left[i];
+    }
+
+    best = 0;
+    bool done = false;
+
+    auto query = [&](u64 s) {
+        u64 rem = target - s;
+        auto it = std::upper_bound(rightSums.begin(), rightSums.end(), rem);
+        if (it != rightSums.begin()) {
+            --it;
+            u64 cand = s + *it;
+            if (cand > best) {
+                best = cand;
+                if (best == target) done = true;
+            }
+        }
+    };
+
+    auto dfs = [&](auto&& self, std::size_t i, u64 sum) -> void {
+        if (done) return;
+
+        query(sum);
+        if (done || i == left.size()) return;
+
+        u64 maxLeft = sum + suffix[i];
+        u64 possible;
+        if (maxLeft >= target) {
+            possible = target;
+        } else {
+            u64 rem = target - maxLeft;
+            possible = (rightSums.back() >= rem) ? target : (maxLeft + rightSums.back());
+        }
+        if (possible <= best) return;
+
+        u64 v = left[i];
+        std::size_t next = i + 1;
+        while (next < left.size() && left[next] == v) ++next;
+
+        self(self, next, sum);
+
+        if (v <= target - sum) {
+            self(self, i + 1, sum + v);
+        }
+    };
+
+    dfs(dfs, 0, 0);
+    return true;
+}
+
+static u64 solve_branch_bound(std::vector<u64> a, u64 total) {
+    u64 target = total / 2;
+    std::sort(a.begin(), a.end(), std::greater<u64>());
+
+    std::size_t n = a.size();
+
+    std::vector<u64> suffix(n + 1, 0);
+    for (std::size_t i = n; i-- > 0; ) {
+        suffix[i] = suffix[i + 1] + a[i];
+    }
+
+    u64 best = 0;
+    for (u64 x : a) {
+        if (x <= target - best) best += x;
+        if (best == target) return best;
+    }
+
+    struct State {
+        std::size_t i;
+        u64 sum;
+    };
+
+    std::vector<State> st;
+    st.reserve(std::min<std::size_t>(n + 1, 1000000));
+    st.push_back({0, 0});
+
+    while (!st.empty()) {
+        State cur = st.back();
+        st.pop_back();
+
+        if (cur.sum > best) {
+            best = cur.sum;
+            if (best == target) break;
+        }
+
+        if (cur.i >= n) continue;
+
+        u64 maxPossible = cur.sum + suffix[cur.i];
+        if (maxPossible <= best) continue;
+
+        if (maxPossible <= target) {
+            best = maxPossible;
+            if (best == target) break;
+            continue;
+        }
+
+        u64 v = a[cur.i];
+        std::size_t next = cur.i + 1;
+        while (next < n && a[next] == v) ++next;
+
+        st.push_back({next, cur.sum});
+
+        if (v <= target - cur.sum) {
+            st.push_back({cur.i + 1, cur.sum + v});
+        }
+    }
+
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u64> a;
+    a.reserve(std::max(0, N));
+
+    u64 total = 0;
+    for (int i = 0; i < N; ++i) {
+        u64 x;
+        std::cin >> x;
+        a.push_back(x);
+        total += x;
+    }
+
+    if (N <= 0 || total == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    u64 best = 0;
+    u64 target = total / 2;
+
+    const std::size_t MAX_WORDS = 5000000;
+    const unsigned long long MAX_OPS = 250000000ULL;
+
+    std::size_t words = static_cast<std::size_t>(target / 64) + 1;
+    bool tried = false;
+
+    if (words <= MAX_WORDS) {
+        unsigned long long ops;
+        if (words > std::numeric_limits<unsigned long long>::max() / static_cast<unsigned long long>(std::max(1, N))) {
+            ops = std::numeric_limits<unsigned long long>::max();
+        } else {
+            ops = static_cast<unsigned long long>(words) * static_cast<unsigned long long>(std::max(1, N));
+        }
+
+        if (ops <= MAX_OPS || N > 50) {
+            try {
+                if (solve_dp(a, total, best)) {
+                    std::cout << (total - 2 * best) << '\n';
+                    return 0;
+                }
+            } catch (const std::bad_alloc&) {
+            }
+            tried = true;
+        }
+    }
+
+    if (!tried || N <= 60) {
+        if (solve_mitm(a, total, best)) {
+            std::cout << (total - 2 * best) << '\n';
+            return 0;
+        }
+    }
+
+    best = solve_branch_bound(a, total);
+    std::cout << (total - 2 * best) << '\n';
+
+    return 0;
+}

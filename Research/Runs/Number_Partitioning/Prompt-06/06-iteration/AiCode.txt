@@ -1,0 +1,427 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <queue>
+#include <string>
+#include <limits>
+#include <cstdint>
+#include <cstddef>
+
+using namespace std;
+
+using u128 = unsigned __int128;
+using u64 = unsigned long long;
+
+static u128 parse_u128(const string& s) {
+    u128 x = 0;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') x = x * 10 + (c - '0');
+    }
+    return x;
+}
+
+static string to_string_u128(u128 x) {
+    if (x == 0) return "0";
+    string s;
+    while (x > 0) {
+        int d = (int)(x % 10);
+        s.push_back(char('0' + d));
+        x /= 10;
+    }
+    reverse(s.begin(), s.end());
+    return s;
+}
+
+static u128 gcd_u128(u128 a, u128 b) {
+    while (b) {
+        u128 r = a % b;
+        a = b;
+        b = r;
+    }
+    return a;
+}
+
+static u128 absdiff(u128 a, u128 b) {
+    return a >= b ? a - b : b - a;
+}
+
+static u128 greedy_bound(const vector<u128>& a) {
+    u128 x = 0, y = 0;
+    for (u128 v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return absdiff(x, y);
+}
+
+static u128 kk_bound(const vector<u128>& a) {
+    priority_queue<u128> pq;
+    for (u128 v : a) if (v) pq.push(v);
+    while (pq.size() > 1) {
+        u128 x = pq.top(); pq.pop();
+        u128 y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static bool bitset_possible(u128 target, size_t n, size_t& words_out) {
+    if (target > (u128)numeric_limits<size_t>::max()) return false;
+    size_t T = (size_t)target;
+    size_t words = T / 64 + 1;
+    static constexpr size_t MAX_WORDS = 8000000;
+    static constexpr size_t MAX_OPS = 120000000;
+    if (words > MAX_WORDS) return false;
+    if (n && words > MAX_OPS / n) return false;
+    words_out = words;
+    return true;
+}
+
+static u128 solve_bitset(const vector<u128>& a, u128 total) {
+    u128 target128 = total / 2;
+    size_t T = (size_t)target128;
+    size_t words = T / 64 + 1;
+    vector<u64> bits(words, 0);
+    bits[0] = 1;
+
+    unsigned last = (unsigned)(T & 63);
+    u64 last_mask = (last == 63) ? ~0ULL : ((1ULL << (last + 1)) - 1ULL);
+    size_t target_word = T >> 6;
+    unsigned target_bit = (unsigned)(T & 63);
+
+    for (u128 vv : a) {
+        if (vv > target128) continue;
+        size_t sh = (size_t)vv;
+        size_t w = sh >> 6;
+        unsigned b = (unsigned)(sh & 63);
+
+        for (size_t i = words; i-- > w; ) {
+            u64 nv = bits[i - w] << b;
+            if (b && i > w) nv |= bits[i - w - 1] >> (64 - b);
+            bits[i] |= nv;
+        }
+        bits.back() &= last_mask;
+
+        if ((bits[target_word] >> target_bit) & 1ULL) {
+            return total - 2 * target128;
+        }
+    }
+
+    size_t best = 0;
+    for (size_t i = words; i-- > 0; ) {
+        u64 word = bits[i];
+        if (i == words - 1) word &= last_mask;
+        if (word) {
+            int pos = 63 - __builtin_clzll(word);
+            best = i * 64 + (size_t)pos;
+            break;
+        }
+    }
+    return total - 2 * (u128)best;
+}
+
+template<class T>
+static vector<T> gen_sums(const vector<T>& v, int l, int r, T target) {
+    vector<T> sums;
+    sums.reserve((size_t)1 << (r - l));
+    sums.push_back(0);
+    for (int i = l; i < r; ++i) {
+        T val = v[i];
+        size_t m = sums.size();
+        if (val > target) continue;
+        T lim = target - val;
+        for (size_t j = 0; j < m; ++j) {
+            if (sums[j] <= lim) sums.push_back(sums[j] + val);
+        }
+    }
+    return sums;
+}
+
+template<class T>
+static T solve_mitm_t(const vector<T>& v, T total) {
+    int n = (int)v.size();
+    int m = n / 2;
+    T target = total / 2;
+
+    vector<T> left = gen_sums(v, 0, m, target);
+    vector<T> right = gen_sums(v, m, n, target);
+    sort(right.begin(), right.end());
+
+    T best = 0;
+    for (T s : left) {
+        if (s > target) continue;
+        T rem = target - s;
+        auto it = upper_bound(right.begin(), right.end(), rem);
+        if (it == right.begin()) {
+            if (s > best) best = s;
+        } else {
+            --it;
+            T cand = s + *it;
+            if (cand > best) {
+                best = cand;
+                if (best == target) break;
+            }
+        }
+    }
+    return total - 2 * best;
+}
+
+static u128 solve_mitm(const vector<u128>& a, u128 total) {
+    if (total <= (u128)numeric_limits<u64>::max()) {
+        vector<u64> b;
+        b.reserve(a.size());
+        for (u128 x : a) b.push_back((u64)x);
+        return (u128)solve_mitm_t<u64>(b, (u64)total);
+    } else {
+        return solve_mitm_t<u128>(a, total);
+    }
+}
+
+struct ExactSolver {
+    vector<u128> flat;
+    vector<size_t> off;
+    u128 best = 0;
+    u128 parity = 0;
+    int N = 0;
+
+    int make_child(const u128* a, int n, u128 z, u128* c) {
+        int i = 2, k = 0;
+        if (z == 0) {
+            while (i < n) c[k++] = a[i++];
+            return k;
+        }
+        while (i < n && a[i] > z) c[k++] = a[i++];
+        c[k++] = z;
+        while (i < n) c[k++] = a[i++];
+        return k;
+    }
+
+    void dfs_ckk(u128* a, int n, u128 total, int depth) {
+        if (best == parity) return;
+
+        if (n <= 0) {
+            best = 0;
+            return;
+        }
+
+        u128 largest = a[0];
+        u128 rest = total - largest;
+        u128 lb = (largest > rest) ? (largest - rest) : 0;
+        if (lb < parity) lb = parity;
+        if (lb >= best) return;
+
+        if (n == 1) {
+            if (a[0] < best) best = a[0];
+            return;
+        }
+
+        if (largest >= rest) {
+            u128 val = largest - rest;
+            if (val < best) best = val;
+            return;
+        }
+
+        if (n == 2) {
+            u128 val = a[0] - a[1];
+            if (val < best) best = val;
+            return;
+        }
+
+        u128 x = a[0], y = a[1];
+        u128* child = flat.data() + off[depth + 1];
+
+        u128 z = x - y;
+        int cn = make_child(a, n, z, child);
+        dfs_ckk(child, cn, total - x - y + z, depth + 1);
+        if (best == parity) return;
+
+        z = x + y;
+        cn = make_child(a, n, z, child);
+        dfs_ckk(child, cn, total, depth + 1);
+    }
+
+    bool solve_ckk(const vector<u128>& a, u128 total, u128 initial_best) {
+        N = (int)a.size();
+        if (N == 0) {
+            best = 0;
+            return true;
+        }
+        if (N > 2200) return false;
+
+        best = initial_best;
+        parity = total & 1;
+
+        try {
+            off.assign((size_t)N + 1, 0);
+            size_t cap = 0;
+            for (int d = 0; d <= N; ++d) {
+                off[d] = cap;
+                cap += (size_t)(N - d);
+            }
+            flat.assign(cap ? cap : 1, 0);
+        } catch (...) {
+            return false;
+        }
+
+        for (int i = 0; i < N; ++i) flat[i] = a[i];
+        dfs_ckk(flat.data(), N, total, 0);
+        return true;
+    }
+};
+
+static u128 solve_cga_iterative(const vector<u128>& a, u128 total, u128 initial_best) {
+    int n = (int)a.size();
+    u128 parity = total & 1;
+    u128 best = initial_best;
+
+    vector<u128> suffix((size_t)n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) suffix[i] = suffix[i + 1] + a[i];
+
+    struct Frame {
+        int i;
+        u128 d;
+    };
+
+    vector<Frame> st;
+    st.reserve((size_t)n + 1);
+    st.push_back({0, 0});
+
+    auto lower_bound_state = [&](u128 d, u128 rem) -> u128 {
+        u128 lb = (d > rem) ? (d - rem) : 0;
+        if (lb < parity) lb = parity;
+        return lb;
+    };
+
+    while (!st.empty() && best != parity) {
+        Frame f = st.back();
+        st.pop_back();
+
+        int i = f.i;
+        u128 d = f.d;
+        u128 rem = suffix[i];
+
+        u128 lb = lower_bound_state(d, rem);
+        if (lb >= best) continue;
+
+        if (i == n) {
+            if (d < best) best = d;
+            continue;
+        }
+
+        if (d >= rem) {
+            u128 val = d - rem;
+            if (val < best) best = val;
+            continue;
+        }
+
+        u128 x = a[i];
+        u128 d1 = (d >= x) ? (d - x) : (x - d);
+        u128 d2 = d + x;
+        u128 rem2 = suffix[i + 1];
+
+        u128 lb1 = lower_bound_state(d1, rem2);
+        u128 lb2 = lower_bound_state(d2, rem2);
+
+        if (lb1 <= lb2) {
+            if (lb2 < best) st.push_back({i + 1, d2});
+            if (lb1 < best) st.push_back({i + 1, d1});
+        } else {
+            if (lb1 < best) st.push_back({i + 1, d1});
+            if (lb2 < best) st.push_back({i + 1, d2});
+        }
+    }
+
+    return best;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    size_t inputN;
+    if (!(cin >> inputN)) return 0;
+
+    vector<u128> raw;
+    raw.reserve(inputN);
+    u128 g = 0;
+
+    for (size_t i = 0; i < inputN; ++i) {
+        string s;
+        cin >> s;
+        u128 x = parse_u128(s);
+        raw.push_back(x);
+        if (x) g = (g == 0) ? x : gcd_u128(g, x);
+    }
+
+    if (raw.empty() || g == 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    vector<u128> a;
+    a.reserve(raw.size());
+    u128 total = 0;
+    for (u128 x : raw) {
+        u128 v = x / g;
+        if (v) {
+            a.push_back(v);
+            total += v;
+        }
+    }
+
+    if (a.empty()) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    sort(a.begin(), a.end(), greater<u128>());
+
+    size_t n = a.size();
+    if (n == 1) {
+        cout << to_string_u128(a[0] * g) << '\n';
+        return 0;
+    }
+    if (n == 2) {
+        cout << to_string_u128((a[0] - a[1]) * g) << '\n';
+        return 0;
+    }
+
+    u128 parity = total & 1;
+    u128 best = total;
+    best = min(best, greedy_bound(a));
+    best = min(best, kk_bound(a));
+
+    if (best == parity) {
+        cout << to_string_u128(best * g) << '\n';
+        return 0;
+    }
+
+    size_t words = 0;
+    if (bitset_possible(total / 2, n, words)) {
+        try {
+            u128 ans = solve_bitset(a, total);
+            cout << to_string_u128(ans * g) << '\n';
+            return 0;
+        } catch (...) {
+        }
+    }
+
+    if (n <= 44) {
+        try {
+            u128 ans = solve_mitm(a, total);
+            cout << to_string_u128(ans * g) << '\n';
+            return 0;
+        } catch (...) {
+        }
+    }
+
+    ExactSolver solver;
+    if (solver.solve_ckk(a, total, best)) {
+        cout << to_string_u128(solver.best * g) << '\n';
+        return 0;
+    }
+
+    u128 ans = solve_cga_iterative(a, total, best);
+    cout << to_string_u128(ans * g) << '\n';
+    return 0;
+}

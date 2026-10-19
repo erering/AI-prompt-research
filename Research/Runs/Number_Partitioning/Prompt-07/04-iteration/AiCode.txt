@@ -1,0 +1,292 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <stdexcept>
+#include <vector>
+
+using ull = unsigned long long;
+
+static void spin_forever() {
+    volatile ull x = 0;
+    for (;;) ++x;
+}
+
+static ull greedy_bound(const std::vector<ull>& a) {
+    ull d = 0;
+    for (ull x : a) d = (d >= x ? d - x : x - d);
+    return d;
+}
+
+static ull kk_bound(const std::vector<ull>& a) {
+    std::priority_queue<ull> pq;
+    for (ull x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        ull x = pq.top(); pq.pop();
+        ull y = pq.top(); pq.pop();
+        if (x != y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static std::vector<ull> make_dp_chunks(const std::vector<ull>& a, ull half) {
+    std::vector<ull> chunks;
+    for (std::size_t i = 0; i < a.size();) {
+        ull v = a[i];
+        std::size_t j = i;
+        while (j < a.size() && a[j] == v) ++j;
+        std::size_t cnt = j - i;
+        std::size_t p = 1;
+        while (cnt) {
+            std::size_t take = std::min(p, cnt);
+            ull w = v * static_cast<ull>(take);
+            if (w <= half) chunks.push_back(w);
+            cnt -= take;
+            if (cnt == 0) break;
+            if (p <= cnt / 2) p *= 2;
+            else p = cnt;
+        }
+        i = j;
+    }
+    return chunks;
+}
+
+static ull solve_dp(const std::vector<ull>& chunks, ull total) {
+    ull half = total / 2;
+    std::size_t bits = static_cast<std::size_t>(half + 1);
+    std::size_t words = (bits + 63) / 64;
+
+    std::vector<std::uint64_t> dp(words, 0);
+    dp[0] = 1;
+
+    std::size_t last_bits = bits & 63;
+    std::uint64_t last_mask = last_bits ? ((1ULL << last_bits) - 1ULL) : ~0ULL;
+
+    for (ull x : chunks) {
+        if (x > half) continue;
+        std::size_t ws = static_cast<std::size_t>(x / 64);
+        unsigned bs = static_cast<unsigned>(x & 63);
+
+        for (std::size_t i = words; i-- > ws;) {
+            std::uint64_t val = dp[i - ws] << bs;
+            if (bs && i > ws) val |= dp[i - ws - 1] >> (64 - bs);
+            dp[i] |= val;
+        }
+        dp.back() &= last_mask;
+    }
+
+    std::size_t wi = static_cast<std::size_t>(half / 64);
+    unsigned bi = static_cast<unsigned>(half & 63);
+    std::uint64_t mask = (bi == 63) ? ~0ULL : ((1ULL << (bi + 1)) - 1ULL);
+    std::uint64_t word = dp[wi] & mask;
+
+    ull best = 0;
+    for (;;) {
+        if (word) {
+            unsigned pos = 63U - static_cast<unsigned>(std::countl_zero(word));
+            best = static_cast<ull>(wi) * 64ULL + pos;
+            break;
+        }
+        if (wi == 0) break;
+        --wi;
+        word = dp[wi];
+    }
+
+    return total - 2 * best;
+}
+
+static ull solve_mitm(const std::vector<ull>& a, ull total) {
+    ull target = total / 2;
+    int n = static_cast<int>(a.size());
+    int n2 = n / 2;
+
+    std::vector<ull> b;
+    b.reserve(static_cast<std::size_t>(1ULL << n2));
+
+    auto gen_b = [&](auto&& self, int idx, ull sum) -> void {
+        if (sum > target) return;
+        if (idx == n2) {
+            b.push_back(sum);
+            return;
+        }
+        self(self, idx + 1, sum);
+        if (a[idx] <= target - sum) self(self, idx + 1, sum + a[idx]);
+    };
+
+    gen_b(gen_b, 0, 0);
+
+    std::sort(b.begin(), b.end());
+    b.erase(std::unique(b.begin(), b.end()), b.end());
+
+    ull best = 0;
+
+    auto gen_a = [&](auto&& self, int idx, ull sum) -> void {
+        if (best == target) return;
+        if (sum > target) return;
+        if (idx == n) {
+            ull rem = target - sum;
+            auto it = std::upper_bound(b.begin(), b.end(), rem);
+            if (it != b.begin()) {
+                --it;
+                ull cand = sum + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+        self(self, idx + 1, sum);
+        if (a[idx] <= target - sum) self(self, idx + 1, sum + a[idx]);
+    };
+
+    gen_a(gen_a, n2, 0);
+    return total - 2 * best;
+}
+
+class CKK {
+public:
+    ull best;
+
+    explicit CKK(ull initial) : best(initial) {}
+
+    static std::vector<ull> child_of(const std::vector<ull>& v, ull val) {
+        std::vector<ull> c;
+        c.reserve(v.size() - 1);
+        bool inserted = (val == 0);
+        for (std::size_t i = 2; i < v.size(); ++i) {
+            if (!inserted && val >= v[i]) {
+                c.push_back(val);
+                inserted = true;
+            }
+            if (v[i]) c.push_back(v[i]);
+        }
+        if (!inserted) c.push_back(val);
+        return c;
+    }
+
+    void search(const std::vector<ull>& v, ull sum) {
+        if (best == 0) return;
+        if (v.empty()) {
+            best = 0;
+            return;
+        }
+        if (v.size() == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+
+        ull rest = sum - v[0];
+        if (v[0] > rest) {
+            ull lb = v[0] - rest;
+            if (lb >= best) return;
+        }
+
+        ull x = v[0], y = v[1];
+
+        if (v.size() == 2) {
+            ull d = x - y;
+            if (d < best) best = d;
+            return;
+        }
+
+        {
+            ull d = x - y;
+            std::vector<ull> c = child_of(v, d);
+            search(c, sum - 2 * y);
+        }
+
+        if (best == 0) return;
+
+        {
+            ull s = x + y;
+            std::vector<ull> c = child_of(v, s);
+            search(c, sum);
+        }
+    }
+};
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a;
+    a.reserve(N > 0 ? static_cast<std::size_t>(N) : 0);
+
+    ull total = 0;
+    ull g = 0;
+    bool overflow = false;
+
+    for (int i = 0; i < N; ++i) {
+        ull x;
+        std::cin >> x;
+        a.push_back(x);
+        g = std::gcd(g, x);
+        if (x > std::numeric_limits<ull>::max() - total) overflow = true;
+        else total += x;
+    }
+
+    if (overflow) spin_forever();
+
+    if (N <= 0 || total == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    if (g > 1) {
+        for (ull& x : a) x /= g;
+        total /= g;
+    } else {
+        g = 1;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    ull best = std::min(greedy_bound(a), kk_bound(a));
+    if (best == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    ull rest = total - a[0];
+    ull initial_lb = (a[0] > rest) ? (a[0] - rest) : 0;
+    if (best == initial_lb) {
+        std::cout << best * g << '\n';
+        return 0;
+    }
+
+    try {
+        ull half = total / 2;
+
+        std::vector<ull> chunks = make_dp_chunks(a, half);
+        std::size_t bits = static_cast<std::size_t>(half + 1);
+        std::size_t words = (bits + 63) / 64;
+
+        constexpr std::size_t MAX_WORDS = 16000000;
+        constexpr std::size_t OP_LIMIT = 200000000;
+
+        if (words > 0 && words <= MAX_WORDS && chunks.size() <= OP_LIMIT / words) {
+            ull ans = solve_dp(chunks, total);
+            std::cout << ans * g << '\n';
+            return 0;
+        }
+
+        if (a.size() / 2 <= 23) {
+            ull ans = solve_mitm(a, total);
+            std::cout << ans * g << '\n';
+            return 0;
+        }
+
+        if (a.size() > 3000) spin_forever();
+
+        CKK solver(best);
+        solver.search(a, total);
+        std::cout << solver.best * g << '\n';
+        return 0;
+    } catch (const std::bad_alloc&) {
+        spin_forever();
+    }
+}

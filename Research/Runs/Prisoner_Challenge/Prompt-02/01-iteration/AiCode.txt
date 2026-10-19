@@ -1,0 +1,91 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int INF = 1e9;
+
+    vector<int> dp(N + 1, INF), preP(N + 1, -1), preR(N + 1, -1);
+    dp[1] = 0;
+
+    for (int p = 1; p < N; ++p) {
+        if (dp[p] == INF) continue;
+        for (int r = 2; r <= N; ++r) {
+            int np = (p > (N + r - 1) / r) ? N : p * r;
+            if (dp[p] + r < dp[np]) {
+                dp[np] = dp[p] + r;
+                preP[np] = p;
+                preR[np] = r;
+            }
+        }
+    }
+
+    vector<int> rad;
+    int cur = N;
+    while (cur != 1) {
+        rad.push_back(preR[cur]);
+        cur = preP[cur];
+    }
+    reverse(rad.begin(), rad.end());
+
+    int L = (int)rad.size();
+    vector<int> offset(L);
+    int x = 0;
+    for (int i = 0; i < L; ++i) {
+        offset[i] = x + 1;
+        x += rad[i];
+    }
+
+    vector<long long> place(L, 1);
+    for (int i = L - 2; i >= 0; --i) {
+        place[i] = place[i + 1] * rad[i + 1];
+    }
+
+    auto digit = [&](int val, int level) -> int {
+        long long v = val - 1;
+        return (int)((v / place[level]) % rad[level]);
+    };
+
+    auto id = [&](int level, int d) -> int {
+        return offset[level] + d;
+    };
+
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = id(0, digit(j, 0));
+    }
+
+    for (int level = 0; level < L; ++level) {
+        bool inspectB = (level % 2 == 0);
+
+        for (int d = 0; d < rad[level]; ++d) {
+            int state = id(level, d);
+            s[state][0] = inspectB ? 1 : 0;
+
+            for (int j = 1; j <= N; ++j) {
+                int cd = digit(j, level);
+
+                if (cd != d) {
+                    int ad, bd;
+                    if (inspectB) {
+                        ad = d;
+                        bd = cd;
+                    } else {
+                        ad = cd;
+                        bd = d;
+                    }
+                    s[state][j] = (ad < bd) ? -1 : -2;
+                } else {
+                    if (level + 1 == L) {
+                        s[state][j] = -1;
+                    } else {
+                        s[state][j] = id(level + 1, digit(j, level + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

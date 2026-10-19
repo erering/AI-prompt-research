@@ -1,0 +1,144 @@
+#include <bits/stdc++.h>
+
+static constexpr int MAXN = 10000;
+static constexpr int LOG = 15;
+static constexpr int BASE = 22;
+static constexpr int SNAP = 9993;
+
+static int up_tbl[MAXN][LOG];
+static int dep_tbl[MAXN];
+static int dia_a, dia_b, dia_d;
+static int saved_a, saved_b;
+static int out_digits[6];
+
+static int lca_node(int u, int v) {
+    if (dep_tbl[u] < dep_tbl[v]) std::swap(u, v);
+    int diff = dep_tbl[u] - dep_tbl[v];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) u = up_tbl[u][k];
+    }
+    if (u == v) return u;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_tbl[u][k] != up_tbl[v][k]) {
+            u = up_tbl[u][k];
+            v = up_tbl[v][k];
+        }
+    }
+    return up_tbl[u][0];
+}
+
+static int dist_node(int u, int v) {
+    int w = lca_node(u, v);
+    return dep_tbl[u] + dep_tbl[v] - 2 * dep_tbl[w];
+}
+
+static void reset_sender_state() {
+    for (int k = 0; k < LOG; ++k) up_tbl[0][k] = 0;
+    dep_tbl[0] = 0;
+    dia_a = dia_b = 0;
+    dia_d = 0;
+    saved_a = saved_b = 0;
+    for (int &x : out_digits) x = 0;
+}
+
+static int candidate_index(int v) {
+    if (v == saved_a) return 0;
+    if (v == saved_b) return 1;
+    if (9994 <= v && v <= 9999) return 2 + (v - 9994);
+    return -1;
+}
+
+static int encode_final_pair() {
+    int x = candidate_index(dia_a);
+    int y = candidate_index(dia_b);
+    if (x < 0 || y < 0 || x == y) return 1;
+    if (x > y) std::swap(x, y);
+    int code = 1;
+    for (int i = 0; i < 8; ++i) {
+        for (int j = i + 1; j < 8; ++j) {
+            if (i == x && j == y) return code;
+            ++code;
+        }
+    }
+    return 1;
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) reset_sender_state();
+
+    up_tbl[i][0] = Pi;
+    dep_tbl[i] = dep_tbl[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[i][k] = up_tbl[up_tbl[i][k - 1]][k - 1];
+    }
+
+    int da = dist_node(i, dia_a);
+    int db = dist_node(i, dia_b);
+    if (da > dia_d) {
+        dia_b = i;
+        dia_d = da;
+    } else if (db > dia_d) {
+        dia_a = i;
+        dia_d = db;
+    }
+
+    if (i == SNAP) {
+        saved_a = dia_a;
+        saved_b = dia_b;
+
+        int x = saved_a;
+        for (int t = 0; t < 3; ++t) {
+            out_digits[t] = x % BASE;
+            x /= BASE;
+        }
+
+        x = saved_b;
+        for (int t = 0; t < 3; ++t) {
+            out_digits[3 + t] = x % BASE;
+            x /= BASE;
+        }
+
+        return out_digits[0];
+    }
+
+    if (SNAP < i && i <= 9998) {
+        return out_digits[i - SNAP];
+    }
+
+    if (i == 9999) {
+        return encode_final_pair();
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int u = 0, mul = 1;
+    for (int t = 0; t < 3; ++t) {
+        u += S[SNAP + t] * mul;
+        mul *= BASE;
+    }
+
+    int v = 0;
+    mul = 1;
+    for (int t = 0; t < 3; ++t) {
+        v += S[SNAP + 3 + t] * mul;
+        mul *= BASE;
+    }
+
+    std::vector<int> cand;
+    cand.push_back(u);
+    cand.push_back(v);
+    for (int x = 9994; x <= 9999; ++x) cand.push_back(x);
+
+    int code = S[9999];
+    int cur = 1;
+    for (int i = 0; i < 8; ++i) {
+        for (int j = i + 1; j < 8; ++j) {
+            if (cur == code) return {cand[i], cand[j]};
+            ++cur;
+        }
+    }
+
+    return {cand[0], cand[1]};
+}

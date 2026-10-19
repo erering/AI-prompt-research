@@ -1,0 +1,268 @@
+#include <algorithm>
+#include <cstdio>
+#include <cstdint>
+#include <numeric>
+#include <vector>
+
+using ull = unsigned long long;
+using u128 = unsigned __int128;
+
+class FastScanner {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buffer[BUFSIZE];
+    size_t idx = 0, size = 0;
+
+    int getChar() {
+        if (idx >= size) {
+            size = std::fread(buffer, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return EOF;
+        }
+        return buffer[idx++];
+    }
+
+public:
+    bool readULL(ull &out) {
+        int c;
+        do {
+            c = getChar();
+            if (c == EOF) return false;
+        } while (c < '0' || c > '9');
+
+        ull x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + static_cast<ull>(c - '0');
+            c = getChar();
+        }
+        out = x;
+        return true;
+    }
+};
+
+void printU128(u128 x) {
+    if (x == 0) {
+        std::putchar('0');
+        std::putchar('\n');
+        return;
+    }
+    char s[64];
+    int n = 0;
+    while (x > 0) {
+        s[n++] = char('0' + x % 10);
+        x /= 10;
+    }
+    while (n--) std::putchar(s[n]);
+    std::putchar('\n');
+}
+
+ull bestByDP(const std::vector<ull> &a, ull target) {
+    const size_t words = static_cast<size_t>(target / 64) + 1;
+    std::vector<ull> bits(words, 0);
+    bits[0] = 1;
+
+    const unsigned lastBits = static_cast<unsigned>(target & 63);
+    const ull lastMask = (lastBits == 63) ? ~0ULL : ((1ULL << (lastBits + 1)) - 1ULL);
+
+    auto hasTarget = [&]() -> bool {
+        return (bits[static_cast<size_t>(target >> 6)] >> (target & 63)) & 1ULL;
+    };
+
+    for (ull x : a) {
+        if (x == 0 || x > target) continue;
+
+        const size_t ws = static_cast<size_t>(x >> 6);
+        const unsigned bs = static_cast<unsigned>(x & 63);
+
+        if (bs == 0) {
+            for (size_t i = words; i-- > ws;) {
+                bits[i] |= bits[i - ws];
+            }
+        } else {
+            for (size_t i = words; i-- > ws;) {
+                ull v = bits[i - ws] << bs;
+                if (i > ws) v |= bits[i - ws - 1] >> (64 - bs);
+                bits[i] |= v;
+            }
+        }
+
+        bits.back() &= lastMask;
+        if (hasTarget()) return target;
+    }
+
+    size_t i = static_cast<size_t>(target >> 6);
+    ull w = bits[i] & (((target & 63) == 63) ? ~0ULL : ((1ULL << ((target & 63) + 1)) - 1ULL));
+
+    while (true) {
+        if (w) {
+            return static_cast<ull>(i) * 64ULL + static_cast<ull>(63 - __builtin_clzll(w));
+        }
+        if (i == 0) break;
+        w = bits[--i];
+    }
+    return 0;
+}
+
+std::vector<ull> generateSums(const std::vector<ull> &a, int l, int r, ull target) {
+    std::vector<ull> sums;
+    int m = r - l;
+    if (m < 63) {
+        ull cnt = 1ULL << m;
+        if (cnt <= (1ULL << 24)) sums.reserve(static_cast<size_t>(cnt));
+    }
+
+    sums.push_back(0);
+    for (int i = l; i < r; ++i) {
+        ull x = a[i];
+        size_t oldSize = sums.size();
+        if (x <= target) {
+            ull lim = target - x;
+            for (size_t j = 0; j < oldSize; ++j) {
+                if (sums[j] <= lim) sums.push_back(sums[j] + x);
+            }
+        }
+    }
+    return sums;
+}
+
+ull bestByMeetInMiddle(const std::vector<ull> &a, ull target) {
+    int n = static_cast<int>(a.size());
+    int mid = n / 2;
+
+    std::vector<ull> left = generateSums(a, 0, mid, target);
+    std::sort(left.begin(), left.end());
+    left.erase(std::unique(left.begin(), left.end()), left.end());
+
+    ull best = 0;
+    ull leftMax = left.back();
+
+    std::vector<ull> suffix(n + 1, 0);
+    for (int i = n - 1; i >= mid; --i) suffix[i] = suffix[i + 1] + a[i];
+
+    auto dfs = [&](auto &&self, int idx, ull sum) -> void {
+        if (best == target) return;
+        if ((u128)sum + suffix[idx] + leftMax <= best) return;
+
+        if (idx == n) {
+            ull limit = target - sum;
+            ull cand;
+            if (leftMax <= limit) {
+                cand = sum + leftMax;
+            } else {
+                auto it = std::upper_bound(left.begin(), left.end(), limit);
+                if (it == left.begin()) cand = sum;
+                else cand = sum + *--it;
+            }
+            if (cand > best) best = cand;
+            return;
+        }
+
+        self(self, idx + 1, sum);
+        if (a[idx] <= target - sum) self(self, idx + 1, sum + a[idx]);
+    };
+
+    dfs(dfs, mid, 0);
+    return best;
+}
+
+ull bestByBranchAndBound(std::vector<ull> a, ull target) {
+    a.erase(std::remove_if(a.begin(), a.end(), [&](ull x) { return x > target; }), a.end());
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    int n = static_cast<int>(a.size());
+    std::vector<ull> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) suffix[i] = suffix[i + 1] + a[i];
+
+    ull best = 0;
+    ull greedy = 0;
+    for (ull x : a) {
+        if (x <= target - greedy) greedy += x;
+    }
+    best = greedy;
+
+    auto dfs = [&](auto &&self, int i, ull cur) -> void {
+        if (best == target) return;
+        if (cur > best) best = cur;
+        if (i >= n) return;
+
+        if ((u128)cur + suffix[i] <= best) return;
+        if (suffix[i] <= target - cur) {
+            ull cand = cur + suffix[i];
+            if (cand > best) best = cand;
+            return;
+        }
+
+        ull x = a[i];
+        if (x <= target - cur) self(self, i + 1, cur + x);
+
+        int next = i + 1;
+        while (next < n && a[next] == x) ++next;
+        self(self, next, cur);
+    };
+
+    dfs(dfs, 0, 0);
+    return best;
+}
+
+int main() {
+    FastScanner fs;
+
+    ull nRaw;
+    if (!fs.readULL(nRaw)) return 0;
+    int N = static_cast<int>(nRaw);
+
+    std::vector<ull> a;
+    a.reserve(N);
+
+    ull total = 0;
+    ull g = 0;
+
+    for (int i = 0; i < N; ++i) {
+        ull x;
+        fs.readULL(x);
+        a.push_back(x);
+        total += x;
+        g = std::gcd(g, x);
+    }
+
+    if (N == 0 || total == 0) {
+        std::puts("0");
+        return 0;
+    }
+
+    if (g > 1) {
+        for (ull &x : a) x /= g;
+        total /= g;
+    }
+
+    ull target = total / 2;
+    std::vector<ull> useful;
+    useful.reserve(a.size());
+    for (ull x : a) {
+        if (x <= target) useful.push_back(x);
+    }
+
+    ull best = 0;
+
+    if (!useful.empty() && target > 0) {
+        ull words = target / 64 + 1;
+        constexpr ull MAX_DP_WORDS = 8000000ULL;
+        constexpr u128 MAX_DP_OPS = 350000000ULL;
+
+        bool canDP = words <= MAX_DP_WORDS;
+        u128 dpOps = (u128)words * useful.size();
+
+        if (canDP && (dpOps <= MAX_DP_OPS || useful.size() > 46)) {
+            best = bestByDP(useful, target);
+        } else if (useful.size() <= 46) {
+            best = bestByMeetInMiddle(useful, target);
+        } else if (canDP) {
+            best = bestByDP(useful, target);
+        } else {
+            best = bestByBranchAndBound(useful, target);
+        }
+    }
+
+    u128 answer = (u128)(total - 2ULL * best) * (u128)g;
+    printU128(answer);
+    return 0;
+}

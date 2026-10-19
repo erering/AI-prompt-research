@@ -1,0 +1,128 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+namespace {
+    const int N = 31;
+    const int K = 15;
+    const int H = 29;
+    const int LENBITS = 10;
+
+    unsigned long long Cmb[32][17];
+    bool initialized = false;
+
+    void init_comb() {
+        if (initialized) return;
+        initialized = true;
+        memset(Cmb, 0, sizeof(Cmb));
+        Cmb[0][0] = 1;
+        for (int n = 1; n <= 31; ++n) {
+            Cmb[n][0] = 1;
+            for (int r = 1; r <= 16; ++r) {
+                Cmb[n][r] = Cmb[n - 1][r];
+                if (r - 1 <= 16) Cmb[n][r] += Cmb[n - 1][r - 1];
+            }
+        }
+    }
+
+    unsigned long long rank_control(const vector<bool>& C) {
+        init_comb();
+        unsigned long long rank = 0;
+        int cnt = 0;
+        for (int i = 0; i < N; ++i) {
+            if (C[i]) {
+                ++cnt;
+                rank += Cmb[i][cnt];
+            }
+        }
+        return rank;
+    }
+
+    vector<bool> unrank_control(unsigned long long rank) {
+        init_comb();
+        vector<bool> C(N, false);
+        int mx = N - 1;
+        for (int j = K; j >= 1; --j) {
+            int x = mx;
+            while (x >= j - 1 && Cmb[x][j] > rank) --x;
+            C[x] = true;
+            rank -= Cmb[x][j];
+            mx = x - 1;
+        }
+        return C;
+    }
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    unsigned long long r = rank_control(C);
+
+    for (int t = 0; t < H; ++t) {
+        bool bit = ((r >> t) & 1ULL) != 0;
+        vector<bool> A(N, bit);
+        send_packet(A);
+    }
+
+    vector<int> P;
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) P.push_back(i);
+    }
+
+    vector<bool> data;
+    int len_minus_one = (int)M.size() - 1;
+    for (int i = 0; i < LENBITS; ++i) {
+        data.push_back(((len_minus_one >> i) & 1) != 0);
+    }
+    for (bool b : M) data.push_back(b);
+
+    int ptr = 0;
+    while (ptr < (int)data.size()) {
+        vector<bool> A(N, false);
+        for (int j = 0; j < 16; ++j) {
+            bool bit = false;
+            if (ptr < (int)data.size()) bit = data[ptr++];
+            A[P[j]] = bit;
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    unsigned long long r = 0;
+
+    for (int t = 0; t < H; ++t) {
+        int ones = 0;
+        for (int i = 0; i < N; ++i) {
+            if (R[t][i]) ++ones;
+        }
+        if (ones >= 16) r |= (1ULL << t);
+    }
+
+    vector<bool> C = unrank_control(r);
+
+    vector<int> P;
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) P.push_back(i);
+    }
+
+    vector<bool> data;
+    for (int t = H; t < (int)R.size(); ++t) {
+        for (int j = 0; j < 16; ++j) {
+            data.push_back(R[t][P[j]]);
+        }
+    }
+
+    int len_minus_one = 0;
+    for (int i = 0; i < LENBITS; ++i) {
+        if (data[i]) len_minus_one |= (1 << i);
+    }
+
+    int S = len_minus_one + 1;
+    vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(data[LENBITS + i]);
+    }
+
+    return M;
+}

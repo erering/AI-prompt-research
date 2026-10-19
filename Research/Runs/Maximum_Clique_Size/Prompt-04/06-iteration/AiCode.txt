@@ -1,0 +1,324 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ULL = unsigned long long;
+
+struct MaxCliqueSolver {
+    int n = 0, B = 0, best = 0;
+    vector<ULL> adj;
+    ULL lastMask = ~0ULL;
+
+    MaxCliqueSolver() = default;
+
+    MaxCliqueSolver(int n_, vector<ULL>&& adj_, int initialBest)
+        : n(n_), B((n_ + 63) >> 6), best(initialBest), adj(std::move(adj_)) {
+        if (n % 64) lastMask = (1ULL << (n % 64)) - 1ULL;
+    }
+
+    inline const ULL* row(int v) const {
+        return &adj[(size_t)v * B];
+    }
+
+    inline void clearBit(vector<ULL>& s, int v) const {
+        s[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline int firstBit(const vector<ULL>& s) const {
+        for (int i = 0; i < B; ++i) {
+            if (s[i]) return (i << 6) + __builtin_ctzll(s[i]);
+        }
+        return -1;
+    }
+
+    inline int popcountSet(const vector<ULL>& s) const {
+        int r = 0;
+        for (ULL x : s) r += __builtin_popcountll(x);
+        return r;
+    }
+
+    void colorSort(const vector<ULL>& P, int cnt, vector<int>& order, vector<int>& colors) const {
+        order.clear();
+        colors.clear();
+        order.reserve(cnt);
+        colors.reserve(cnt);
+
+        vector<ULL> U = P, Q(B);
+        int remaining = cnt;
+        int color = 0;
+
+        while (remaining > 0) {
+            ++color;
+            Q = U;
+
+            while (true) {
+                int v = -1;
+                for (int i = 0; i < B; ++i) {
+                    if (Q[i]) {
+                        v = (i << 6) + __builtin_ctzll(Q[i]);
+                        break;
+                    }
+                }
+                if (v < 0) break;
+
+                order.push_back(v);
+                colors.push_back(color);
+                clearBit(U, v);
+                clearBit(Q, v);
+                --remaining;
+
+                const ULL* av = row(v);
+                for (int i = 0; i < B; ++i) Q[i] &= ~av[i];
+            }
+        }
+    }
+
+    void expand(vector<ULL> P, int cur) {
+        int cnt = popcountSet(P);
+        if (cur + cnt <= best) return;
+
+        vector<int> order, colors;
+        colorSort(P, cnt, order, colors);
+
+        vector<ULL> P2(B);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (cur + colors[i] <= best) return;
+
+            int v = order[i];
+            const ULL* av = row(v);
+
+            bool any = false;
+            for (int j = 0; j < B; ++j) {
+                ULL x = P[j] & av[j];
+                P2[j] = x;
+                any |= (x != 0);
+            }
+
+            if (!any) {
+                if (cur + 1 > best) best = cur + 1;
+            } else {
+                expand(P2, cur + 1);
+            }
+
+            clearBit(P, v);
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        if (best >= n) return n;
+
+        vector<ULL> P(B, ~0ULL);
+        P[B - 1] = lastMask;
+
+        expand(P, 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    int TB = (N + 63) >> 6;
+    vector<ULL> orig((size_t)N * TB, 0);
+
+    auto setOrig = [&](int i, int j) {
+        orig[(size_t)i * TB + (j >> 6)] |= 1ULL << (j & 63);
+    };
+
+    long long need = 1LL * N * N;
+    long long got = 0;
+    string tok;
+
+    while (got < need && (cin >> tok)) {
+        for (char c : tok) {
+            if (c != '0' && c != '1') continue;
+            int i = (int)(got / N);
+            int j = (int)(got % N);
+            if (c == '1' && i != j) {
+                setOrig(i, j);
+                setOrig(j, i);
+            }
+            ++got;
+            if (got == need) break;
+        }
+    }
+
+    vector<vector<int>> comp(N);
+    vector<int> deg(N, 0);
+
+    for (int i = 0; i < N; ++i) {
+        const ULL* ri = &orig[(size_t)i * TB];
+        for (int j = i + 1; j < N; ++j) {
+            bool edge = (ri[j >> 6] >> (j & 63)) & 1ULL;
+            if (!edge) {
+                comp[i].push_back(j);
+                comp[j].push_back(i);
+                ++deg[i];
+                ++deg[j];
+            }
+        }
+    }
+
+    vector<unsigned char> active(N, 1);
+    queue<int> q;
+    for (int i = 0; i < N; ++i) {
+        if (deg[i] <= 1) q.push(i);
+    }
+
+    int forced = 0;
+    int activeCount = N;
+
+    auto removeVertex = [&](int x) {
+        if (!active[x]) return;
+        active[x] = 0;
+        --activeCount;
+        for (int y : comp[x]) {
+            if (active[y]) {
+                --deg[y];
+                if (deg[y] <= 1) q.push(y);
+            }
+        }
+    };
+
+    while (!q.empty()) {
+        int v = q.front();
+        q.pop();
+
+        if (!active[v] || deg[v] > 1) continue;
+
+        if (deg[v] == 0) {
+            ++forced;
+            removeVertex(v);
+        } else {
+            int u = -1;
+            for (int x : comp[v]) {
+                if (active[x]) {
+                    u = x;
+                    break;
+                }
+            }
+
+            ++forced;
+            if (u < 0) {
+                removeVertex(v);
+            } else {
+                removeVertex(v);
+                removeVertex(u);
+            }
+        }
+    }
+
+    if (activeCount == 0) {
+        cout << forced << '\n';
+        return 0;
+    }
+
+    auto greedyMIS = [&]() {
+        vector<unsigned char> a = active;
+        vector<int> d = deg;
+        priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+        int left = 0;
+        for (int i = 0; i < N; ++i) {
+            if (a[i]) {
+                pq.push({d[i], i});
+                ++left;
+            }
+        }
+
+        int res = 0;
+        while (left > 0) {
+            int v = -1;
+            while (!pq.empty()) {
+                auto [dv, x] = pq.top();
+                pq.pop();
+                if (a[x] && d[x] == dv) {
+                    v = x;
+                    break;
+                }
+            }
+            if (v < 0) break;
+
+            ++res;
+
+            vector<int> rem;
+            rem.push_back(v);
+            for (int x : comp[v]) {
+                if (a[x]) rem.push_back(x);
+            }
+
+            for (int x : rem) {
+                if (!a[x]) continue;
+                a[x] = 0;
+                --left;
+                for (int y : comp[x]) {
+                    if (a[y]) {
+                        --d[y];
+                        pq.push({d[y], y});
+                    }
+                }
+            }
+        }
+
+        return res;
+    };
+
+    int initialBest = greedyMIS();
+
+    vector<int> verts;
+    verts.reserve(activeCount);
+    for (int i = 0; i < N; ++i) {
+        if (active[i]) verts.push_back(i);
+    }
+
+    sort(verts.begin(), verts.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    int M = (int)verts.size();
+
+    if (initialBest >= M) {
+        cout << forced + M << '\n';
+        return 0;
+    }
+
+    vector<int> pos(N, -1);
+    for (int i = 0; i < M; ++i) pos[verts[i]] = i;
+
+    int B = (M + 63) >> 6;
+    ULL mask = (M % 64) ? ((1ULL << (M % 64)) - 1ULL) : ~0ULL;
+
+    vector<ULL> adj((size_t)M * B, ~0ULL);
+
+    for (int i = 0; i < M; ++i) {
+        adj[(size_t)i * B + B - 1] &= mask;
+        adj[(size_t)i * B + (i >> 6)] &= ~(1ULL << (i & 63));
+    }
+
+    for (int oldv : verts) {
+        int v = pos[oldv];
+        for (int oldu : comp[oldv]) {
+            int u = pos[oldu];
+            if (u >= 0) {
+                adj[(size_t)v * B + (u >> 6)] &= ~(1ULL << (u & 63));
+            }
+        }
+    }
+
+    MaxCliqueSolver solver(M, std::move(adj), initialBest);
+    int remAns = solver.solve();
+
+    cout << forced + remAns << '\n';
+    return 0;
+}

@@ -1,0 +1,139 @@
+#include <vector>
+#include <utility>
+#include <array>
+#include <algorithm>
+
+namespace {
+constexpr int LOG = 20;
+constexpr int BASE_LOW = 5000;
+
+int encN = 0;
+int encStart = 1;
+std::vector<int> encDepth;
+std::vector<std::array<int, LOG>> encUp;
+int diamU = 0, diamV = 0, diamD = 0;
+int snapU = 0, snapV = 0;
+
+int lca_enc(int a, int b) {
+    if (encDepth[a] < encDepth[b]) std::swap(a, b);
+    int diff = encDepth[a] - encDepth[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = encUp[a][k];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (encUp[a][k] != encUp[b][k]) {
+            a = encUp[a][k];
+            b = encUp[b][k];
+        }
+    }
+    return encUp[a][0];
+}
+
+int dist_enc(int a, int b) {
+    int c = lca_enc(a, b);
+    return encDepth[a] + encDepth[b] - 2 * encDepth[c];
+}
+
+int add_vertex_update_diameter(int i, int p) {
+    encDepth[i] = encDepth[p] + 1;
+    encUp[i][0] = p;
+    for (int k = 1; k < LOG; ++k) {
+        encUp[i][k] = encUp[encUp[i][k - 1]][k - 1];
+    }
+
+    int du = dist_enc(i, diamU);
+    int dv = dist_enc(i, diamV);
+
+    int event = 0;
+    if (du > diamD || dv > diamD) {
+        if (du >= dv) {
+            int oldU = diamU;
+            diamU = i;
+            diamV = oldU;
+            diamD = du;
+            event = 1;
+        } else {
+            int oldV = diamV;
+            diamU = oldV;
+            diamV = i;
+            diamD = dv;
+            event = 2;
+        }
+    }
+    return event;
+}
+
+void apply_event_dec(int event, int idx, int &u, int &v) {
+    if (event == 1) {
+        int oldU = u;
+        u = idx;
+        v = oldU;
+    } else if (event == 2) {
+        int oldV = v;
+        u = oldV;
+        v = idx;
+    }
+}
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        encN = N;
+        encStart = std::max(1, N - 50);
+        encDepth.assign(N, 0);
+        encUp.assign(N, {});
+        for (int k = 0; k < LOG; ++k) encUp[0][k] = 0;
+        diamU = diamV = 0;
+        diamD = 0;
+        snapU = snapV = 0;
+    }
+
+    int event = add_vertex_update_diameter(i, Pi);
+
+    if (N == 2) return 1;
+
+    if (i < encStart) return 0;
+
+    if (i == encStart) {
+        snapU = diamU;
+        snapV = diamV;
+        int code = snapU * N + snapV;
+        return code / BASE_LOW + 1;
+    }
+
+    if (i == encStart + 1) {
+        int code = snapU * N + snapV;
+        int low = code % BASE_LOW;
+        return low * 3 + event + 1;
+    }
+
+    return event + 1;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    int start = std::max(1, N - 50);
+
+    int high = S[start] - 1;
+    int packed = S[start + 1] - 1;
+    int low = packed / 3;
+    int firstEvent = packed % 3;
+
+    int code = high * BASE_LOW + low;
+    int u = code / N;
+    int v = code % N;
+
+    apply_event_dec(firstEvent, start + 1, u, v);
+
+    for (int idx = start + 2; idx < N; ++idx) {
+        int event = S[idx] - 1;
+        apply_event_dec(event, idx, u, v);
+    }
+
+    return {u, v};
+}

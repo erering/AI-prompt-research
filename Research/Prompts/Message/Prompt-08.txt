@@ -1,0 +1,14 @@
+Produce only a valid C++20 implementation, without markdown, explanation, or code fences.
+
+Before coding, internally determine a complete protocol plan: identify the core algorithm, packet format, decoding rule, invariants that remain true under arbitrary changes on 15 fixed positions, data structures needed for encoding and decoding, how the message length is represented, and the worst-case packet count. Choose the asymptotically and practically strongest correct approach you can, then implement it cleanly.
+
+Interface to implement:
+void send_message(std::vector<bool> M, std::vector<bool> C);
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R);
+External function available to send_message:
+std::vector<bool> send_packet(std::vector<bool> A);
+No main function is required.
+
+Problem details for the plan: M has S bits with 1<=S<=1024. C has length 31, exactly 15 true entries and 16 false entries. A sent packet A and received packet B both have length 31. For false positions in C, B equals A. For true positions in C, an adaptive adversary may choose B arbitrarily. C is fixed during one send_message call. The sender knows C and sees B after every send_packet call. The receiver gets only the sequence R of all B packets for that call, in order, and knows only that exactly 15 positions are adversarial.
+
+The decoder must return exactly the original M for all legal inputs and adversarial choices. The functions are run in separate programs; receive_message calls may be in any order, so no global or persistent cross-call transfer is allowed. Use at most 100 send_packet calls per send_message call. Optimize the maximum packet count Q, with Q<=66 as the full-strength target.

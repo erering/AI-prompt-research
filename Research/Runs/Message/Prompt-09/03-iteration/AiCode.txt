@@ -1,0 +1,137 @@
+#include <vector>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    using ull = unsigned long long;
+
+    ull binom_table[32][32];
+    bool binom_ready = false;
+
+    void init_binom() {
+        if (binom_ready) return;
+        for (int n = 0; n <= 31; ++n) {
+            for (int k = 0; k <= 31; ++k) binom_table[n][k] = 0;
+        }
+        for (int n = 0; n <= 31; ++n) {
+            binom_table[n][0] = 1;
+            binom_table[n][n] = 1;
+            for (int k = 1; k < n; ++k) {
+                binom_table[n][k] = binom_table[n - 1][k - 1] + binom_table[n - 1][k];
+            }
+        }
+        binom_ready = true;
+    }
+
+    ull rank_combination(const std::vector<int>& s, int n, int k) {
+        init_binom();
+        ull rank = 0;
+        int prev = -1;
+        for (int pos = 0; pos < k; ++pos) {
+            for (int x = prev + 1; x < s[pos]; ++x) {
+                rank += binom_table[n - 1 - x][k - 1 - pos];
+            }
+            prev = s[pos];
+        }
+        return rank;
+    }
+
+    std::vector<int> unrank_combination(ull rank, int n, int k) {
+        init_binom();
+        std::vector<int> s;
+        int prev = -1;
+        for (int pos = 0; pos < k; ++pos) {
+            int rem = k - 1 - pos;
+            for (int x = prev + 1; x < n; ++x) {
+                ull cnt = binom_table[n - 1 - x][rem];
+                if (rank >= cnt) {
+                    rank -= cnt;
+                } else {
+                    s.push_back(x);
+                    prev = x;
+                    break;
+                }
+            }
+        }
+        return s;
+    }
+
+    void send_majority_bit(bool b) {
+        std::vector<bool> A(31, b);
+        send_packet(A);
+    }
+
+    bool receive_majority_bit(const std::vector<bool>& row) {
+        int ones = 0;
+        for (bool b : row) if (b) ++ones;
+        return ones >= 16;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    ull r = rank_combination(good, 31, 16);
+
+    for (int i = 0; i < 29; ++i) {
+        send_majority_bit((r >> i) & 1ULL);
+    }
+
+    int L = (int)M.size();
+    int used_last = L % 16;
+    if (used_last == 0) used_last = 16;
+    int last_code = used_last - 1;
+
+    for (int i = 0; i < 4; ++i) {
+        send_majority_bit((last_code >> i) & 1);
+    }
+
+    int ptr = 0;
+    int packets = (L + 15) / 16;
+
+    for (int p = 0; p < packets; ++p) {
+        std::vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            if (ptr < L) {
+                A[good[j]] = M[ptr++];
+            } else {
+                A[good[j]] = false;
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    ull r = 0;
+    for (int i = 0; i < 29; ++i) {
+        if (receive_majority_bit(R[i])) r |= (1ULL << i);
+    }
+
+    std::vector<int> good = unrank_combination(r, 31, 16);
+
+    int last_code = 0;
+    for (int i = 0; i < 4; ++i) {
+        if (receive_majority_bit(R[29 + i])) last_code |= (1 << i);
+    }
+
+    int used_last = last_code + 1;
+    int data_packets = (int)R.size() - 33;
+    int L = (data_packets - 1) * 16 + used_last;
+
+    std::vector<bool> M;
+    M.reserve(L);
+
+    for (int p = 0; p < data_packets; ++p) {
+        for (int j = 0; j < 16 && (int)M.size() < L; ++j) {
+            M.push_back(R[33 + p][good[j]]);
+        }
+    }
+
+    return M;
+}

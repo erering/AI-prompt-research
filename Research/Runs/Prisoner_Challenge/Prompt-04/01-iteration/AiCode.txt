@@ -1,0 +1,141 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int MAXC = 60;
+
+    vector<long long> dp(MAXC + 1, 0);
+    vector<int> preC(MAXC + 1, -1), preR(MAXC + 1, -1);
+    dp[0] = 1;
+
+    for (int c = 0; c <= MAXC; ++c) {
+        if (dp[c] == 0) continue;
+        for (int r = 2; c + r <= MAXC; ++r) {
+            long long val = dp[c] * r;
+            if (val > N) val = N;
+            if (val > dp[c + r]) {
+                dp[c + r] = val;
+                preC[c + r] = c;
+                preR[c + r] = r;
+            }
+        }
+    }
+
+    int best = 1e9, bestC = 0, bestLast = 2;
+    for (int c = 0; c <= MAXC; ++c) {
+        if (dp[c] == 0) continue;
+        for (int last = 2; last <= min(N, MAXC + 2); ++last) {
+            int cost = c + last - 2;
+            if (cost > MAXC) continue;
+            if (dp[c] * 1LL * last >= N && cost < best) {
+                best = cost;
+                bestC = c;
+                bestLast = last;
+            }
+        }
+    }
+
+    vector<int> rad;
+    for (int c = bestC; c > 0; c = preC[c]) {
+        rad.push_back(preR[c]);
+    }
+    reverse(rad.begin(), rad.end());
+    rad.push_back(bestLast);
+
+    int L = (int)rad.size();
+
+    vector<long long> suf(L + 1, 1);
+    for (int i = L - 1; i >= 0; --i) {
+        suf[i] = suf[i + 1] * rad[i];
+    }
+
+    auto digit = [&](int coins, int pos) -> int {
+        long long v = coins - 1;
+        return (int)((v / suf[pos + 1]) % rad[pos]);
+    };
+
+    vector<vector<int>> id(max(0, L - 1));
+    int nxt = 1;
+
+    for (int p = 0; p + 1 < L; ++p) {
+        id[p].resize(rad[p]);
+        for (int d = 0; d < rad[p]; ++d) {
+            id[p][d] = nxt++;
+        }
+    }
+
+    vector<int> finalId(rad.back(), -1);
+    for (int d = 1; d + 1 < rad.back(); ++d) {
+        finalId[d] = nxt++;
+    }
+
+    vector<vector<int>> s(nxt, vector<int>(N + 1, -1));
+
+    auto declare_cmp = [&](int bag, int cmp) -> int {
+        if (cmp < 0) return bag == 0 ? -1 : -2;
+        return bag == 0 ? -2 : -1;
+    };
+
+    s[0][0] = 0;
+
+    if (L == 1) {
+        for (int j = 1; j <= N; ++j) {
+            int d = digit(j, 0);
+            if (d == 0) s[0][j] = -1;
+            else if (d == rad[0] - 1) s[0][j] = -2;
+            else s[0][j] = finalId[d];
+        }
+    } else {
+        for (int j = 1; j <= N; ++j) {
+            s[0][j] = id[0][digit(j, 0)];
+        }
+    }
+
+    for (int p = 0; p + 1 < L; ++p) {
+        for (int d = 0; d < rad[p]; ++d) {
+            int st = id[p][d];
+            int bag = (p % 2 == 0 ? 1 : 0);
+            s[st][0] = bag;
+
+            for (int j = 1; j <= N; ++j) {
+                int cur = digit(j, p);
+
+                if (cur < d) {
+                    s[st][j] = declare_cmp(bag, -1);
+                } else if (cur > d) {
+                    s[st][j] = declare_cmp(bag, 1);
+                } else {
+                    if (p == L - 2) {
+                        int last = digit(j, L - 1);
+                        if (last == 0) {
+                            s[st][j] = declare_cmp(bag, -1);
+                        } else if (last == rad.back() - 1) {
+                            s[st][j] = declare_cmp(bag, 1);
+                        } else {
+                            s[st][j] = finalId[last];
+                        }
+                    } else {
+                        s[st][j] = id[p + 1][digit(j, p + 1)];
+                    }
+                }
+            }
+        }
+    }
+
+    int fp = L - 1;
+    int finalBag = (fp % 2 == 0 ? 1 : 0);
+
+    for (int d = 1; d + 1 < rad.back(); ++d) {
+        int st = finalId[d];
+        s[st][0] = finalBag;
+
+        for (int j = 1; j <= N; ++j) {
+            int cur = digit(j, fp);
+            if (cur < d) s[st][j] = declare_cmp(finalBag, -1);
+            else if (cur > d) s[st][j] = declare_cmp(finalBag, 1);
+            else s[st][j] = -1;
+        }
+    }
+
+    return s;
+}

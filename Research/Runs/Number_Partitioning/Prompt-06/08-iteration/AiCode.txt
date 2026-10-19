@@ -1,0 +1,347 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <queue>
+#include <limits>
+#include <cstdint>
+#include <new>
+
+using U128 = unsigned __int128;
+using U64 = unsigned long long;
+
+static U128 globalBest;
+static U128 globalParity;
+
+static U128 parseU128(const std::string& s) {
+    U128 x = 0;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') x = x * 10 + (unsigned)(c - '0');
+    }
+    return x;
+}
+
+static void printU128(U128 x) {
+    if (x == 0) {
+        std::cout << "0\n";
+        return;
+    }
+    std::string s;
+    while (x) {
+        int d = (int)(x % 10);
+        s.push_back(char('0' + d));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static U128 gcd128(U128 a, U128 b) {
+    while (b) {
+        U128 r = a % b;
+        a = b;
+        b = r;
+    }
+    return a;
+}
+
+static inline U128 absDiff2(U128 total, U128 s) {
+    U128 two = s + s;
+    return total >= two ? total - two : two - total;
+}
+
+static std::vector<U64> genSums64(const std::vector<U128>& v, int l, int r) {
+    size_t cnt = size_t(1) << (r - l);
+    std::vector<U64> sums;
+    sums.reserve(cnt);
+    sums.push_back(0);
+    for (int i = l; i < r; ++i) {
+        U64 a = (U64)v[i];
+        size_t sz = sums.size();
+        for (size_t j = 0; j < sz; ++j) sums.push_back(sums[j] + a);
+    }
+    return sums;
+}
+
+static std::vector<U128> genSums128(const std::vector<U128>& v, int l, int r) {
+    size_t cnt = size_t(1) << (r - l);
+    std::vector<U128> sums;
+    sums.reserve(cnt);
+    sums.push_back(0);
+    for (int i = l; i < r; ++i) {
+        U128 a = v[i];
+        size_t sz = sums.size();
+        for (size_t j = 0; j < sz; ++j) sums.push_back(sums[j] + a);
+    }
+    return sums;
+}
+
+static U128 exactMITM(const std::vector<U128>& v, U128 total) {
+    int n = (int)v.size();
+    if (n == 0) return 0;
+    if (n == 1) return v[0];
+
+    int m = n / 2;
+    U128 target = total / 2;
+    U128 best = total;
+    U128 parity = total & 1;
+
+    if (total <= (U128)std::numeric_limits<U64>::max()) {
+        auto A = genSums64(v, 0, m);
+        auto B = genSums64(v, m, n);
+        std::sort(A.begin(), A.end());
+        std::sort(B.begin(), B.end());
+
+        size_t i = 0, j = B.size() - 1;
+        while (i < A.size()) {
+            U128 s = (U128)A[i] + (U128)B[j];
+            U128 d = absDiff2(total, s);
+            if (d < best) {
+                best = d;
+                if (best == parity) return best;
+            }
+            if (s > target) {
+                if (j == 0) break;
+                --j;
+            } else {
+                ++i;
+            }
+        }
+    } else {
+        auto A = genSums128(v, 0, m);
+        auto B = genSums128(v, m, n);
+        std::sort(A.begin(), A.end());
+        std::sort(B.begin(), B.end());
+
+        size_t i = 0, j = B.size() - 1;
+        while (i < A.size()) {
+            U128 s = A[i] + B[j];
+            U128 d = absDiff2(total, s);
+            if (d < best) {
+                best = d;
+                if (best == parity) return best;
+            }
+            if (s > target) {
+                if (j == 0) break;
+                --j;
+            } else {
+                ++i;
+            }
+        }
+    }
+    return best;
+}
+
+static bool canBitset(const std::vector<U128>& v, U128 total) {
+    U128 target = total / 2;
+    const U128 BIT_LIMIT = (U128)250000000ULL;
+    if (target > BIT_LIMIT) return false;
+    size_t words = (size_t)(target / 64) + 1;
+    long double ops = (long double)words * (long double)v.size();
+    return ops <= 180000000.0L;
+}
+
+static U128 exactBitset(const std::vector<U128>& v, U128 total) {
+    size_t target = (size_t)(total / 2);
+    size_t words = target / 64 + 1;
+    std::vector<uint64_t> bits(words, 0);
+    bits[0] = 1;
+
+    int valid = (int)(target & 63) + 1;
+    uint64_t lastMask = (valid == 64) ? ~0ULL : ((1ULL << valid) - 1ULL);
+
+    for (U128 ax : v) {
+        if (ax > target) continue;
+        size_t x = (size_t)ax;
+        if (x == 0) continue;
+        size_t ws = x >> 6;
+        unsigned bs = (unsigned)(x & 63);
+        if (ws >= words) continue;
+
+        for (size_t i = words; i-- > ws;) {
+            uint64_t val = bits[i - ws] << bs;
+            if (bs && i > ws) val |= bits[i - ws - 1] >> (64 - bs);
+            bits[i] |= val;
+        }
+        bits.back() &= lastMask;
+    }
+
+    for (size_t i = words; i-- > 0;) {
+        uint64_t w = bits[i];
+        if (i == words - 1) w &= lastMask;
+        if (w) {
+            int b = 63 - __builtin_clzll(w);
+            U128 s = (U128)i * 64 + (unsigned)b;
+            return total - s - s;
+        }
+    }
+    return total;
+}
+
+static U128 kkResidue(const std::vector<U128>& v) {
+    std::priority_queue<U128> pq;
+    for (U128 x : v) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        U128 a = pq.top(); pq.pop();
+        U128 b = pq.top(); pq.pop();
+        if (a > b) pq.push(a - b);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static U128 greedyResidue(const std::vector<U128>& sortedDesc) {
+    U128 a = 0, b = 0;
+    for (U128 x : sortedDesc) {
+        if (a <= b) a += x;
+        else b += x;
+    }
+    return a >= b ? a - b : b - a;
+}
+
+static inline void upd(U128 x) {
+    if (x < globalBest) globalBest = x;
+}
+
+static void ckk(std::vector<U128> v, U128 sum) {
+    if (globalBest == globalParity) return;
+
+    while (!v.empty() && v.back() == 0) v.pop_back();
+    size_t n = v.size();
+
+    if (n == 0) {
+        upd(0);
+        return;
+    }
+    if (n == 1) {
+        upd(v[0]);
+        return;
+    }
+    if (n <= 30) {
+        upd(exactMITM(v, sum));
+        return;
+    }
+
+    U128 a = v[0];
+    U128 rest = sum - a;
+    if (a >= rest) {
+        upd(a - rest);
+        return;
+    }
+
+    U128 b = v[1];
+
+    U128 d = a - b;
+    std::vector<U128> child;
+    child.reserve(n - 1);
+
+    if (d != 0) {
+        bool inserted = false;
+        for (size_t i = 2; i < n; ++i) {
+            if (!inserted && d >= v[i]) {
+                child.push_back(d);
+                inserted = true;
+            }
+            child.push_back(v[i]);
+        }
+        if (!inserted) child.push_back(d);
+    } else {
+        for (size_t i = 2; i < n; ++i) child.push_back(v[i]);
+    }
+
+    ckk(std::move(child), sum - b - b);
+    if (globalBest == globalParity) return;
+
+    U128 s = a + b;
+    U128 tailSum = sum - s;
+    if (s >= tailSum) {
+        upd(s - tailSum);
+        return;
+    }
+
+    std::vector<U128> child2;
+    child2.reserve(n - 1);
+    child2.push_back(s);
+    for (size_t i = 2; i < n; ++i) child2.push_back(v[i]);
+    ckk(std::move(child2), sum);
+}
+
+[[noreturn]] static void safeTLE() {
+    volatile uint64_t x = 0;
+    while (true) ++x;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<U128> v;
+    v.reserve(N > 0 ? (size_t)N : 0);
+
+    U128 total = 0;
+    U128 g = 0;
+    for (int i = 0; i < N; ++i) {
+        std::string s;
+        std::cin >> s;
+        U128 x = parseU128(s);
+        if (x != 0) {
+            v.push_back(x);
+            total += x;
+            g = (g == 0) ? x : gcd128(g, x);
+        }
+    }
+
+    if (v.empty()) {
+        std::cout << "0\n";
+        return 0;
+    }
+
+    if (g == 0) g = 1;
+
+    U128 totalDiv = 0;
+    for (U128& x : v) {
+        x /= g;
+        totalDiv += x;
+    }
+
+    std::sort(v.begin(), v.end(), [](U128 a, U128 b) { return a > b; });
+
+    globalParity = totalDiv & 1;
+    globalBest = totalDiv;
+
+    upd(kkResidue(v));
+    upd(greedyResidue(v));
+
+    if (globalBest == globalParity) {
+        printU128(globalBest * g);
+        return 0;
+    }
+
+    if (canBitset(v, totalDiv)) {
+        printU128(exactBitset(v, totalDiv) * g);
+        return 0;
+    }
+
+    bool fits64 = totalDiv <= (U128)std::numeric_limits<U64>::max();
+    int mitmLimit = fits64 ? 46 : 42;
+    if ((int)v.size() <= mitmLimit) {
+        try {
+            printU128(exactMITM(v, totalDiv) * g);
+            return 0;
+        } catch (const std::bad_alloc&) {
+        }
+    }
+
+    if (!v.empty() && v[0] >= totalDiv - v[0]) {
+        printU128((v[0] - (totalDiv - v[0])) * g);
+        return 0;
+    }
+
+    if (v.size() > 2048) safeTLE();
+
+    ckk(std::move(v), totalDiv);
+    printU128(globalBest * g);
+    return 0;
+}

@@ -1,0 +1,267 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <cstdint>
+#include <bit>
+#include <limits>
+
+using U = std::uint64_t;
+
+static std::vector<U> make_items(std::vector<U>& values, U target) {
+    std::vector<U> items;
+    if (target == 0 || values.empty()) return items;
+
+    std::sort(values.begin(), values.end());
+
+    for (std::size_t i = 0; i < values.size();) {
+        U v = values[i];
+        std::size_t j = i + 1;
+        while (j < values.size() && values[j] == v) ++j;
+
+        U cnt = static_cast<U>(j - i);
+        U max_use = std::min(cnt, target / v);
+
+        U p = 1;
+        while (max_use > 0) {
+            U take = std::min(p, max_use);
+            items.push_back(take * v);
+            max_use -= take;
+            if (p <= std::numeric_limits<U>::max() / 2) p *= 2;
+            else p = std::numeric_limits<U>::max();
+        }
+
+        i = j;
+    }
+
+    std::sort(items.begin(), items.end(), std::greater<U>());
+    return items;
+}
+
+static U solve_bitset(const std::vector<U>& items, U target) {
+    if (target == 0) return 0;
+
+    std::size_t T = static_cast<std::size_t>(target);
+    std::size_t words = (T >> 6) + 1;
+
+    std::vector<U> bits(words, 0);
+    bits[0] = 1;
+
+    std::size_t current_max = 0;
+    std::size_t target_word = T >> 6;
+    unsigned target_bit = static_cast<unsigned>(T & 63);
+
+    for (U xu : items) {
+        if (xu == 0 || xu > target) continue;
+
+        std::size_t x = static_cast<std::size_t>(xu);
+        std::size_t new_max = current_max > T - x ? T : current_max + x;
+
+        std::size_t word_shift = x >> 6;
+        unsigned bit_shift = static_cast<unsigned>(x & 63);
+        std::size_t hi = new_max >> 6;
+
+        for (std::size_t i = hi + 1; i-- > word_shift;) {
+            U val = bits[i - word_shift] << bit_shift;
+            if (bit_shift && i > word_shift) {
+                val |= bits[i - word_shift - 1] >> (64 - bit_shift);
+            }
+            bits[i] |= val;
+        }
+
+        current_max = new_max;
+
+        if ((bits[target_word] >> target_bit) & 1ULL) return target;
+    }
+
+    std::size_t idx = target_word;
+    U mask = bits[idx] & (target_bit == 63 ? ~0ULL : ((1ULL << (target_bit + 1)) - 1));
+
+    while (true) {
+        if (mask) {
+            return static_cast<U>(idx * 64 + std::bit_width(mask) - 1);
+        }
+        if (idx == 0) break;
+        --idx;
+        mask = bits[idx];
+    }
+
+    return 0;
+}
+
+struct MITMSolver {
+    const std::vector<U>* a;
+    U target;
+    U best;
+    int mid;
+    int n;
+    std::vector<U> right_sums;
+
+    void gen_right(int idx, U sum) {
+        if (idx == n) {
+            right_sums.push_back(sum);
+            return;
+        }
+
+        gen_right(idx + 1, sum);
+
+        U x = (*a)[idx];
+        if (x <= target - sum) {
+            gen_right(idx + 1, sum + x);
+        }
+    }
+
+    void search_left(int idx, U sum) {
+        if (best == target) return;
+
+        if (idx == mid) {
+            auto it = std::upper_bound(right_sums.begin(), right_sums.end(), target - sum);
+            if (it != right_sums.begin()) {
+                --it;
+                U cand = sum + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+
+        U x = (*a)[idx];
+        if (x <= target - sum) {
+            search_left(idx + 1, sum + x);
+        }
+        search_left(idx + 1, sum);
+    }
+};
+
+static U solve_mitm(const std::vector<U>& items, U target) {
+    MITMSolver s;
+    s.a = &items;
+    s.target = target;
+    s.best = 0;
+    s.n = static_cast<int>(items.size());
+    s.mid = s.n / 2;
+
+    int right_count = s.n - s.mid;
+    if (right_count < 63) {
+        s.right_sums.reserve(static_cast<std::size_t>(1ULL << right_count));
+    }
+
+    s.gen_right(s.mid, 0);
+    std::sort(s.right_sums.begin(), s.right_sums.end());
+    s.right_sums.erase(std::unique(s.right_sums.begin(), s.right_sums.end()), s.right_sums.end());
+
+    s.search_left(0, 0);
+    return s.best;
+}
+
+static U solve_branch_bound(const std::vector<U>& items, U target) {
+    std::size_t n = items.size();
+    if (target == 0 || n == 0) return 0;
+
+    std::vector<U> suffix(n + 1, 0);
+    for (std::size_t i = n; i-- > 0;) {
+        U x = items[i];
+        suffix[i] = suffix[i + 1] > target - x ? target : suffix[i + 1] + x;
+    }
+
+    U best = 0;
+    for (U x : items) {
+        if (x <= target - best) best += x;
+        if (best == target) return target;
+    }
+
+    struct State {
+        std::size_t idx;
+        U sum;
+    };
+
+    std::vector<State> st;
+    st.reserve(std::min<std::size_t>(n + 1, 1000000));
+    st.push_back({0, 0});
+
+    while (!st.empty()) {
+        State cur = st.back();
+        st.pop_back();
+
+        if (cur.sum > best) {
+            best = cur.sum;
+            if (best == target) break;
+        }
+
+        if (cur.idx >= n) continue;
+        if (cur.sum <= best && suffix[cur.idx] <= best - cur.sum) continue;
+
+        U x = items[cur.idx];
+
+        if (suffix[cur.idx + 1] > best - cur.sum) {
+            st.push_back({cur.idx + 1, cur.sum});
+        }
+
+        if (x <= target - cur.sum) {
+            U ns = cur.sum + x;
+            if (ns > best || suffix[cur.idx + 1] > best - ns) {
+                st.push_back({cur.idx + 1, ns});
+            }
+        }
+    }
+
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<U> input;
+    input.reserve(N > 0 ? static_cast<std::size_t>(N) : 0);
+
+    U total = 0;
+    U g = 0;
+
+    for (int i = 0; i < N; ++i) {
+        U x;
+        std::cin >> x;
+        input.push_back(x);
+        total += x;
+        g = g == 0 ? x : std::gcd(g, x);
+    }
+
+    if (N == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    if (g == 0) g = 1;
+
+    U scaled_total = total / g;
+    U target = scaled_total / 2;
+
+    std::vector<U> values;
+    values.reserve(input.size());
+
+    for (U x : input) {
+        U y = x / g;
+        if (y <= target) values.push_back(y);
+    }
+
+    std::vector<U> items = make_items(values, target);
+
+    U best = 0;
+
+    constexpr U BIT_LIMIT = 200000000ULL;
+
+    if (target <= BIT_LIMIT) {
+        best = solve_bitset(items, target);
+    } else if (items.size() <= 46) {
+        best = solve_mitm(items, target);
+    } else {
+        best = solve_branch_bound(items, target);
+    }
+
+    U answer = (scaled_total - 2 * best) * g;
+    std::cout << answer << '\n';
+
+    return 0;
+}

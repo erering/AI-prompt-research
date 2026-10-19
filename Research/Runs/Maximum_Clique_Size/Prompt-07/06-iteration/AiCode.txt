@@ -1,0 +1,240 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class MaxCliqueSolver {
+    using ull = unsigned long long;
+    using Bits = vector<ull>;
+
+    int n, W;
+    vector<Bits> adj;
+    int best = 0;
+
+    inline bool emptyBits(const Bits& b) const {
+        for (ull x : b) if (x) return false;
+        return true;
+    }
+
+    inline int firstBit(const Bits& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return i * 64 + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    inline void clearBit(Bits& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline bool testBit(const Bits& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline int popcountIntersection(const Bits& a, const Bits& b) const {
+        int s = 0;
+        for (int i = 0; i < W; ++i) s += __builtin_popcountll(a[i] & b[i]);
+        return s;
+    }
+
+    void colorSort(const Bits& P, vector<int>& order, vector<int>& colors) const {
+        order.clear();
+        colors.clear();
+
+        Bits U = P, Q;
+        int color = 0;
+
+        while (!emptyBits(U)) {
+            ++color;
+            Q = U;
+
+            while (!emptyBits(Q)) {
+                int v = firstBit(Q);
+                order.push_back(v);
+                colors.push_back(color);
+
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                for (int i = 0; i < W; ++i) {
+                    Q[i] &= ~adj[v][i];
+                }
+            }
+        }
+    }
+
+    int greedyClique() const {
+        Bits cand(W, 0);
+        for (int i = 0; i < n; ++i) cand[i >> 6] |= 1ULL << (i & 63);
+
+        int res = 0;
+
+        while (!emptyBits(cand)) {
+            int bestV = -1;
+            int bestDeg = -1;
+
+            for (int w = 0; w < W; ++w) {
+                ull x = cand[w];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = w * 64 + b;
+                    if (v < n) {
+                        int d = popcountIntersection(cand, adj[v]);
+                        if (d > bestDeg) {
+                            bestDeg = d;
+                            bestV = v;
+                        }
+                    }
+                    x &= x - 1;
+                }
+            }
+
+            ++res;
+            for (int i = 0; i < W; ++i) cand[i] &= adj[bestV][i];
+        }
+
+        return res;
+    }
+
+    void expand(int sz, Bits P) {
+        if (emptyBits(P)) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        vector<int> order, colors;
+        colorSort(P, order, colors);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (sz + colors[i] <= best) return;
+
+            int v = order[i];
+
+            Bits newP(W);
+            for (int j = 0; j < W; ++j) {
+                newP[j] = P[j] & adj[v][j];
+            }
+
+            if (emptyBits(newP)) {
+                if (sz + 1 > best) best = sz + 1;
+            } else {
+                expand(sz + 1, std::move(newP));
+            }
+
+            clearBit(P, v);
+        }
+    }
+
+public:
+    MaxCliqueSolver(int n_, vector<Bits>&& adj_) : n(n_), W((n_ + 63) / 64), adj(std::move(adj_)) {}
+
+    int solve() {
+        if (n == 0) return 0;
+
+        best = greedyClique();
+        if (best == n) return best;
+
+        Bits all(W, 0);
+        for (int i = 0; i < n; ++i) all[i >> 6] |= 1ULL << (i & 63);
+
+        expand(0, std::move(all));
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    int W = (N + 63) / 64;
+    using ull = unsigned long long;
+    using Bits = vector<ull>;
+
+    vector<Bits> raw(N, Bits(W, 0));
+
+    string tok;
+    int r = 0, c = 0;
+
+    while (r < N && (cin >> tok)) {
+        for (char ch : tok) {
+            if (ch != '0' && ch != '1') continue;
+
+            if (ch == '1' && r != c) {
+                raw[r][c >> 6] |= 1ULL << (c & 63);
+            }
+
+            ++c;
+            if (c == N) {
+                ++r;
+                c = 0;
+                if (r == N) break;
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        raw[i][i >> 6] &= ~(1ULL << (i & 63));
+    }
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool e = ((raw[i][j >> 6] >> (j & 63)) & 1ULL) ||
+                     ((raw[j][i >> 6] >> (i & 63)) & 1ULL);
+
+            if (e) {
+                raw[i][j >> 6] |= 1ULL << (j & 63);
+                raw[j][i >> 6] |= 1ULL << (i & 63);
+            } else {
+                raw[i][j >> 6] &= ~(1ULL << (j & 63));
+                raw[j][i >> 6] &= ~(1ULL << (i & 63));
+            }
+        }
+    }
+
+    vector<int> deg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        for (ull x : raw[i]) deg[i] += __builtin_popcountll(x);
+    }
+
+    vector<int> ord(N);
+    iota(ord.begin(), ord.end(), 0);
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    vector<int> pos(N);
+    for (int i = 0; i < N; ++i) pos[ord[i]] = i;
+
+    vector<Bits> adj(N, Bits(W, 0));
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = ord[ni];
+
+        for (int w = 0; w < W; ++w) {
+            ull x = raw[oi][w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = w * 64 + b;
+                if (oj < N) {
+                    int nj = pos[oj];
+                    if (nj != ni) {
+                        adj[ni][nj >> 6] |= 1ULL << (nj & 63);
+                    }
+                }
+                x &= x - 1;
+            }
+        }
+    }
+
+    MaxCliqueSolver solver(N, std::move(adj));
+    cout << solver.solve() << '\n';
+
+    return 0;
+}

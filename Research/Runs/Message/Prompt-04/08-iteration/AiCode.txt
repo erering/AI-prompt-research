@@ -1,0 +1,127 @@
+#include <vector>
+#include <array>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+using ull = unsigned long long;
+
+std::array<std::array<ull, 32>, 32> make_comb() {
+    std::array<std::array<ull, 32>, 32> c{};
+    for (int n = 0; n < 32; ++n) {
+        c[n][0] = c[n][n] = 1;
+        for (int k = 1; k < n; ++k) c[n][k] = c[n - 1][k - 1] + c[n - 1][k];
+    }
+    return c;
+}
+
+const std::array<std::array<ull, 32>, 32> COMB = make_comb();
+
+ull rank_subset(const std::vector<int>& a, int n, int k) {
+    ull r = 0;
+    int prev = -1;
+    for (int pos = 0; pos < k; ++pos) {
+        for (int v = prev + 1; v < a[pos]; ++v) {
+            r += COMB[n - 1 - v][k - 1 - pos];
+        }
+        prev = a[pos];
+    }
+    return r;
+}
+
+std::vector<int> unrank_subset(ull r, int n, int k) {
+    std::vector<int> a;
+    int prev = -1;
+    for (int pos = 0; pos < k; ++pos) {
+        for (int v = prev + 1; v < n; ++v) {
+            ull cnt = COMB[n - 1 - v][k - 1 - pos];
+            if (r >= cnt) {
+                r -= cnt;
+            } else {
+                a.push_back(v);
+                prev = v;
+                break;
+            }
+        }
+    }
+    return a;
+}
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> controlled;
+    for (int i = 0; i < 31; ++i) {
+        if (C[i]) controlled.push_back(i);
+    }
+
+    ull r = rank_subset(controlled, 31, 15);
+
+    for (int b = 0; b < 29; ++b) {
+        bool bit = ((r >> b) & 1ULL) != 0;
+        std::vector<bool> A(31, bit);
+        send_packet(A);
+    }
+
+    std::vector<int> safe;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) safe.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    int S = (int)M.size();
+    int len_code = S - 1;
+    for (int b = 0; b < 10; ++b) bits.push_back(((len_code >> b) & 1) != 0);
+    for (bool x : M) bits.push_back(x);
+
+    int ptr = 0;
+    while (ptr < (int)bits.size()) {
+        std::vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            if (ptr < (int)bits.size()) A[safe[j]] = bits[ptr++];
+            else A[safe[j]] = false;
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    ull r = 0;
+    for (int b = 0; b < 29; ++b) {
+        int cnt = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) ++cnt;
+        }
+        if (cnt >= 16) r |= (1ULL << b);
+    }
+
+    std::vector<int> controlled = unrank_subset(r, 31, 15);
+    std::vector<bool> is_controlled(31, false);
+    for (int x : controlled) is_controlled[x] = true;
+
+    std::vector<int> safe;
+    for (int i = 0; i < 31; ++i) {
+        if (!is_controlled[i]) safe.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    for (int p = 29; p < (int)R.size(); ++p) {
+        for (int j = 0; j < 16; ++j) {
+            bits.push_back(R[p][safe[j]]);
+        }
+    }
+
+    int len_code = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (bits[b]) len_code |= (1 << b);
+    }
+    int S = len_code + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[10 + i]);
+    }
+    return M;
+}

@@ -1,0 +1,53 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int B = 3;
+
+    vector<int> pw(1, 1);
+    while (pw.back() <= N) pw.push_back(pw.back() * B);
+    int L = (int)pw.size() - 1;
+
+    auto digit = [&](int v, int pos) -> int {
+        return (v / pw[L - 1 - pos]) % B;
+    };
+
+    auto id = [&](int pos, int d) -> int {
+        return 1 + pos * B + d;
+    };
+
+    int total = 1 + L * B;
+    vector<vector<int>> s(total, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int y = 1; y <= N; y++) {
+        s[0][y] = id(0, digit(y, 0));
+    }
+
+    for (int pos = 0; pos < L; pos++) {
+        for (int stored = 0; stored < B; stored++) {
+            int q = id(pos, stored);
+            bool current_is_A = (pos % 2 == 1);
+
+            s[q][0] = current_is_A ? 0 : 1;
+
+            for (int y = 1; y <= N; y++) {
+                int cur = digit(y, pos);
+
+                if (cur < stored) {
+                    s[q][y] = current_is_A ? -1 : -2;
+                } else if (cur > stored) {
+                    s[q][y] = current_is_A ? -2 : -1;
+                } else {
+                    if (pos + 1 == L) {
+                        s[q][y] = -1;
+                    } else {
+                        s[q][y] = id(pos + 1, digit(y, pos + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

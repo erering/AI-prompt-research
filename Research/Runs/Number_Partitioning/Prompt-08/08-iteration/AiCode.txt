@@ -1,0 +1,172 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+static ull totalSum;
+
+static ull diffForSum(ull s) {
+    ull other = totalSum - s;
+    return s > other ? s - other : other - s;
+}
+
+static void printULL(ull x) {
+    cout << x << '\n';
+}
+
+static ull solveBitset(const vector<ull>& a, ull total) {
+    size_t words = static_cast<size_t>(total / 64 + 1);
+    vector<ull> bits(words, 0);
+    bits[0] = 1ULL;
+
+    for (ull x : a) {
+        size_t ws = static_cast<size_t>(x / 64);
+        unsigned bs = static_cast<unsigned>(x % 64);
+
+        for (size_t i = words; i-- > ws; ) {
+            ull v = bits[i - ws] << bs;
+            if (bs && i > ws) v |= bits[i - ws - 1] >> (64 - bs);
+            bits[i] |= v;
+        }
+    }
+
+    for (ull s = total / 2;; --s) {
+        if ((bits[static_cast<size_t>(s / 64)] >> (s % 64)) & 1ULL) {
+            return total - 2 * s;
+        }
+        if (s == 0) break;
+    }
+    return total;
+}
+
+static ull solveMITM(const vector<ull>& a, ull total) {
+    int n = static_cast<int>(a.size());
+    int n1 = n / 2;
+    int n2 = n - n1;
+
+    vector<ull> b;
+    b.reserve(size_t(1) << n2);
+    b.push_back(0);
+
+    for (int i = n1; i < n; ++i) {
+        size_t sz = b.size();
+        for (size_t j = 0; j < sz; ++j) b.push_back(b[j] + a[i]);
+    }
+
+    sort(b.begin(), b.end());
+
+    ull target = total / 2;
+    ull best = total;
+
+    function<void(int, ull)> dfs = [&](int idx, ull s1) {
+        if (best == (total & 1ULL)) return;
+
+        if (idx == n1) {
+            ull need = s1 <= target ? target - s1 : 0;
+            auto it = lower_bound(b.begin(), b.end(), need);
+
+            if (it != b.end()) {
+                ull s = s1 + *it;
+                best = min(best, diffForSum(s));
+            }
+            if (it != b.begin()) {
+                --it;
+                ull s = s1 + *it;
+                best = min(best, diffForSum(s));
+            }
+            return;
+        }
+
+        dfs(idx + 1, s1);
+        dfs(idx + 1, s1 + a[idx]);
+    };
+
+    dfs(0, 0);
+    return best;
+}
+
+static ull solveBranchBound(vector<ull> a, ull total) {
+    int n = static_cast<int>(a.size());
+    if (n == 0) return 0;
+
+    sort(a.begin(), a.end(), greater<ull>());
+
+    vector<ull> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) suffix[i] = suffix[i + 1] + a[i];
+
+    ull processed = 0, greedy = 0;
+    for (ull x : a) {
+        if (greedy <= processed - greedy) greedy += x;
+        processed += x;
+    }
+
+    ull best = diffForSum(greedy);
+    ull optimum = total & 1ULL;
+    ull target = total / 2;
+
+    function<void(int, ull)> dfs = [&](int idx, ull selected) {
+        if (best == optimum) return;
+
+        ull lo = selected;
+        ull hi = selected + suffix[idx];
+
+        ull lower;
+        if (hi < target) lower = diffForSum(hi);
+        else if (lo > target) lower = diffForSum(lo);
+        else lower = optimum;
+
+        if (lower >= best) return;
+
+        if (idx == n) {
+            best = min(best, diffForSum(selected));
+            return;
+        }
+
+        ull take = selected + a[idx];
+
+        if (diffForSum(take) < diffForSum(selected)) {
+            dfs(idx + 1, take);
+            dfs(idx + 1, selected);
+        } else {
+            dfs(idx + 1, selected);
+            dfs(idx + 1, take);
+        }
+    };
+
+    dfs(1, a[0]);
+    return best;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    vector<ull> a(N);
+    totalSum = 0;
+
+    for (int i = 0; i < N; ++i) {
+        cin >> a[i];
+        totalSum += a[i];
+    }
+
+    if (N == 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    ull ans;
+
+    if (totalSum <= 100000000ULL) {
+        ans = solveBitset(a, totalSum);
+    } else if (N <= 48) {
+        ans = solveMITM(a, totalSum);
+    } else {
+        ans = solveBranchBound(a, totalSum);
+    }
+
+    printULL(ans);
+    return 0;
+}

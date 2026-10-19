@@ -1,0 +1,105 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int FIXED_N = 10000;
+    constexpr int LOG = 16;
+
+    int up[FIXED_N][LOG];
+    int depth_arr[FIXED_N];
+    int diaA = 0, diaB = 0, diaD = 0;
+
+    void reset_state() {
+        diaA = diaB = diaD = 0;
+        depth_arr[0] = 0;
+        for (int k = 0; k < LOG; ++k) up[0][k] = 0;
+    }
+
+    void add_vertex(int v, int p) {
+        up[v][0] = p;
+        depth_arr[v] = depth_arr[p] + 1;
+        for (int k = 1; k < LOG; ++k) {
+            up[v][k] = up[up[v][k - 1]][k - 1];
+        }
+    }
+
+    int lca(int a, int b) {
+        if (depth_arr[a] < depth_arr[b]) swap(a, b);
+        int diff = depth_arr[a] - depth_arr[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[a][k] != up[b][k]) {
+                a = up[a][k];
+                b = up[b][k];
+            }
+        }
+        return up[a][0];
+    }
+
+    int dist_vertices(int a, int b) {
+        int c = lca(a, b);
+        return depth_arr[a] + depth_arr[b] - 2 * depth_arr[c];
+    }
+
+    void update_diameter_with(int v) {
+        int a = diaA, b = diaB, d = diaD;
+        int da = dist_vertices(v, a);
+        int db = dist_vertices(v, b);
+        if (da > d || db > d) {
+            if (da >= db) {
+                diaA = v;
+                diaB = a;
+                diaD = da;
+            } else {
+                diaA = v;
+                diaB = b;
+                diaD = db;
+            }
+        }
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) reset_state();
+
+    add_vertex(i, Pi);
+
+    if (i == FIXED_N - 1) {
+        int da = dist_vertices(i, diaA);
+        int db = dist_vertices(i, diaB);
+
+        if (da >= diaD || db >= diaD) {
+            if (da >= db) return diaA + 1;
+            return diaB + 1;
+        }
+
+        return 10001 + diaB;
+    }
+
+    update_diameter_with(i);
+
+    if (i == FIXED_N - 2) {
+        return diaA + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    if ((int)S.size() < FIXED_N) return {0, 0};
+
+    int last = S[FIXED_N - 1];
+
+    if (1 <= last && last <= 10000) {
+        return {FIXED_N - 1, last - 1};
+    }
+
+    if (10001 <= last && last <= 20000) {
+        return {S[FIXED_N - 2] - 1, last - 10001};
+    }
+
+    return {0, 0};
+}

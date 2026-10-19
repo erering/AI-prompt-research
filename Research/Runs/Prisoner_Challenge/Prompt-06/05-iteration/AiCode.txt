@@ -1,0 +1,85 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    if (N <= 1) {
+        vector<vector<int>> s(1, vector<int>(N + 1, -1));
+        s[0][0] = 0;
+        return s;
+    }
+
+    const int MAXC = 120;
+    vector<int> dp(MAXC + 1, -1), preC(MAXC + 1, -1), preB(MAXC + 1, -1);
+    dp[0] = 1;
+
+    for (int c = 0; c <= MAXC; ++c) {
+        if (dp[c] < 0) continue;
+        for (int b = 2; c + b + 1 <= MAXC; ++b) {
+            int nc = c + b + 1;
+            int np = min(N, dp[c] * b);
+            if (np > dp[nc]) {
+                dp[nc] = np;
+                preC[nc] = c;
+                preB[nc] = b;
+            }
+        }
+    }
+
+    int best = -1;
+    for (int c = 0; c <= MAXC; ++c) {
+        if (dp[c] >= N) {
+            best = c;
+            break;
+        }
+    }
+
+    vector<int> base;
+    for (int c = best; c > 0; c = preC[c]) base.push_back(preB[c]);
+    reverse(base.begin(), base.end());
+
+    int D = (int)base.size();
+    vector<int> A(D);
+    vector<vector<int>> B(D);
+
+    int rows = 0;
+    A[0] = rows++;
+    for (int i = 1; i < D; ++i) A[i] = rows++;
+
+    for (int i = 0; i < D; ++i) {
+        B[i].resize(base[i]);
+        for (int d = 0; d < base[i]; ++d) B[i][d] = rows++;
+    }
+
+    vector<long long> place(D, 1);
+    for (int i = D - 2; i >= 0; --i) place[i] = place[i + 1] * base[i + 1];
+
+    auto digit = [&](int val, int pos) -> int {
+        return int(((long long)(val - 1) / place[pos]) % base[pos]);
+    };
+
+    vector<vector<int>> s(rows, vector<int>(N + 1, 0));
+
+    for (int p = 0; p < D; ++p) {
+        int r = A[p];
+        s[r][0] = 0;
+        for (int j = 1; j <= N; ++j) {
+            int d = digit(j, p);
+            s[r][j] = B[p][d];
+        }
+    }
+
+    for (int p = 0; p < D; ++p) {
+        for (int da = 0; da < base[p]; ++da) {
+            int r = B[p][da];
+            s[r][0] = 1;
+            for (int j = 1; j <= N; ++j) {
+                int db = digit(j, p);
+                if (db > da) s[r][j] = -1;
+                else if (db < da) s[r][j] = -2;
+                else s[r][j] = (p + 1 < D ? A[p + 1] : -1);
+            }
+        }
+    }
+
+    return s;
+}

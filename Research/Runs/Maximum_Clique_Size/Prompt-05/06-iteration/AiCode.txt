@@ -1,0 +1,375 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+using Bits = vector<ull>;
+
+int N, W;
+ull LAST_MASK;
+vector<Bits> H;
+int globalBest = 0;
+
+inline void maskLast(Bits &a) {
+    if (W) a[W - 1] &= LAST_MASK;
+}
+
+inline bool testBit(const Bits &a, int i) {
+    return (a[i >> 6] >> (i & 63)) & 1ULL;
+}
+
+inline void setBit(Bits &a, int i) {
+    a[i >> 6] |= 1ULL << (i & 63);
+}
+
+inline void resetBit(Bits &a, int i) {
+    a[i >> 6] &= ~(1ULL << (i & 63));
+}
+
+inline int popcountBits(const Bits &a) {
+    int s = 0;
+    for (ull x : a) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline bool emptyBits(const Bits &a) {
+    for (ull x : a) if (x) return false;
+    return true;
+}
+
+inline int firstVertex(const Bits &a) {
+    for (int w = 0; w < W; ++w) {
+        if (a[w]) return (w << 6) + __builtin_ctzll(a[w]);
+    }
+    return -1;
+}
+
+inline int degreeFull(const Bits &a, int v) {
+    int d = 0;
+    const Bits &hv = H[v];
+    for (int w = 0; w < W; ++w) d += __builtin_popcountll(a[w] & hv[w]);
+    return d;
+}
+
+int degreeInfo(const Bits &a, int v, int &x, int &y) {
+    x = y = -1;
+    int d = 0;
+    const Bits &hv = H[v];
+    for (int w = 0; w < W; ++w) {
+        ull z = a[w] & hv[w];
+        while (z) {
+            int b = __builtin_ctzll(z);
+            int u = (w << 6) + b;
+            if (u < N) {
+                if (d == 0) x = u;
+                else if (d == 1) y = u;
+                ++d;
+                if (d > 2) return d;
+            }
+            z &= z - 1;
+        }
+    }
+    return d;
+}
+
+inline void removeClosed(Bits &a, int v) {
+    resetBit(a, v);
+    const Bits &hv = H[v];
+    for (int w = 0; w < W; ++w) a[w] &= ~hv[w];
+    maskLast(a);
+}
+
+int reduceGraph(Bits &a) {
+    int forced = 0;
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int w = 0; w < W && !changed; ++w) {
+            ull z = a[w];
+            while (z && !changed) {
+                int b = __builtin_ctzll(z);
+                int v = (w << 6) + b;
+                if (v >= N) break;
+                int x, y;
+                int d = degreeInfo(a, v, x, y);
+                if (d == 0) {
+                    resetBit(a, v);
+                    ++forced;
+                    changed = true;
+                } else if (d == 1) {
+                    resetBit(a, v);
+                    resetBit(a, x);
+                    ++forced;
+                    changed = true;
+                } else if (d == 2 && testBit(H[x], y)) {
+                    resetBit(a, v);
+                    resetBit(a, x);
+                    resetBit(a, y);
+                    ++forced;
+                    changed = true;
+                }
+                z &= z - 1;
+            }
+        }
+    }
+    return forced;
+}
+
+int greedyIndependent(Bits a) {
+    int res = 0;
+    while (!emptyBits(a)) {
+        int best = -1, bestDeg = INT_MAX;
+        for (int w = 0; w < W; ++w) {
+            ull z = a[w];
+            while (z) {
+                int b = __builtin_ctzll(z);
+                int v = (w << 6) + b;
+                if (v < N) {
+                    int d = degreeFull(a, v);
+                    if (d < bestDeg) {
+                        bestDeg = d;
+                        best = v;
+                        if (d == 0) break;
+                    }
+                }
+                z &= z - 1;
+            }
+            if (bestDeg == 0) break;
+        }
+        ++res;
+        removeClosed(a, best);
+    }
+    return res;
+}
+
+int greedyMatchingUpper(Bits a) {
+    int n = popcountBits(a);
+    int m = 0;
+    while (!emptyBits(a)) {
+        int v = firstVertex(a);
+        Bits nb(W);
+        bool has = false;
+        int u = -1;
+        for (int w = 0; w < W; ++w) {
+            ull z = a[w] & H[v][w];
+            if (z) {
+                u = (w << 6) + __builtin_ctzll(z);
+                has = true;
+                break;
+            }
+        }
+        resetBit(a, v);
+        if (has && u < N && testBit(a, u)) {
+            resetBit(a, u);
+            ++m;
+        }
+    }
+    return n - m;
+}
+
+int cliqueCoverUpper(Bits a) {
+    int colors = 0;
+    while (!emptyBits(a)) {
+        ++colors;
+        Bits q = a;
+        while (!emptyBits(q)) {
+            int v = firstVertex(q);
+            resetBit(a, v);
+            resetBit(q, v);
+            for (int w = 0; w < W; ++w) q[w] &= H[v][w];
+        }
+    }
+    return colors;
+}
+
+int upperBound(const Bits &a) {
+    if (emptyBits(a)) return 0;
+    int u1 = greedyMatchingUpper(a);
+    int u2 = cliqueCoverUpper(a);
+    return min(u1, u2);
+}
+
+bool splitComponents(const Bits &a, vector<Bits> &components) {
+    int total = popcountBits(a);
+    if (total <= 1) return false;
+
+    Bits rem = a;
+    while (!emptyBits(rem)) {
+        Bits comp(W, 0), front(W, 0);
+        int s = firstVertex(rem);
+        setBit(comp, s);
+        setBit(front, s);
+        resetBit(rem, s);
+
+        while (!emptyBits(front)) {
+            Bits neigh(W, 0);
+            for (int w = 0; w < W; ++w) {
+                ull z = front[w];
+                while (z) {
+                    int b = __builtin_ctzll(z);
+                    int v = (w << 6) + b;
+                    if (v < N) {
+                        for (int k = 0; k < W; ++k) neigh[k] |= H[v][k];
+                    }
+                    z &= z - 1;
+                }
+            }
+            for (int k = 0; k < W; ++k) {
+                neigh[k] &= rem[k];
+                comp[k] |= neigh[k];
+                rem[k] &= ~neigh[k];
+            }
+            front.swap(neigh);
+        }
+        components.push_back(comp);
+        if ((int)components.size() == 1 && popcountBits(comp) == total) {
+            components.clear();
+            return false;
+        }
+    }
+    return components.size() > 1;
+}
+
+int solveExact(Bits a);
+
+int solveConnected(Bits a, int forced) {
+    int n = popcountBits(a);
+    if (n == 0) return forced;
+
+    int lb = greedyIndependent(a);
+    int ub = upperBound(a);
+    if (lb == ub) return forced + lb;
+
+    int vBest = -1, dBest = -1;
+    for (int w = 0; w < W; ++w) {
+        ull z = a[w];
+        while (z) {
+            int b = __builtin_ctzll(z);
+            int v = (w << 6) + b;
+            if (v < N) {
+                int d = degreeFull(a, v);
+                if (d > dBest) {
+                    dBest = d;
+                    vBest = v;
+                }
+            }
+            z &= z - 1;
+        }
+    }
+
+    if (dBest <= 2) return forced + n / 2;
+
+    Bits ex = a;
+    resetBit(ex, vBest);
+    int best = solveExact(ex);
+
+    Bits in = a;
+    removeClosed(in, vBest);
+    best = max(best, 1 + solveExact(in));
+
+    return forced + best;
+}
+
+int solveExact(Bits a) {
+    int forced = reduceGraph(a);
+    if (emptyBits(a)) return forced;
+
+    vector<Bits> comps;
+    if (splitComponents(a, comps)) {
+        int sum = forced;
+        for (Bits &c : comps) sum += solveExact(c);
+        return sum;
+    }
+
+    return solveConnected(a, forced);
+}
+
+void branchBound(Bits a, int add) {
+    add += reduceGraph(a);
+    if (emptyBits(a)) {
+        globalBest = max(globalBest, add);
+        return;
+    }
+
+    vector<Bits> comps;
+    if (splitComponents(a, comps)) {
+        int sum = add;
+        for (Bits &c : comps) sum += solveExact(c);
+        globalBest = max(globalBest, sum);
+        return;
+    }
+
+    int lb = greedyIndependent(a);
+    globalBest = max(globalBest, add + lb);
+
+    int ub = upperBound(a);
+    if (add + ub <= globalBest) return;
+
+    int n = popcountBits(a);
+    int vBest = -1, dBest = -1;
+    for (int w = 0; w < W; ++w) {
+        ull z = a[w];
+        while (z) {
+            int b = __builtin_ctzll(z);
+            int v = (w << 6) + b;
+            if (v < N) {
+                int d = degreeFull(a, v);
+                if (d > dBest) {
+                    dBest = d;
+                    vBest = v;
+                }
+            }
+            z &= z - 1;
+        }
+    }
+
+    if (dBest <= 2) {
+        globalBest = max(globalBest, add + n / 2);
+        return;
+    }
+
+    Bits ex = a;
+    resetBit(ex, vBest);
+    branchBound(ex, add);
+
+    Bits in = a;
+    removeClosed(in, vBest);
+    if (add + 1 + upperBound(in) > globalBest) branchBound(in, add + 1);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+    W = (N + 63) >> 6;
+    LAST_MASK = (N % 64 == 0) ? ~0ULL : ((1ULL << (N % 64)) - 1ULL);
+
+    vector<Bits> G(N, Bits(W, 0));
+    char c;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            cin >> c;
+            if (c == '1' && i != j) setBit(G[i], j);
+        }
+    }
+
+    H.assign(N, Bits(W, 0));
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool edge = testBit(G[i], j) || testBit(G[j], i);
+            if (!edge) {
+                setBit(H[i], j);
+                setBit(H[j], i);
+            }
+        }
+    }
+
+    Bits all(W, ~0ULL);
+    maskLast(all);
+
+    globalBest = greedyIndependent(all);
+    branchBound(all, 0);
+
+    cout << globalBest << '\n';
+    return 0;
+}

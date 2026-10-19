@@ -1,0 +1,265 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <string>
+#include <vector>
+
+using u64 = std::uint64_t;
+using u128 = __uint128_t;
+using i128 = __int128_t;
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        std::cout << '0' << '\n';
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + int(x % 10)));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static i128 abs_i128(i128 x) {
+    return x < 0 ? -x : x;
+}
+
+static u128 solve_dp(const std::vector<u64>& items, u128 total, u64 target) {
+    std::size_t words = target / 64 + 1;
+    std::vector<u64> bits(words, 0);
+    bits[0] = 1;
+
+    const u64 last_mask = (target % 64 == 63)
+        ? std::numeric_limits<u64>::max()
+        : ((u64(1) << ((target % 64) + 1)) - 1);
+
+    for (u64 x : items) {
+        if (x > target) continue;
+        std::size_t ws = x / 64;
+        unsigned bs = unsigned(x % 64);
+
+        for (std::size_t i = words; i-- > ws;) {
+            u64 v = bits[i - ws] << bs;
+            if (bs && i > ws) {
+                v |= bits[i - ws - 1] >> (64 - bs);
+            }
+            bits[i] |= v;
+        }
+        bits.back() &= last_mask;
+    }
+
+    u64 best = 0;
+    for (std::size_t wi = words; wi-- > 0;) {
+        u64 v = bits[wi];
+        if (wi == words - 1) v &= last_mask;
+        if (v) {
+            int b = 63 - std::countl_zero(v);
+            best = u64(wi) * 64 + u64(b);
+            break;
+        }
+    }
+
+    return total - u128(2) * best;
+}
+
+static u128 solve_mitm(const std::vector<u64>& items, u128 total, u64 target) {
+    std::size_t n = items.size();
+    std::size_t mid = n / 2;
+
+    std::vector<u64> first;
+    if (mid < 63) first.reserve(std::size_t(1) << mid);
+    first.push_back(0);
+
+    for (std::size_t i = 0; i < mid; ++i) {
+        u64 x = items[i];
+        std::size_t sz = first.size();
+        for (std::size_t j = 0; j < sz; ++j) {
+            if (first[j] <= target - x) {
+                first.push_back(first[j] + x);
+            }
+        }
+    }
+
+    std::sort(first.begin(), first.end());
+    first.erase(std::unique(first.begin(), first.end()), first.end());
+
+    u64 best = 0;
+
+    auto query = [&](u64 s) {
+        auto it = std::upper_bound(first.begin(), first.end(), target - s);
+        if (it != first.begin()) {
+            --it;
+            u64 cand = s + *it;
+            if (cand > best) best = cand;
+        }
+    };
+
+    auto dfs = [&](auto&& self, std::size_t idx, u64 cur) -> void {
+        if (best == target) return;
+        if (idx == n) {
+            query(cur);
+            return;
+        }
+        self(self, idx + 1, cur);
+        u64 x = items[idx];
+        if (cur <= target - x) {
+            self(self, idx + 1, cur + x);
+        }
+    };
+
+    dfs(dfs, mid, 0);
+
+    return total - u128(2) * best;
+}
+
+static u128 solve_branch(std::vector<u128> items, u128 total) {
+    if (items.empty()) return total;
+
+    std::sort(items.begin(), items.end(), std::greater<u128>());
+
+    std::vector<i128> a;
+    a.reserve(items.size());
+    for (u128 x : items) a.push_back((i128)x);
+
+    std::size_t n = a.size();
+
+    i128 s1 = 0, s2 = 0;
+    for (i128 x : a) {
+        if (s1 <= s2) s1 += x;
+        else s2 += x;
+    }
+
+    i128 best = abs_i128(s1 - s2);
+    if (best == 0) return 0;
+
+    std::vector<i128> suffix(n + 1, 0);
+    for (std::size_t i = n; i-- > 0;) {
+        suffix[i] = suffix[i + 1] + a[i];
+    }
+
+    auto dfs = [&](auto&& self, std::size_t idx, i128 diff) -> void {
+        if (best == 0) return;
+
+        i128 ad = abs_i128(diff);
+        i128 lower = ad > suffix[idx] ? ad - suffix[idx] : 0;
+        if (lower >= best) return;
+
+        if (idx == n) {
+            if (ad < best) best = ad;
+            return;
+        }
+
+        i128 x = a[idx];
+        if (diff >= 0) {
+            self(self, idx + 1, diff - x);
+            self(self, idx + 1, diff + x);
+        } else {
+            self(self, idx + 1, diff + x);
+            self(self, idx + 1, diff - x);
+        }
+    };
+
+    dfs(dfs, 1, a[0]);
+    return (u128)best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u64> vals(N);
+    u64 g = 0;
+
+    for (std::size_t i = 0; i < N; ++i) {
+        std::cin >> vals[i];
+        g = std::gcd(g, vals[i]);
+    }
+
+    if (N == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    for (u64& x : vals) x /= g;
+
+    std::sort(vals.begin(), vals.end());
+
+    u128 total = 0;
+    for (u64 x : vals) total += x;
+
+    u128 target128 = total / 2;
+
+    std::vector<u128> branch_items;
+    std::vector<u64> useful_items;
+
+    bool target_fits_u64 = target128 <= (u128)std::numeric_limits<u64>::max();
+    u64 target = target_fits_u64 ? (u64)target128 : 0;
+
+    for (std::size_t i = 0; i < vals.size();) {
+        u64 v = vals[i];
+        std::size_t j = i;
+        while (j < vals.size() && vals[j] == v) ++j;
+
+        u64 cnt = u64(j - i);
+
+        {
+            u64 rem = cnt;
+            u64 k = 1;
+            while (rem > 0) {
+                u64 take = std::min(k, rem);
+                branch_items.push_back(u128(v) * take);
+                rem -= take;
+                if (k <= rem / 2) k *= 2;
+                else k = rem == 0 ? 1 : rem;
+            }
+        }
+
+        if (target_fits_u64) {
+            u128 max_useful128 = target128 / v;
+            if (max_useful128 > cnt) max_useful128 = cnt;
+            u64 rem = (u64)max_useful128;
+            u64 k = 1;
+            while (rem > 0) {
+                u64 take = std::min(k, rem);
+                u128 item = u128(v) * take;
+                useful_items.push_back((u64)item);
+                rem -= take;
+                if (k <= rem / 2) k *= 2;
+                else k = rem == 0 ? 1 : rem;
+            }
+        }
+
+        i = j;
+    }
+
+    u128 answer_norm;
+
+    if (target_fits_u64) {
+        std::size_t words = target / 64 + 1;
+        long double ops = (long double)words * (long double)useful_items.size();
+        bool can_dp = words <= 16000000ULL && ops <= 250000000.0L;
+
+        if (can_dp && (useful_items.size() > 48 || ops <= 50000000.0L)) {
+            answer_norm = solve_dp(useful_items, total, target);
+        } else if (useful_items.size() <= 48) {
+            answer_norm = solve_mitm(useful_items, total, target);
+        } else if (can_dp) {
+            answer_norm = solve_dp(useful_items, total, target);
+        } else {
+            answer_norm = solve_branch(branch_items, total);
+        }
+    } else {
+        answer_norm = solve_branch(branch_items, total);
+    }
+
+    print_u128(answer_norm * g);
+    return 0;
+}

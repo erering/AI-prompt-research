@@ -1,0 +1,249 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class MaxCliqueSolver {
+    using ull = unsigned long long;
+
+    int n, W;
+    ull lastMask;
+    vector<vector<ull>> adj;
+    int best = 0;
+    int globalUpper = INT_MAX;
+    bool finished = false;
+
+    inline bool hasEdge(int a, int b) const {
+        return (adj[a][b >> 6] >> (b & 63)) & 1ULL;
+    }
+
+    inline int firstSetBit(const vector<ull>& bits) const {
+        for (int i = 0; i < W; ++i) {
+            if (bits[i]) return (i << 6) + __builtin_ctzll(bits[i]);
+        }
+        return -1;
+    }
+
+    inline bool emptyBits(const vector<ull>& bits) const {
+        for (ull x : bits) if (x) return false;
+        return true;
+    }
+
+    inline int popcountBits(const vector<ull>& bits) const {
+        int s = 0;
+        for (ull x : bits) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    void colorSort(const vector<ull>& P, vector<int>& order, vector<int>& colors) const {
+        order.clear();
+        colors.clear();
+
+        int total = popcountBits(P);
+        order.reserve(total);
+        colors.reserve(total);
+
+        vector<ull> U = P, Q(W);
+        int color = 0;
+
+        while (!emptyBits(U)) {
+            ++color;
+            Q = U;
+
+            while (true) {
+                int v = firstSetBit(Q);
+                if (v < 0 || v >= n) break;
+
+                order.push_back(v);
+                colors.push_back(color);
+
+                ull bit = 1ULL << (v & 63);
+                U[v >> 6] &= ~bit;
+                Q[v >> 6] &= ~bit;
+
+                const vector<ull>& av = adj[v];
+                for (int i = 0; i < W; ++i) Q[i] &= ~av[i];
+                Q[W - 1] &= lastMask;
+            }
+        }
+    }
+
+    int greedyCliqueFast() const {
+        vector<ull> cand(W, ~0ULL);
+        cand[W - 1] &= lastMask;
+
+        int ans = 0;
+        while (true) {
+            int v = firstSetBit(cand);
+            if (v < 0 || v >= n) break;
+            ++ans;
+            for (int i = 0; i < W; ++i) cand[i] &= adj[v][i];
+        }
+        return ans;
+    }
+
+    int greedyCliqueStrong() const {
+        vector<ull> cand(W, ~0ULL);
+        cand[W - 1] &= lastMask;
+
+        int ans = 0;
+        while (!emptyBits(cand)) {
+            int bestV = -1, bestScore = -1;
+
+            for (int wi = 0; wi < W; ++wi) {
+                ull x = cand[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (wi << 6) + b;
+                    if (v < n) {
+                        int score = 0;
+                        const vector<ull>& av = adj[v];
+                        for (int k = 0; k < W; ++k) score += __builtin_popcountll(cand[k] & av[k]);
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestV = v;
+                        }
+                    }
+                    x &= x - 1;
+                }
+            }
+
+            if (bestV < 0) break;
+            ++ans;
+            for (int i = 0; i < W; ++i) cand[i] &= adj[bestV][i];
+        }
+
+        return ans;
+    }
+
+    void expand(const vector<ull>& P, int curSize) {
+        if (finished) return;
+
+        vector<int> order, colors;
+        colorSort(P, order, colors);
+
+        int m = (int)order.size();
+        for (int idx = m - 1; idx >= 0; --idx) {
+            if (curSize + colors[idx] <= best) return;
+
+            int v = order[idx];
+
+            vector<ull> newP(W, 0);
+            int cnt = 0;
+
+            const vector<ull>& av = adj[v];
+            for (int j = 0; j < idx; ++j) {
+                int u = order[j];
+                if ((av[u >> 6] >> (u & 63)) & 1ULL) {
+                    newP[u >> 6] |= 1ULL << (u & 63);
+                    ++cnt;
+                }
+            }
+
+            if (curSize + 1 + cnt <= best) continue;
+
+            if (cnt == 0) {
+                if (curSize + 1 > best) {
+                    best = curSize + 1;
+                    if (best >= globalUpper) {
+                        finished = true;
+                        return;
+                    }
+                }
+            } else {
+                expand(newP, curSize + 1);
+                if (finished) return;
+            }
+        }
+    }
+
+public:
+    MaxCliqueSolver(int n_, vector<vector<ull>>&& adj_)
+        : n(n_), W((n_ + 63) >> 6), adj(std::move(adj_)) {
+        int rem = n & 63;
+        lastMask = rem ? ((1ULL << rem) - 1ULL) : ~0ULL;
+    }
+
+    int solve() {
+        best = greedyCliqueFast();
+        if (n <= 2500) best = max(best, greedyCliqueStrong());
+
+        vector<ull> full(W, ~0ULL);
+        full[W - 1] &= lastMask;
+
+        vector<int> order, colors;
+        colorSort(full, order, colors);
+        if (!colors.empty()) globalUpper = colors.back();
+        else globalUpper = 0;
+
+        if (best >= globalUpper) return best;
+
+        expand(full, 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    int W = (N + 63) >> 6;
+    using ull = unsigned long long;
+
+    vector<vector<ull>> oldAdj(N, vector<ull>(W, 0));
+
+    char c;
+    long long need = 1LL * N * N;
+    long long got = 0;
+
+    while (got < need && cin.get(c)) {
+        if (c != '0' && c != '1') continue;
+
+        int i = (int)(got / N);
+        int j = (int)(got % N);
+
+        if (c == '1' && i != j) {
+            oldAdj[i][j >> 6] |= 1ULL << (j & 63);
+        }
+
+        ++got;
+    }
+
+    vector<int> deg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        for (ull x : oldAdj[i]) deg[i] += __builtin_popcountll(x);
+    }
+
+    vector<int> perm(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    vector<int> pos(N);
+    for (int i = 0; i < N; ++i) pos[perm[i]] = i;
+
+    vector<vector<ull>> adj(N, vector<ull>(W, 0));
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        for (int w = 0; w < W; ++w) {
+            ull x = oldAdj[oi][w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (w << 6) + b;
+                if (oj < N) {
+                    int nj = pos[oj];
+                    if (nj != ni) adj[ni][nj >> 6] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+    }
+
+    MaxCliqueSolver solver(N, std::move(adj));
+    cout << solver.solve() << '\n';
+
+    return 0;
+}

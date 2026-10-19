@@ -1,0 +1,152 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static unsigned long long COMB_TABLE[32][32];
+static bool COMB_READY = false;
+
+static void init_comb() {
+    if (COMB_READY) return;
+    for (int n = 0; n <= 31; ++n) {
+        COMB_TABLE[n][0] = COMB_TABLE[n][n] = 1;
+        for (int k = 1; k < n; ++k) {
+            COMB_TABLE[n][k] = COMB_TABLE[n - 1][k - 1] + COMB_TABLE[n - 1][k];
+        }
+    }
+    COMB_READY = true;
+}
+
+static unsigned long long comb(int n, int k) {
+    if (n < 0 || k < 0 || k > n) return 0;
+    init_comb();
+    return COMB_TABLE[n][k];
+}
+
+static unsigned long long rank_bad_set(const vector<bool>& C) {
+    init_comb();
+
+    vector<int> bad;
+    for (int i = 0; i < 31; ++i) {
+        if (C[i]) bad.push_back(i);
+    }
+
+    unsigned long long rank = 0;
+    int previous = -1;
+
+    for (int j = 0; j < 15; ++j) {
+        for (int x = previous + 1; x < bad[j]; ++x) {
+            rank += comb(31 - 1 - x, 15 - 1 - j);
+        }
+        previous = bad[j];
+    }
+
+    return rank;
+}
+
+static vector<bool> unrank_bad_set(unsigned long long rank) {
+    init_comb();
+
+    vector<bool> bad_mask(31, false);
+    int previous = -1;
+
+    for (int j = 0; j < 15; ++j) {
+        for (int x = previous + 1; x < 31; ++x) {
+            unsigned long long cnt = comb(31 - 1 - x, 15 - 1 - j);
+            if (rank >= cnt) {
+                rank -= cnt;
+            } else {
+                bad_mask[x] = true;
+                previous = x;
+                break;
+            }
+        }
+    }
+
+    return bad_mask;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    int L = (int)M.size();
+
+    unsigned long long bad_rank = rank_bad_set(C);
+    int last_count_code = (L - 1) % 16;
+
+    for (int t = 0; t < 33; ++t) {
+        bool bit;
+        if (t < 29) {
+            bit = ((bad_rank >> t) & 1ULL) != 0;
+        } else {
+            bit = ((last_count_code >> (t - 29)) & 1) != 0;
+        }
+
+        vector<bool> A(31, bit);
+        send_packet(A);
+    }
+
+    vector<int> reliable;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) reliable.push_back(i);
+    }
+
+    int data_packets = (L + 15) / 16;
+
+    for (int p = 0; p < data_packets; ++p) {
+        vector<bool> A(31, false);
+
+        for (int j = 0; j < 16; ++j) {
+            int idx = p * 16 + j;
+            if (idx < L) {
+                A[reliable[j]] = M[idx];
+            }
+        }
+
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    if ((int)R.size() < 34) return {};
+
+    unsigned long long bad_rank = 0;
+    int last_count_code = 0;
+
+    for (int t = 0; t < 33; ++t) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[t][i]) ++ones;
+        }
+
+        bool bit = (ones >= 16);
+
+        if (t < 29) {
+            if (bit) bad_rank |= (1ULL << t);
+        } else {
+            if (bit) last_count_code |= (1 << (t - 29));
+        }
+    }
+
+    vector<bool> bad = unrank_bad_set(bad_rank);
+
+    vector<int> reliable;
+    for (int i = 0; i < 31; ++i) {
+        if (!bad[i]) reliable.push_back(i);
+    }
+
+    int data_packets = (int)R.size() - 33;
+    int last_count = last_count_code + 1;
+    int L = (data_packets - 1) * 16 + last_count;
+
+    vector<bool> M;
+    M.reserve(L);
+
+    for (int p = 0; p < data_packets; ++p) {
+        for (int j = 0; j < 16; ++j) {
+            if ((int)M.size() < L) {
+                M.push_back(R[33 + p][reliable[j]]);
+            }
+        }
+    }
+
+    return M;
+}

@@ -1,0 +1,301 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <cstdlib>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <vector>
+
+using ll = long long;
+
+static ll greedy_diff(const std::vector<ll>& a) {
+    ll x = 0, y = 0;
+    for (ll v : a) {
+        if (x < y) x += v;
+        else y += v;
+    }
+    return x >= y ? x - y : y - x;
+}
+
+static ll kk_heuristic(const std::vector<ll>& a) {
+    std::priority_queue<ll> pq;
+    for (ll v : a) if (v > 0) pq.push(v);
+    while (pq.size() > 1) {
+        ll x = pq.top(); pq.pop();
+        ll y = pq.top(); pq.pop();
+        if (x != y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static bool solve_dp(const std::vector<ll>& a, ll sum, ll& ans) {
+    const ll MAX_TARGET = 200000000LL;
+    const long double MAX_OPS = 160000000.0L;
+
+    ll target = sum / 2;
+    if (target < 0 || target > MAX_TARGET) return false;
+
+    size_t words = static_cast<size_t>(target / 64 + 1);
+    if (static_cast<long double>(words) * static_cast<long double>(a.size()) > MAX_OPS) return false;
+
+    try {
+        std::vector<uint64_t> bits(words, 0);
+        bits[0] = 1;
+
+        for (ll v : a) {
+            if (v > target) continue;
+            size_t ws = static_cast<size_t>(v / 64);
+            unsigned bs = static_cast<unsigned>(v & 63);
+            size_t last = words - 1;
+
+            if (bs == 0) {
+                for (size_t i = last + 1; i-- > ws;) {
+                    bits[i] |= bits[i - ws];
+                }
+            } else {
+                for (size_t i = last + 1; i-- > ws;) {
+                    uint64_t val = bits[i - ws] << bs;
+                    if (i > ws) val |= bits[i - ws - 1] >> (64 - bs);
+                    bits[i] |= val;
+                }
+            }
+        }
+
+        size_t last = words - 1;
+        unsigned off = static_cast<unsigned>(target & 63);
+        uint64_t mask = (off == 63) ? ~uint64_t(0) : ((uint64_t(1) << (off + 1)) - 1);
+        bits[last] &= mask;
+
+        ll best = 0;
+        for (size_t i = words; i-- > 0;) {
+            uint64_t w = bits[i];
+            if (w) {
+                int b = 63 - std::countl_zero(w);
+                best = static_cast<ll>(i * 64 + b);
+                break;
+            }
+        }
+
+        ans = sum - 2 * best;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+struct MITMEnumerator {
+    const std::vector<ll>* a;
+    const std::vector<ll>* left;
+    int idx, end;
+    ll target;
+    ll best;
+
+    void dfs(int i, ll s) {
+        if (best == target) return;
+        if (i == end) {
+            ll need = target - s;
+            auto it = std::upper_bound(left->begin(), left->end(), need);
+            if (it != left->begin()) {
+                --it;
+                ll cand = s + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+
+        ll ns = s + (*a)[i];
+        if (ns <= target) dfs(i + 1, ns);
+        dfs(i + 1, s);
+    }
+};
+
+static bool solve_mitm(const std::vector<ll>& a, ll sum, ll& ans) {
+    int n = static_cast<int>(a.size());
+    if (n > 47) return false;
+
+    ll target = sum / 2;
+    int n1 = n / 2;
+
+    try {
+        std::vector<ll> left;
+        left.reserve(size_t(1) << n1);
+        left.push_back(0);
+
+        for (int i = 0; i < n1; ++i) {
+            ll v = a[i];
+            size_t sz = left.size();
+            for (size_t j = 0; j < sz; ++j) {
+                ll ns = left[j] + v;
+                if (ns <= target) left.push_back(ns);
+            }
+        }
+
+        std::sort(left.begin(), left.end());
+
+        MITMEnumerator e;
+        e.a = &a;
+        e.left = &left;
+        e.idx = n1;
+        e.end = n;
+        e.target = target;
+        e.best = 0;
+        e.dfs(n1, 0);
+
+        ans = sum - 2 * e.best;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+struct CKK {
+    ll best;
+    ll parity;
+    uint64_t limit;
+    uint64_t nodes = 0;
+    bool aborted = false;
+
+    void search(const std::vector<ll>& v, ll sum) {
+        if (aborted || best == parity) return;
+        if (limit && ++nodes > limit) {
+            aborted = true;
+            return;
+        }
+
+        int n = static_cast<int>(v.size());
+        if (n == 0) {
+            best = 0;
+            return;
+        }
+        if (n == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+        if (n == 2) {
+            ll d = v[0] - v[1];
+            if (d < best) best = d;
+            return;
+        }
+
+        ll largest = v[0];
+        ll rest = sum - largest;
+        ll lower = (largest > rest) ? (largest - rest) : 0;
+        if ((lower & 1LL) != parity) ++lower;
+
+        if (lower >= best) return;
+        if (largest >= rest) {
+            best = lower;
+            return;
+        }
+
+        ll x = v[0], y = v[1];
+
+        ll diff = x - y;
+        ll sum_diff = sum - 2 * y;
+        std::vector<ll> child;
+        child.reserve(n - 1);
+
+        if (diff > 0) {
+            bool inserted = false;
+            for (int i = 2; i < n; ++i) {
+                if (!inserted && diff >= v[i]) {
+                    child.push_back(diff);
+                    inserted = true;
+                }
+                child.push_back(v[i]);
+            }
+            if (!inserted) child.push_back(diff);
+        } else {
+            for (int i = 2; i < n; ++i) child.push_back(v[i]);
+        }
+
+        search(child, sum_diff);
+        if (aborted || best == parity) return;
+
+        child.clear();
+        child.reserve(n - 1);
+        child.push_back(x + y);
+        for (int i = 2; i < n; ++i) child.push_back(v[i]);
+
+        search(child, sum);
+    }
+};
+
+static bool solve_ckk(const std::vector<ll>& a, ll sum, ll& ans, uint64_t node_limit) {
+    CKK solver;
+    solver.best = std::min(greedy_diff(a), kk_heuristic(a));
+    solver.parity = sum & 1LL;
+    solver.limit = node_limit;
+
+    if (solver.best == solver.parity) {
+        ans = solver.best;
+        return true;
+    }
+
+    solver.search(a, sum);
+    if (solver.aborted) return false;
+
+    ans = solver.best;
+    return true;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ll> a;
+    a.reserve(std::max(0, N));
+
+    ll g = 0;
+    ll sum = 0;
+
+    for (int i = 0; i < N; ++i) {
+        ll x;
+        std::cin >> x;
+        if (x == 0) continue;
+        a.push_back(x);
+        g = std::gcd(g, x);
+        sum += x;
+    }
+
+    if (a.empty()) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    if (g > 1) {
+        for (ll& x : a) x /= g;
+        sum /= g;
+    } else {
+        g = 1;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<ll>());
+
+    ll ans = 0;
+
+    if (solve_dp(a, sum, ans)) {
+        std::cout << ans * g << '\n';
+        return 0;
+    }
+
+    if (solve_ckk(a, sum, ans, 20000)) {
+        std::cout << ans * g << '\n';
+        return 0;
+    }
+
+    if (solve_mitm(a, sum, ans)) {
+        std::cout << ans * g << '\n';
+        return 0;
+    }
+
+    solve_ckk(a, sum, ans, 0);
+    std::cout << ans * g << '\n';
+
+    return 0;
+}

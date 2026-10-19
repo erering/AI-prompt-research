@@ -1,0 +1,59 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static int gN = 0;
+static vector<int> gP;
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || gN != N || (int)gP.size() != N) {
+        gN = N;
+        gP.assign(N, -1);
+    }
+    if (0 <= i && i < N) gP[i] = Pi;
+    return 0;
+}
+
+static pair<int,int> farthest_from(int src, const vector<vector<int>>& adj) {
+    int n = (int)adj.size();
+    vector<int> dist(n, -1);
+    vector<int> q;
+    q.reserve(n);
+    dist[src] = 0;
+    q.push_back(src);
+    for (int h = 0; h < (int)q.size(); ++h) {
+        int u = q[h];
+        for (int v : adj[u]) {
+            if (dist[v] == -1) {
+                dist[v] = dist[u] + 1;
+                q.push_back(v);
+            }
+        }
+    }
+    int best = src;
+    for (int i = 0; i < n; ++i) {
+        if (dist[i] > dist[best]) best = i;
+    }
+    return {best, dist[best]};
+}
+
+pair<int,int> longest_path(vector<int> S) {
+    int n = (int)S.size();
+    if ((int)gP.size() == n) {
+        vector<vector<int>> adj(n);
+        bool ok = true;
+        for (int i = 1; i < n; ++i) {
+            if (gP[i] < 0 || gP[i] >= i) {
+                ok = false;
+                break;
+            }
+            adj[i].push_back(gP[i]);
+            adj[gP[i]].push_back(i);
+        }
+        if (ok) {
+            int a = farthest_from(0, adj).first;
+            int b = farthest_from(a, adj).first;
+            return {a, b};
+        }
+    }
+    return {0, 0};
+}

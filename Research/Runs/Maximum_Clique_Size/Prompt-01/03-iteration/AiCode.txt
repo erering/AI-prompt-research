@@ -1,0 +1,304 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+struct FastScanner {
+    static const int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        char c;
+        do { c = getChar(); } while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do { c = getChar(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+vector<vector<ull>> adjg;
+vector<ull> allBits;
+int bestAns = 0;
+
+inline bool testBit(const vector<ull>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void resetBit(vector<ull>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline bool emptyBits(const vector<ull>& b) {
+    for (ull x : b) if (x) return false;
+    return true;
+}
+
+inline int popcountBits(const vector<ull>& b) {
+    int s = 0;
+    for (ull x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline int firstBit(const vector<ull>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+inline int interCount(const vector<ull>& p, int v) {
+    int s = 0;
+    const vector<ull>& a = adjg[v];
+    for (int i = 0; i < W; ++i) s += __builtin_popcountll(p[i] & a[i]);
+    return s;
+}
+
+int selectBestVertex(const vector<ull>& p, int limit) {
+    int bv = -1, bs = -1, seen = 0;
+    for (int i = 0; i < W && seen < limit; ++i) {
+        ull x = p[i];
+        while (x && seen < limit) {
+            int b = __builtin_ctzll(x);
+            int v = (i << 6) + b;
+            if (v < N) {
+                int sc = interCount(p, v);
+                if (sc > bs) {
+                    bs = sc;
+                    bv = v;
+                }
+                ++seen;
+            }
+            x &= x - 1;
+        }
+    }
+    return bv == -1 ? firstBit(p) : bv;
+}
+
+vector<int> greedyClique(int start, int lim) {
+    vector<ull> p = allBits;
+    vector<int> c;
+    if (start >= 0) {
+        c.push_back(start);
+        p = adjg[start];
+    }
+    while (!emptyBits(p)) {
+        int v = selectBestVertex(p, lim);
+        if (v < 0 || v >= N) break;
+        c.push_back(v);
+        for (int i = 0; i < W; ++i) p[i] &= adjg[v][i];
+    }
+    return c;
+}
+
+void localImprove(vector<int>& c) {
+    vector<char> in(N, 0);
+    for (int v : c) in[v] = 1;
+
+    int changes = 0;
+    while (changes < 200) {
+        bool changed = false;
+        vector<int> first(N, -1);
+
+        for (int v = 0; v < N && !changed; ++v) {
+            if (in[v]) continue;
+
+            int miss = 0, missVertex = -1;
+            for (int u : c) {
+                if (!testBit(adjg[v], u)) {
+                    ++miss;
+                    missVertex = u;
+                    if (miss > 1) break;
+                }
+            }
+
+            if (miss == 0) {
+                c.push_back(v);
+                in[v] = 1;
+                changed = true;
+                ++changes;
+                break;
+            }
+
+            if (miss == 1) {
+                int u = missVertex;
+                int w = first[u];
+                if (w == -1) {
+                    first[u] = v;
+                } else if (testBit(adjg[v], w)) {
+                    int pos = -1;
+                    for (int i = 0; i < (int)c.size(); ++i) {
+                        if (c[i] == u) {
+                            pos = i;
+                            break;
+                        }
+                    }
+                    if (pos != -1) {
+                        in[u] = 0;
+                        in[v] = 1;
+                        in[w] = 1;
+                        c[pos] = v;
+                        c.push_back(w);
+                        changed = true;
+                        ++changes;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!changed) break;
+    }
+}
+
+void colorSort(const vector<ull>& p, vector<int>& vertices, vector<int>& colors) {
+    vertices.clear();
+    colors.clear();
+
+    vector<ull> u = p;
+    vector<ull> q(W);
+
+    int color = 0;
+    while (!emptyBits(u)) {
+        ++color;
+        q = u;
+
+        while (!emptyBits(q)) {
+            int v = firstBit(q);
+            vertices.push_back(v);
+            colors.push_back(color);
+
+            resetBit(u, v);
+            resetBit(q, v);
+
+            const vector<ull>& av = adjg[v];
+            for (int i = 0; i < W; ++i) q[i] &= ~av[i];
+        }
+    }
+}
+
+void expand(vector<ull> p, int sz) {
+    if (sz + popcountBits(p) <= bestAns) return;
+
+    if (emptyBits(p)) {
+        if (sz > bestAns) bestAns = sz;
+        return;
+    }
+
+    vector<int> vertices, colors;
+    colorSort(p, vertices, colors);
+
+    for (int i = (int)vertices.size() - 1; i >= 0; --i) {
+        if (sz + colors[i] <= bestAns) return;
+
+        int v = vertices[i];
+        if (!testBit(p, v)) continue;
+
+        vector<ull> np(W);
+        for (int j = 0; j < W; ++j) np[j] = p[j] & adjg[v][j];
+
+        if (sz + 1 + popcountBits(np) > bestAns) {
+            if (emptyBits(np)) {
+                if (sz + 1 > bestAns) bestAns = sz + 1;
+            } else {
+                expand(std::move(np), sz + 1);
+            }
+        }
+
+        resetBit(p, v);
+    }
+}
+
+int main() {
+    FastScanner fs;
+    N = fs.nextInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+
+    vector<vector<ull>> tmp(N, vector<ull>(W, 0));
+    vector<int> deg(N, 0);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = fs.nextBit();
+            if (b && i != j) {
+                tmp[i][j >> 6] |= 1ULL << (j & 63);
+                ++deg[i];
+            }
+        }
+    }
+
+    vector<int> perm(N), inv(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+    for (int i = 0; i < N; ++i) inv[perm[i]] = i;
+
+    adjg.assign(N, vector<ull>(W, 0));
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        for (int w = 0; w < W; ++w) {
+            ull x = tmp[oi][w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (w << 6) + b;
+                if (oj < N) {
+                    int nj = inv[oj];
+                    if (nj != ni) adjg[ni][nj >> 6] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+    }
+
+    vector<vector<ull>>().swap(tmp);
+
+    allBits.assign(W, ~0ULL);
+    if (N & 63) allBits[W - 1] = (1ULL << (N & 63)) - 1ULL;
+
+    for (int i = 0; i < N; ++i) {
+        resetBit(adjg[i], i);
+        if (N & 63) adjg[i][W - 1] &= allBits[W - 1];
+    }
+
+    vector<int> bestClique = greedyClique(-1, 96);
+    int starts = min(N, 16);
+    for (int s = 0; s < starts; ++s) {
+        vector<int> c = greedyClique(s, 32);
+        if (c.size() > bestClique.size()) bestClique.swap(c);
+    }
+
+    localImprove(bestClique);
+    bestAns = (int)bestClique.size();
+
+    expand(allBits, 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

@@ -1,0 +1,86 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    if (N <= 1) {
+        return vector<vector<int>>(1, vector<int>(N + 1, -1));
+    }
+
+    const int INF = 1e9;
+    vector<int> dp(N + 1, INF), preP(N + 1, -1), preB(N + 1, -1);
+    dp[1] = 0;
+
+    for (int p = 1; p < N; ++p) {
+        if (dp[p] == INF) continue;
+        for (int b = 2; b <= N; ++b) {
+            int np = (long long)p * b >= N ? N : p * b;
+            if (dp[p] + b < dp[np]) {
+                dp[np] = dp[p] + b;
+                preP[np] = p;
+                preB[np] = b;
+            }
+        }
+    }
+
+    vector<int> base;
+    int cur = N;
+    while (cur > 1) {
+        int b = preB[cur];
+        base.push_back(b);
+        cur = preP[cur];
+    }
+    reverse(base.begin(), base.end());
+
+    int L = (int)base.size();
+    vector<long long> suf(L + 1, 1);
+    for (int i = L - 1; i >= 0; --i) suf[i] = suf[i + 1] * base[i];
+
+    vector<int> off(L);
+    int total = 0;
+    for (int i = 0; i < L; ++i) {
+        off[i] = 1 + total;
+        total += base[i];
+    }
+
+    auto digit = [&](int value, int pos) -> int {
+        long long v = value - 1;
+        return (int)((v / suf[pos + 1]) % base[pos]);
+    };
+
+    auto state_id = [&](int pos, int d) -> int {
+        return off[pos] + d;
+    };
+
+    vector<vector<int>> s(total + 1, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = state_id(0, digit(j, 0));
+    }
+
+    for (int pos = 0; pos < L; ++pos) {
+        for (int d = 0; d < base[pos]; ++d) {
+            int id = state_id(pos, d);
+            int bag = (pos % 2 == 0 ? 1 : 0);
+            s[id][0] = bag;
+
+            for (int j = 1; j <= N; ++j) {
+                int e = digit(j, pos);
+
+                if (e < d) {
+                    s[id][j] = (bag == 0 ? -1 : -2);
+                } else if (e > d) {
+                    s[id][j] = (bag == 0 ? -2 : -1);
+                } else {
+                    if (pos == L - 1) {
+                        s[id][j] = -1;
+                    } else {
+                        s[id][j] = state_id(pos + 1, digit(j, pos + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

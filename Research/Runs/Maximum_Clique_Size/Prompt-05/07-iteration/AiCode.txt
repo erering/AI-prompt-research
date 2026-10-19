@@ -1,0 +1,231 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class FastInput {
+    static constexpr int BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    int idx = 0, sz = 0;
+
+    char getChar() {
+        if (idx >= sz) {
+            sz = (int)fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (sz == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+public:
+    bool readInt(int &out) {
+        char c;
+        do {
+            c = getChar();
+            if (!c) return false;
+        } while (c < '0' || c > '9');
+
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        out = x;
+        return true;
+    }
+
+    int readBit() {
+        char c;
+        do {
+            c = getChar();
+        } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+using U64 = uint64_t;
+using Bitset = vector<U64>;
+
+int N, W;
+vector<Bitset> adjm;
+int bestAns = 0;
+int curSize = 0;
+
+inline void clearBit(Bitset &b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline int firstSetBit(const Bitset &b) {
+    for (int i = 0; i < W; ++i) {
+        U64 x = b[i];
+        if (x) return (i << 6) + __builtin_ctzll(x);
+    }
+    return -1;
+}
+
+inline int lastSetBit(const Bitset &b) {
+    for (int i = W - 1; i >= 0; --i) {
+        U64 x = b[i];
+        if (x) return (i << 6) + (63 - __builtin_clzll(x));
+    }
+    return -1;
+}
+
+inline int popcountBits(const Bitset &b) {
+    int s = 0;
+    for (U64 x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+int greedyClique(Bitset p) {
+    int res = 0;
+    while (true) {
+        int v = lastSetBit(p);
+        if (v < 0) break;
+        ++res;
+        for (int i = 0; i < W; ++i) p[i] &= adjm[v][i];
+    }
+    return res;
+}
+
+void colorSort(const Bitset &p, int cnt, vector<int> &order, vector<int> &colors) {
+    order.clear();
+    colors.clear();
+    order.reserve(cnt);
+    colors.reserve(cnt);
+
+    Bitset u = p;
+    Bitset q(W);
+
+    int rem = cnt;
+    int color = 0;
+
+    while (rem > 0) {
+        ++color;
+        q = u;
+
+        while (true) {
+            int v = firstSetBit(q);
+            if (v < 0) break;
+
+            order.push_back(v);
+            colors.push_back(color);
+
+            clearBit(u, v);
+            clearBit(q, v);
+            --rem;
+
+            const Bitset &av = adjm[v];
+            for (int i = 0; i < W; ++i) q[i] &= ~av[i];
+        }
+    }
+}
+
+void expand(Bitset p, int cnt) {
+    if (curSize + cnt <= bestAns) return;
+
+    vector<int> order, colors;
+    colorSort(p, cnt, order, colors);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (curSize + colors[i] <= bestAns) return;
+
+        int v = order[i];
+        clearBit(p, v);
+
+        Bitset np(W);
+        const Bitset &av = adjm[v];
+        for (int j = 0; j < W; ++j) np[j] = p[j] & av[j];
+
+        ++curSize;
+        int ncnt = popcountBits(np);
+
+        if (ncnt == 0) {
+            if (curSize > bestAns) bestAns = curSize;
+        } else if (curSize + ncnt > bestAns) {
+            expand(std::move(np), ncnt);
+        }
+
+        --curSize;
+    }
+}
+
+int main() {
+    FastInput in;
+    if (!in.readInt(N)) return 0;
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    U64 lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    vector<Bitset> raw(N, Bitset(W, 0));
+    vector<int> deg(N, 0);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int bit = in.readBit();
+            if (bit && i != j) {
+                raw[i][j >> 6] |= 1ULL << (j & 63);
+                ++deg[i];
+            }
+        }
+    }
+
+    vector<int> perm(N), inv(N);
+    iota(perm.begin(), perm.end(), 0);
+
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] < deg[b];
+        return a < b;
+    });
+
+    for (int i = 0; i < N; ++i) inv[perm[i]] = i;
+
+    adjm.assign(N, Bitset(W, 0));
+
+    for (int oi = 0; oi < N; ++oi) {
+        int ni = inv[oi];
+        for (int w = 0; w < W; ++w) {
+            U64 x = raw[oi][w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (w << 6) + b;
+                if (oj < N && oj != oi) {
+                    int nj = inv[oj];
+                    adjm[ni][nj >> 6] |= 1ULL << (nj & 63);
+                    adjm[nj][ni >> 6] |= 1ULL << (ni & 63);
+                }
+                x &= x - 1;
+            }
+        }
+    }
+
+    vector<Bitset>().swap(raw);
+
+    for (int i = 0; i < N; ++i) {
+        adjm[i][i >> 6] &= ~(1ULL << (i & 63));
+        adjm[i][W - 1] &= lastMask;
+    }
+
+    Bitset all(W, ~0ULL);
+    all[W - 1] = lastMask;
+
+    bestAns = max(1, greedyClique(all));
+
+    int starts = min(N, 128);
+    for (int k = 0; k < starts; ++k) {
+        int s = N - 1 - k;
+        Bitset p = adjm[s];
+        int val = 1 + greedyClique(std::move(p));
+        if (val > bestAns) bestAns = val;
+    }
+
+    if (bestAns < N) {
+        expand(std::move(all), N);
+    }
+
+    printf("%d\n", bestAns);
+    return 0;
+}

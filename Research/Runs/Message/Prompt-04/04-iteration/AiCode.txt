@@ -1,0 +1,131 @@
+#include <vector>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    unsigned long long binom_val(int n, int k) {
+        static bool init = false;
+        static unsigned long long c[32][32];
+        if (!init) {
+            for (int i = 0; i <= 31; ++i) {
+                c[i][0] = c[i][i] = 1;
+                for (int j = 1; j < i; ++j) c[i][j] = c[i - 1][j - 1] + c[i - 1][j];
+            }
+            init = true;
+        }
+        if (k < 0 || k > n || n < 0 || n > 31) return 0;
+        return c[n][k];
+    }
+
+    unsigned long long rank_subset_16(const std::vector<int>& a) {
+        unsigned long long rank = 0;
+        int prev = -1;
+        for (int j = 0; j < 16; ++j) {
+            for (int x = prev + 1; x < a[j]; ++x) {
+                rank += binom_val(31 - 1 - x, 16 - 1 - j);
+            }
+            prev = a[j];
+        }
+        return rank;
+    }
+
+    std::vector<int> unrank_subset_16(unsigned long long rank) {
+        std::vector<int> a;
+        a.reserve(16);
+        int prev = -1;
+        for (int j = 0; j < 16; ++j) {
+            for (int x = prev + 1; x < 31; ++x) {
+                unsigned long long cnt = binom_val(31 - 1 - x, 16 - 1 - j);
+                if (rank >= cnt) {
+                    rank -= cnt;
+                } else {
+                    a.push_back(x);
+                    prev = x;
+                    break;
+                }
+            }
+        }
+        while ((int)a.size() < 16) {
+            int x = a.empty() ? 0 : a.back() + 1;
+            a.push_back(x);
+        }
+        return a;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> safe;
+    safe.reserve(16);
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) safe.push_back(i);
+    }
+
+    unsigned long long rank = rank_subset_16(safe);
+
+    for (int b = 0; b < 29; ++b) {
+        bool bit = ((rank >> b) & 1ULL) != 0;
+        std::vector<bool> A(31, bit);
+        send_packet(A);
+    }
+
+    std::vector<bool> payload;
+    payload.reserve(10 + M.size());
+
+    unsigned int len_code = (unsigned int)M.size() - 1U;
+    for (int b = 0; b < 10; ++b) {
+        payload.push_back(((len_code >> b) & 1U) != 0);
+    }
+    for (bool bit : M) payload.push_back(bit);
+
+    int packets = ((int)payload.size() + 15) / 16;
+    int ptr = 0;
+    for (int p = 0; p < packets; ++p) {
+        std::vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            bool bit = false;
+            if (ptr < (int)payload.size()) bit = payload[ptr++];
+            A[safe[j]] = bit;
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    unsigned long long rank = 0;
+    for (int b = 0; b < 29 && b < (int)R.size(); ++b) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) ++ones;
+        }
+        if (ones >= 16) rank |= (1ULL << b);
+    }
+
+    if (rank >= binom_val(31, 16)) rank = 0;
+    std::vector<int> safe = unrank_subset_16(rank);
+
+    std::vector<bool> bits;
+    for (int p = 29; p < (int)R.size(); ++p) {
+        for (int j = 0; j < 16; ++j) {
+            bits.push_back(R[p][safe[j]]);
+        }
+    }
+
+    unsigned int len_code = 0;
+    for (int b = 0; b < 10 && b < (int)bits.size(); ++b) {
+        if (bits[b]) len_code |= (1U << b);
+    }
+
+    int S = (int)len_code + 1;
+    if (S < 1) S = 1;
+    if (S > 1024) S = 1024;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        int idx = 10 + i;
+        M.push_back(idx < (int)bits.size() ? bits[idx] : false);
+    }
+    return M;
+}

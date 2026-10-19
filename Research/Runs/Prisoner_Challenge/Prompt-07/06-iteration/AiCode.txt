@@ -1,0 +1,51 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    int L = 0;
+    while ((1 << L) <= N) ++L;
+
+    int X = 2 * L;
+    vector<vector<int>> s(X + 1, vector<int>(N + 1, 0));
+
+    auto id = [&](int p, int bit) {
+        int top = L - 1;
+        return 1 + 2 * (top - p) + bit;
+    };
+
+    int top = L - 1;
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = id(top, (j >> top) & 1);
+    }
+
+    for (int p = top; p >= 0; --p) {
+        int depth = top - p;
+        int inspect = (depth % 2 == 0 ? 1 : 0);
+
+        for (int stored = 0; stored <= 1; ++stored) {
+            int row = id(p, stored);
+            s[row][0] = inspect;
+
+            for (int j = 1; j <= N; ++j) {
+                int cur = (j >> p) & 1;
+
+                if (cur < stored) {
+                    s[row][j] = (inspect == 0 ? -1 : -2);
+                } else if (cur > stored) {
+                    s[row][j] = (inspect == 0 ? -2 : -1);
+                } else {
+                    if (p == 0) {
+                        s[row][j] = -1;
+                    } else {
+                        int nxt = (j >> (p - 1)) & 1;
+                        s[row][j] = id(p - 1, nxt);
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

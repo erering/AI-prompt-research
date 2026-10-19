@@ -1,0 +1,118 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int LOG = 20;
+    constexpr int L = 27;
+
+    int gN = 0;
+    int tailStart = 0;
+    vector<int> dep;
+    vector<array<int, LOG>> up;
+    int A = 0, B = 0;
+    int diam = 0;
+    int snapCode = 0;
+
+    int lca_node(int u, int v) {
+        if (dep[u] < dep[v]) swap(u, v);
+        int diff = dep[u] - dep[v];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) u = up[u][k];
+        }
+        if (u == v) return u;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[u][k] != up[v][k]) {
+                u = up[u][k];
+                v = up[v][k];
+            }
+        }
+        return up[u][0];
+    }
+
+    int dist_node(int u, int v) {
+        int w = lca_node(u, v);
+        return dep[u] + dep[v] - 2 * dep[w];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        gN = N;
+        tailStart = max(0, N - 1 - L);
+        dep.assign(N, 0);
+        up.assign(N, {});
+        for (int k = 0; k < LOG; ++k) up[0][k] = 0;
+        A = B = 0;
+        diam = 0;
+        snapCode = 0;
+    }
+
+    dep[i] = dep[Pi] + 1;
+    up[i][0] = Pi;
+    for (int k = 1; k < LOG; ++k) up[i][k] = up[up[i][k - 1]][k - 1];
+
+    int flag = 0;
+    int da = dist_node(i, A);
+    int db = dist_node(i, B);
+
+    if (da > diam || db > diam) {
+        if (da >= db) {
+            B = i;
+            diam = da;
+            flag = 1;
+        } else {
+            A = i;
+            diam = db;
+            flag = 2;
+        }
+    }
+
+    if (i == tailStart) {
+        snapCode = A * N + B;
+        return 0;
+    }
+
+    if (i > tailStart) {
+        int bit = (snapCode >> (i - tailStart - 1)) & 1;
+        return flag * 2 + bit + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int,int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    int ts = max(0, N - 1 - L);
+    int code = 0;
+    vector<int> flags;
+
+    for (int i = ts + 1, j = 0; i < N; ++i, ++j) {
+        int v = S[i];
+        if (v <= 0) v = 1;
+        int x = v - 1;
+        int flag = x / 2;
+        int bit = x % 2;
+        if (bit) code |= (1 << j);
+        flags.push_back(flag);
+    }
+
+    int a = code / N;
+    int b = code % N;
+
+    if (a < 0 || a >= N) a = 0;
+    if (b < 0 || b >= N) b = 0;
+
+    for (int idx = 0; idx < (int)flags.size(); ++idx) {
+        int vertex = ts + 1 + idx;
+        if (flags[idx] == 1) {
+            b = vertex;
+        } else if (flags[idx] == 2) {
+            a = vertex;
+        }
+    }
+
+    return {a, b};
+}

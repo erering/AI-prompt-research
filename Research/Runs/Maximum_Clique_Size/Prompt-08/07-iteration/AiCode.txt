@@ -1,0 +1,359 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using U64 = unsigned long long;
+using Bits = vector<U64>;
+
+int N, W;
+vector<Bits> adjc;
+U64 lastMask;
+mt19937 rng(71236721);
+
+static inline int pc(U64 x) { return __builtin_popcountll(x); }
+static inline int ctz(U64 x) { return __builtin_ctzll(x); }
+
+static inline void setBit(Bits& b, int v) { b[v >> 6] |= 1ULL << (v & 63); }
+static inline void clearBit(Bits& b, int v) { b[v >> 6] &= ~(1ULL << (v & 63)); }
+static inline bool testBit(const Bits& b, int v) { return (b[v >> 6] >> (v & 63)) & 1ULL; }
+
+int firstBit(const Bits& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + ctz(b[i]);
+    }
+    return -1;
+}
+
+bool anyBit(const Bits& b) {
+    for (U64 x : b) if (x) return true;
+    return false;
+}
+
+int countBits(const Bits& b) {
+    int s = 0;
+    for (U64 x : b) s += pc(x);
+    return s;
+}
+
+int degreeIn(int v, const Bits& active) {
+    int d = 0;
+    const Bits& a = adjc[v];
+    for (int i = 0; i < W; ++i) d += pc(a[i] & active[i]);
+    return d;
+}
+
+int firstNeighbor(int v, const Bits& active) {
+    const Bits& a = adjc[v];
+    for (int i = 0; i < W; ++i) {
+        U64 x = a[i] & active[i];
+        if (x) return (i << 6) + ctz(x);
+    }
+    return -1;
+}
+
+pair<int,int> twoNeighbors(int v, const Bits& active) {
+    int a = -1, b = -1;
+    const Bits& av = adjc[v];
+    for (int i = 0; i < W; ++i) {
+        U64 x = av[i] & active[i];
+        while (x) {
+            int u = (i << 6) + ctz(x);
+            x &= x - 1;
+            if (a < 0) a = u;
+            else { b = u; return {a, b}; }
+        }
+    }
+    return {a, b};
+}
+
+bool adjacentC(int a, int b) {
+    return (adjc[a][b >> 6] >> (b & 63)) & 1ULL;
+}
+
+void removeClosed(Bits& active, int v) {
+    for (int i = 0; i < W; ++i) active[i] &= ~adjc[v][i];
+    clearBit(active, v);
+}
+
+void removeVertex(Bits& active, int v) {
+    clearBit(active, v);
+}
+
+int maximalMatchingLB(const Bits& active) {
+    Bits rem = active;
+    int res = 0;
+    while (true) {
+        int v = firstBit(rem);
+        if (v < 0) break;
+        int u = -1;
+        const Bits& av = adjc[v];
+        for (int i = 0; i < W; ++i) {
+            U64 x = av[i] & rem[i];
+            if (x) {
+                u = (i << 6) + ctz(x);
+                break;
+            }
+        }
+        clearBit(rem, v);
+        if (u >= 0) {
+            clearBit(rem, u);
+            ++res;
+        }
+    }
+    return res;
+}
+
+int greedyIndependentCover(const Bits& original, const vector<unsigned>* prio = nullptr) {
+    Bits active = original;
+    int alpha = 0;
+    while (true) {
+        int bestv = -1, bestd = INT_MAX;
+        unsigned bestp = 0;
+        for (int wi = 0; wi < W; ++wi) {
+            U64 x = active[wi];
+            while (x) {
+                int v = (wi << 6) + ctz(x);
+                x &= x - 1;
+                int d = degreeIn(v, active);
+                unsigned p = prio ? (*prio)[v] : (unsigned)v;
+                if (d < bestd || (d == bestd && p < bestp)) {
+                    bestd = d;
+                    bestv = v;
+                    bestp = p;
+                }
+            }
+        }
+        if (bestv < 0) break;
+        ++alpha;
+        removeClosed(active, bestv);
+    }
+    return countBits(original) - alpha;
+}
+
+int greedyMaxDegreeCover(const Bits& original, int limit) {
+    Bits active = original;
+    int cover = 0;
+    while (cover < limit) {
+        int bestv = -1, bestd = 0;
+        for (int wi = 0; wi < W; ++wi) {
+            U64 x = active[wi];
+            while (x) {
+                int v = (wi << 6) + ctz(x);
+                x &= x - 1;
+                int d = degreeIn(v, active);
+                if (d > bestd) {
+                    bestd = d;
+                    bestv = v;
+                }
+            }
+        }
+        if (bestd == 0) break;
+        removeVertex(active, bestv);
+        ++cover;
+    }
+    return cover;
+}
+
+struct Component {
+    Bits bits;
+    int size;
+};
+
+vector<Component> componentsOf(const Bits& active, int total = -1) {
+    Bits unseen = active;
+    vector<Component> comps;
+    while (true) {
+        int s = firstBit(unseen);
+        if (s < 0) break;
+        Bits comp(W, 0), frontier(W, 0);
+        setBit(comp, s);
+        setBit(frontier, s);
+        clearBit(unseen, s);
+        int sz = 0;
+        while (anyBit(frontier)) {
+            Bits nxt(W, 0);
+            for (int wi = 0; wi < W; ++wi) {
+                U64 x = frontier[wi];
+                while (x) {
+                    int v = (wi << 6) + ctz(x);
+                    x &= x - 1;
+                    ++sz;
+                    const Bits& av = adjc[v];
+                    for (int k = 0; k < W; ++k) nxt[k] |= av[k] & unseen[k];
+                }
+            }
+            for (int k = 0; k < W; ++k) {
+                nxt[k] &= unseen[k];
+                unseen[k] &= ~nxt[k];
+                comp[k] |= nxt[k];
+            }
+            frontier.swap(nxt);
+        }
+        comps.push_back({move(comp), sz});
+        if (total >= 0 && sz == total) {
+            if (firstBit(unseen) < 0) return comps;
+        }
+    }
+    return comps;
+}
+
+int solveMVC(const Bits& active, int limit);
+
+void dfsMVC(Bits active, int cover, int& best) {
+    if (cover >= best) return;
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (int wi = 0; wi < W && !changed; ++wi) {
+            U64 x = active[wi];
+            while (x) {
+                int v = (wi << 6) + ctz(x);
+                x &= x - 1;
+                int d = degreeIn(v, active);
+                if (d == 0) {
+                    removeVertex(active, v);
+                    changed = true;
+                    break;
+                } else if (d == 1) {
+                    int u = firstNeighbor(v, active);
+                    ++cover;
+                    if (cover >= best) return;
+                    removeVertex(active, u);
+                    removeVertex(active, v);
+                    changed = true;
+                    break;
+                } else if (d == 2) {
+                    auto [a, b] = twoNeighbors(v, active);
+                    if (a >= 0 && b >= 0 && adjacentC(a, b)) {
+                        cover += 2;
+                        if (cover >= best) return;
+                        removeVertex(active, a);
+                        removeVertex(active, b);
+                        removeVertex(active, v);
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    int activeCnt = 0, maxd = 0, choose = -1;
+    long long edge2 = 0;
+    for (int wi = 0; wi < W; ++wi) {
+        U64 x = active[wi];
+        while (x) {
+            int v = (wi << 6) + ctz(x);
+            x &= x - 1;
+            ++activeCnt;
+            int d = degreeIn(v, active);
+            edge2 += d;
+            if (d > maxd) {
+                maxd = d;
+                choose = v;
+            }
+        }
+    }
+
+    if (maxd == 0) {
+        if (cover < best) best = cover;
+        return;
+    }
+
+    long long m = edge2 / 2;
+    int lbEdges = (int)((m + maxd - 1) / maxd);
+    if (cover + lbEdges >= best) return;
+
+    int lbMatch = maximalMatchingLB(active);
+    if (cover + lbMatch >= best) return;
+
+    if (maxd == 2) {
+        auto comps = componentsOf(active, activeCnt);
+        int add = 0;
+        for (auto& c : comps) add += (c.size + 1) / 2;
+        if (cover + add < best) best = cover + add;
+        return;
+    }
+
+    auto comps = componentsOf(active, activeCnt);
+    if (comps.size() > 1) {
+        sort(comps.begin(), comps.end(), [](const Component& a, const Component& b) {
+            return a.size > b.size;
+        });
+        int sum = cover;
+        for (auto& c : comps) {
+            int rem = best - sum;
+            if (rem <= 0) return;
+            int val = solveMVC(c.bits, rem);
+            sum += val;
+            if (sum >= best) return;
+        }
+        if (sum < best) best = sum;
+        return;
+    }
+
+    Bits inc = active;
+    removeVertex(inc, choose);
+    dfsMVC(move(inc), cover + 1, best);
+
+    if (cover >= best) return;
+    int d = degreeIn(choose, active);
+    if (cover + d >= best) return;
+    Bits exc = active;
+    const Bits& av = adjc[choose];
+    for (int i = 0; i < W; ++i) exc[i] &= ~av[i];
+    removeVertex(exc, choose);
+    dfsMVC(move(exc), cover + d, best);
+}
+
+int solveMVC(const Bits& active, int limit) {
+    int cnt = countBits(active);
+    if (cnt == 0 || limit <= 0) return 0;
+    int ub = limit;
+    ub = min(ub, greedyIndependentCover(active, nullptr));
+    if (cnt <= 700) ub = min(ub, greedyMaxDegreeCover(active, ub));
+    int best = ub;
+    dfsMVC(active, 0, best);
+    return best;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+    W = (N + 63) >> 6;
+    lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+    adjc.assign(N, Bits(W, 0));
+
+    char ch;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            do {
+                if (!cin.get(ch)) ch = '0';
+            } while (ch != '0' && ch != '1');
+            if (i != j && ch == '0') setBit(adjc[i], j);
+        }
+    }
+    for (int i = 0; i < N; ++i) {
+        if (W) adjc[i][W - 1] &= lastMask;
+        clearBit(adjc[i], i);
+    }
+
+    Bits all(W, ~0ULL);
+    if (W) all[W - 1] = lastMask;
+
+    int initial = N;
+    initial = min(initial, greedyMaxDegreeCover(all, initial));
+    int iters = (N <= 400 ? 12 : (N <= 1200 ? 6 : 3));
+    for (int t = 0; t < iters; ++t) {
+        vector<unsigned> pr(N);
+        for (int i = 0; i < N; ++i) pr[i] = rng();
+        initial = min(initial, greedyIndependentCover(all, &pr));
+    }
+    initial = min(initial, greedyIndependentCover(all, nullptr));
+
+    int mvc = solveMVC(all, initial);
+    cout << (N - mvc) << '\n';
+    return 0;
+}

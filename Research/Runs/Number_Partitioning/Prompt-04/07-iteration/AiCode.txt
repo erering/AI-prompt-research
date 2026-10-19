@@ -1,0 +1,322 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <numeric>
+#include <queue>
+#include <string>
+#include <vector>
+#include <limits>
+
+using u64 = std::uint64_t;
+using u128 = unsigned __int128;
+
+static u128 parse_u128(const std::string& s) {
+    u128 x = 0;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') x = x * 10 + (c - '0');
+    }
+    return x;
+}
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        std::cout << "0\n";
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + x % 10));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static u128 gcd128(u128 a, u128 b) {
+    while (b != 0) {
+        u128 r = a % b;
+        a = b;
+        b = r;
+    }
+    return a;
+}
+
+static bool bitset_dp(const std::vector<u128>& a, u128 total, u128 mult, u128& answer) {
+    u128 half128 = total / 2;
+    constexpr u64 LIMIT_BITS = 250000000ULL;
+    if (half128 > (u128)LIMIT_BITS) return false;
+
+    size_t half = (size_t)half128;
+    size_t words = half / 64 + 1;
+    std::vector<u64> bits(words, 0);
+    bits[0] = 1;
+
+    int rem = int(half & 63);
+    u64 last_mask = (rem == 63) ? ~0ULL : ((1ULL << (rem + 1)) - 1);
+
+    auto add_weight = [&](size_t w) {
+        if (w > half) return;
+        size_t ws = w >> 6;
+        unsigned bs = unsigned(w & 63);
+        for (size_t i = words; i-- > ws;) {
+            u64 v = bits[i - ws] << bs;
+            if (bs && i > ws) v |= bits[i - ws - 1] >> (64 - bs);
+            bits[i] |= v;
+        }
+        bits.back() &= last_mask;
+    };
+
+    for (size_t i = 0; i < a.size();) {
+        u128 v = a[i];
+        size_t j = i + 1;
+        while (j < a.size() && a[j] == v) ++j;
+        size_t cnt = j - i;
+        size_t p = 1;
+        while (cnt) {
+            size_t take = std::min(p, cnt);
+            u128 w128 = v * (u128)take;
+            if (w128 <= half128) add_weight((size_t)w128);
+            cnt -= take;
+            if (p <= (std::numeric_limits<size_t>::max() >> 1)) p <<= 1;
+            else p = cnt;
+        }
+        i = j;
+    }
+
+    u128 best = 0;
+    for (size_t i = words; i-- > 0;) {
+        u64 x = bits[i];
+        if (x) {
+            int b = 63 - std::countl_zero(x);
+            best = (u128)i * 64 + (unsigned)b;
+            break;
+        }
+    }
+
+    answer = (total - 2 * best) * mult;
+    return true;
+}
+
+static bool mitm_u64(const std::vector<u128>& a, u128 total, u128 mult, u128& answer) {
+    size_t n = a.size();
+    if (n > 46) return false;
+    u128 target128 = total / 2;
+    if (target128 > (u128)std::numeric_limits<u64>::max() - 1) return false;
+
+    u64 target = (u64)target128;
+    std::vector<u64> v(n);
+    for (size_t i = 0; i < n; ++i) {
+        v[i] = (a[i] > target128) ? target + 1 : (u64)a[i];
+    }
+
+    size_t m = n / 2;
+    std::vector<u64> sums;
+    try {
+        sums.reserve(1ULL << m);
+    } catch (...) {
+        return false;
+    }
+
+    auto gen1 = [&](auto&& self, size_t idx, size_t end, u64 cur) -> void {
+        if (idx == end) {
+            sums.push_back(cur);
+            return;
+        }
+        self(self, idx + 1, end, cur);
+        if (v[idx] <= target - cur) self(self, idx + 1, end, cur + v[idx]);
+    };
+
+    gen1(gen1, 0, m, 0);
+    std::sort(sums.begin(), sums.end());
+
+    u64 best = 0;
+
+    auto gen2 = [&](auto&& self, size_t idx, size_t end, u64 cur) -> void {
+        if (best == target) return;
+        if (idx == end) {
+            u64 rem = target - cur;
+            auto it = std::upper_bound(sums.begin(), sums.end(), rem);
+            if (it != sums.begin()) {
+                --it;
+                u64 cand = cur + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+        self(self, idx + 1, end, cur);
+        if (v[idx] <= target - cur) self(self, idx + 1, end, cur + v[idx]);
+    };
+
+    gen2(gen2, m, n, 0);
+    answer = (total - 2 * (u128)best) * mult;
+    return true;
+}
+
+static u128 ckk_best;
+
+static u128 greedy_partition_bound(const std::vector<u128>& a) {
+    u128 x = 0, y = 0;
+    for (u128 v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return x > y ? x - y : y - x;
+}
+
+static u128 kk_bound(const std::vector<u128>& a) {
+    std::priority_queue<u128> pq;
+    for (u128 x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        u128 x = pq.top(); pq.pop();
+        u128 y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+        else if (y > x) pq.push(y - x);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static void ckk(std::vector<u128> arr, u128 total) {
+    if (ckk_best == 0) return;
+
+    while (!arr.empty() && arr.back() == 0) arr.pop_back();
+    size_t n = arr.size();
+
+    if (n == 0) {
+        ckk_best = 0;
+        return;
+    }
+    if (n == 1) {
+        if (arr[0] < ckk_best) ckk_best = arr[0];
+        return;
+    }
+
+    u128 rest = total - arr[0];
+    if (arr[0] >= rest) {
+        u128 exact = arr[0] - rest;
+        if (exact < ckk_best) ckk_best = exact;
+        return;
+    }
+
+    u128 g = 0;
+    for (u128 x : arr) {
+        if (x) {
+            g = g ? gcd128(g, x) : x;
+            if (g == 1) break;
+        }
+    }
+    if (g) {
+        u128 parity_lb = ((total / g) & 1) ? g : 0;
+        if (parity_lb >= ckk_best) return;
+    }
+
+    u128 a = arr[0], b = arr[1];
+
+    u128 d = a - b;
+    u128 total_d = total - 2 * b;
+    std::vector<u128> diff;
+    diff.reserve(n - 1);
+    bool inserted = (d == 0);
+    for (size_t i = 2; i < n; ++i) {
+        if (!inserted && d >= arr[i]) {
+            diff.push_back(d);
+            inserted = true;
+        }
+        diff.push_back(arr[i]);
+    }
+    if (!inserted) diff.push_back(d);
+    ckk(std::move(diff), total_d);
+    if (ckk_best == 0) return;
+
+    u128 s = a + b;
+    std::vector<u128> sum;
+    sum.reserve(n - 1);
+    sum.push_back(s);
+    for (size_t i = 2; i < n; ++i) sum.push_back(arr[i]);
+    ckk(std::move(sum), total);
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u128> a;
+    a.reserve(N);
+    u128 total = 0;
+    u128 g = 0;
+
+    for (size_t i = 0; i < N; ++i) {
+        std::string s;
+        std::cin >> s;
+        u128 x = parse_u128(s);
+        a.push_back(x);
+        total += x;
+        g = g ? gcd128(g, x) : x;
+    }
+
+    if (N == 0) {
+        print_u128(0);
+        return 0;
+    }
+
+    if (g == 0) g = 1;
+    for (u128& x : a) x /= g;
+    total /= g;
+
+    std::sort(a.begin(), a.end(), std::greater<u128>());
+
+    if (a.empty() || total == 0) {
+        print_u128(0);
+        return 0;
+    }
+
+    bool all_same = true;
+    for (size_t i = 1; i < a.size(); ++i) {
+        if (a[i] != a[0]) {
+            all_same = false;
+            break;
+        }
+    }
+    if (all_same) {
+        print_u128((a.size() & 1) ? a[0] * g : 0);
+        return 0;
+    }
+
+    if (a[0] >= total - a[0]) {
+        print_u128((a[0] - (total - a[0])) * g);
+        return 0;
+    }
+
+    u128 ans = 0;
+    if (bitset_dp(a, total, g, ans)) {
+        print_u128(ans);
+        return 0;
+    }
+
+    if (mitm_u64(a, total, g, ans)) {
+        print_u128(ans);
+        return 0;
+    }
+
+    ckk_best = greedy_partition_bound(a);
+    u128 kb = kk_bound(a);
+    if (kb < ckk_best) ckk_best = kb;
+
+    u128 root_g = 0;
+    for (u128 x : a) {
+        root_g = root_g ? gcd128(root_g, x) : x;
+        if (root_g == 1) break;
+    }
+    u128 root_lb = ((total / root_g) & 1) ? root_g : 0;
+    if (ckk_best == root_lb) {
+        print_u128(ckk_best * g);
+        return 0;
+    }
+
+    ckk(a, total);
+    print_u128(ckk_best * g);
+    return 0;
+}

@@ -1,0 +1,72 @@
+#include <vector>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    const int N = 31;
+
+    for (int k = 0; k < N; ++k) {
+        std::vector<bool> A(N, false);
+        for (int i = 0; i < N; ++i) {
+            if (!C[i]) A[i] = C[k];
+        }
+        send_packet(A);
+    }
+
+    std::vector<bool> bits;
+    int S = (int)M.size();
+    int len = S - 1;
+
+    for (int i = 0; i < 10; ++i) {
+        bits.push_back((len >> i) & 1);
+    }
+    for (bool b : M) bits.push_back(b);
+
+    int ptr = 0;
+    while (ptr < (int)bits.size()) {
+        std::vector<bool> A(N, false);
+        for (int i = 0; i < N; ++i) {
+            if (!C[i]) {
+                if (ptr < (int)bits.size()) A[i] = bits[ptr++];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    const int N = 31;
+
+    std::vector<bool> C(N, false);
+    for (int k = 0; k < N; ++k) {
+        int ones = 0;
+        for (int i = 0; i < N; ++i) {
+            if (R[k][i]) ++ones;
+        }
+        C[k] = (ones >= 16);
+    }
+
+    std::vector<int> good;
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    for (int r = N; r < (int)R.size(); ++r) {
+        for (int idx : good) {
+            bits.push_back(R[r][idx]);
+        }
+    }
+
+    int len = 0;
+    for (int i = 0; i < 10; ++i) {
+        if (bits[i]) len |= (1 << i);
+    }
+    int S = len + 1;
+
+    std::vector<bool> M;
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[10 + i]);
+    }
+    return M;
+}

@@ -1,0 +1,297 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <new>
+#include <string>
+#include <vector>
+
+using ULL = unsigned long long;
+using I128 = __int128_t;
+
+static I128 abs128(I128 x) {
+    return x < 0 ? -x : x;
+}
+
+static void print128(I128 x) {
+    if (x == 0) {
+        std::cout << '0' << '\n';
+        return;
+    }
+    if (x < 0) {
+        std::cout << '-';
+        x = -x;
+    }
+    std::string s;
+    while (x > 0) {
+        int d = static_cast<int>(x % 10);
+        s.push_back(static_cast<char>('0' + d));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static bool solve_bitset(const std::vector<ULL>& a, ULL total, I128& answer) {
+    ULL half = total / 2;
+    size_t words = static_cast<size_t>(half / 64) + 1;
+    const size_t MAX_WORDS = 8000000;
+
+    if (words > MAX_WORDS) return false;
+
+    try {
+        std::vector<std::uint64_t> dp(words, 0);
+        dp[0] = 1;
+
+        const size_t last = words - 1;
+        const unsigned last_bits = static_cast<unsigned>(half & 63);
+        const std::uint64_t last_mask = (last_bits == 63) ? ~0ULL : ((1ULL << (last_bits + 1)) - 1ULL);
+        const I128 best_possible = static_cast<I128>(total & 1ULL);
+
+        if (half == 0) {
+            answer = static_cast<I128>(total);
+            return true;
+        }
+
+        for (ULL x : a) {
+            if (x <= half) {
+                size_t ws = static_cast<size_t>(x >> 6);
+                unsigned bs = static_cast<unsigned>(x & 63);
+
+                if (ws < words) {
+                    std::uint64_t* p = dp.data();
+
+                    if (bs == 0) {
+                        for (size_t i = words; i-- > ws;) {
+                            p[i] |= p[i - ws];
+                        }
+                    } else {
+                        const unsigned rbs = 64 - bs;
+                        for (size_t i = words; i-- > ws;) {
+                            std::uint64_t v = p[i - ws] << bs;
+                            if (i > ws) v |= p[i - ws - 1] >> rbs;
+                            p[i] |= v;
+                        }
+                    }
+
+                    dp[last] &= last_mask;
+
+                    if ((dp[static_cast<size_t>(half >> 6)] >> (half & 63)) & 1ULL) {
+                        answer = best_possible;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        ULL best_sum = 0;
+        for (size_t wi = words; wi-- > 0;) {
+            std::uint64_t w = dp[wi];
+            if (w != 0) {
+                int bit = 63 - std::countl_zero(w);
+                best_sum = static_cast<ULL>(wi) * 64ULL + static_cast<ULL>(bit);
+                break;
+            }
+        }
+
+        answer = static_cast<I128>(total) - 2 * static_cast<I128>(best_sum);
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+static bool make_sums(const std::vector<ULL>& a, size_t l, size_t r, std::vector<ULL>& sums) {
+    try {
+        size_t len = r - l;
+        sums.clear();
+        sums.reserve(size_t{1} << len);
+        sums.push_back(0);
+
+        for (size_t i = l; i < r; ++i) {
+            ULL x = a[i];
+            size_t sz = sums.size();
+            sums.resize(sz * 2);
+            for (size_t j = 0; j < sz; ++j) {
+                sums[sz + j] = sums[j] + x;
+            }
+        }
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+static bool solve_mitm(const std::vector<ULL>& a, ULL total, I128& answer) {
+    size_t n = a.size();
+    if (n > 46) return false;
+
+    size_t mid = n / 2;
+    std::vector<ULL> left, right;
+
+    if (!make_sums(a, 0, mid, left)) return false;
+    if (!make_sums(a, mid, n, right)) return false;
+
+    std::sort(right.begin(), right.end());
+
+    ULL half = total / 2;
+    I128 total128 = static_cast<I128>(total);
+    I128 best = total128;
+    I128 best_possible = static_cast<I128>(total & 1ULL);
+
+    auto consider = [&](ULL s) {
+        I128 d = abs128(total128 - 2 * static_cast<I128>(s));
+        if (d < best) best = d;
+    };
+
+    for (ULL x : left) {
+        ULL target = (x <= half) ? (half - x) : 0;
+        auto it = std::lower_bound(right.begin(), right.end(), target);
+
+        if (it != right.end()) consider(x + *it);
+        if (it != right.begin()) {
+            --it;
+            consider(x + *it);
+        }
+
+        if (best == best_possible) break;
+    }
+
+    answer = best;
+    return true;
+}
+
+struct Frame {
+    size_t idx;
+    I128 diff;
+};
+
+static I128 solve_branch(std::vector<ULL> a, I128 total) {
+    std::sort(a.begin(), a.end(), std::greater<ULL>());
+
+    size_t n = a.size();
+    std::vector<I128> suffix(n + 1, 0);
+    for (size_t i = n; i-- > 0;) {
+        suffix[i] = suffix[i + 1] + static_cast<I128>(a[i]);
+    }
+
+    I128 s1 = 0, s2 = 0;
+    for (ULL x : a) {
+        if (s1 <= s2) s1 += static_cast<I128>(x);
+        else s2 += static_cast<I128>(x);
+    }
+
+    I128 best = abs128(s1 - s2);
+    I128 best_possible = total & 1;
+
+    std::vector<Frame> st;
+    st.push_back({0, 0});
+
+    while (!st.empty()) {
+        Frame f = st.back();
+        st.pop_back();
+
+        if (best == best_possible) break;
+
+        I128 rem = suffix[f.idx];
+        I128 lb = abs128(f.diff) > rem ? abs128(f.diff) - rem : 0;
+        if (lb >= best) continue;
+
+        if (f.idx == n) {
+            I128 d = abs128(f.diff);
+            if (d < best) best = d;
+            continue;
+        }
+
+        I128 x = static_cast<I128>(a[f.idx]);
+        I128 child_rem = suffix[f.idx + 1];
+
+        auto child_lb = [&](I128 d) -> I128 {
+            I128 ad = abs128(d);
+            return ad > child_rem ? ad - child_rem : 0;
+        };
+
+        if (f.idx == 0) {
+            I128 d = f.diff + x;
+            if (child_lb(d) < best) st.push_back({f.idx + 1, d});
+        } else {
+            I128 d1 = f.diff + x;
+            I128 d2 = f.diff - x;
+
+            bool first_d1 = abs128(d1) <= abs128(d2);
+
+            if (first_d1) {
+                if (child_lb(d2) < best) st.push_back({f.idx + 1, d2});
+                if (child_lb(d1) < best) st.push_back({f.idx + 1, d1});
+            } else {
+                if (child_lb(d1) < best) st.push_back({f.idx + 1, d1});
+                if (child_lb(d2) < best) st.push_back({f.idx + 1, d2});
+            }
+        }
+    }
+
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ULL> a;
+    a.reserve(N);
+
+    I128 total128 = 0;
+    for (size_t i = 0; i < N; ++i) {
+        ULL x;
+        std::cin >> x;
+        a.push_back(x);
+        total128 += static_cast<I128>(x);
+    }
+
+    I128 answer = 0;
+    I128 ull_max_128 = static_cast<I128>(std::numeric_limits<ULL>::max());
+
+    if (total128 <= ull_max_128) {
+        ULL total = static_cast<ULL>(total128);
+
+        ULL half = total / 2;
+        size_t words = static_cast<size_t>(half / 64) + 1;
+
+        bool tried_mitm = false;
+
+        if (N <= 46) {
+            long double dp_ops = static_cast<long double>(N) * static_cast<long double>(words);
+            int exp = static_cast<int>(N / 2);
+            long double mitm_ops = exp < 63 ? static_cast<long double>(1ULL << exp) * static_cast<long double>(exp + 1) : 1e100L;
+
+            if (words > 8000000 || (dp_ops > 80000000.0L && mitm_ops < dp_ops * 8.0L)) {
+                tried_mitm = true;
+                if (solve_mitm(a, total, answer)) {
+                    print128(answer);
+                    return 0;
+                }
+            }
+        }
+
+        if (solve_bitset(a, total, answer)) {
+            print128(answer);
+            return 0;
+        }
+
+        if (N <= 46 && !tried_mitm) {
+            if (solve_mitm(a, total, answer)) {
+                print128(answer);
+                return 0;
+            }
+        }
+    }
+
+    answer = solve_branch(a, total128);
+    print128(answer);
+    return 0;
+}

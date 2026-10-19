@@ -1,0 +1,84 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    vector<int> radix = {2, 3, 3, 3, 3, 3, 3};
+    int L = (int)radix.size();
+
+    vector<int> place(L, 1);
+    for (int i = L - 2; i >= 0; --i) place[i] = place[i + 1] * radix[i + 1];
+
+    vector<vector<int>> id(L);
+    int nxt = 1;
+    for (int i = 0; i < L; ++i) {
+        id[i].resize(radix[i]);
+        for (int d = 0; d < radix[i]; ++d) id[i][d] = nxt++;
+    }
+
+    int terminal = nxt++;
+    vector<vector<int>> s(nxt, vector<int>(N + 1, 0));
+
+    auto digit = [&](int val, int lev) {
+        int q = (val - 1) / 4;
+        return (q / place[lev]) % radix[lev];
+    };
+
+    auto rem4 = [&](int val) {
+        return (val - 1) & 3;
+    };
+
+    auto declare_smaller = [&](int bag) {
+        return bag == 0 ? -1 : -2;
+    };
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = id[0][digit(j, 0)];
+    }
+
+    for (int lev = 0; lev < L; ++lev) {
+        int cur_bag = (lev % 2 == 0 ? 1 : 0);
+        int prev_bag = 1 - cur_bag;
+
+        for (int d = 0; d < radix[lev]; ++d) {
+            int st = id[lev][d];
+            s[st][0] = cur_bag;
+
+            for (int j = 1; j <= N; ++j) {
+                int dj = digit(j, lev);
+
+                if (dj < d) {
+                    s[st][j] = declare_smaller(cur_bag);
+                } else if (dj > d) {
+                    s[st][j] = declare_smaller(prev_bag);
+                } else {
+                    if (lev + 1 < L) {
+                        s[st][j] = id[lev + 1][digit(j, lev + 1)];
+                    } else {
+                        int r = rem4(j);
+                        if (r == 0) {
+                            s[st][j] = declare_smaller(cur_bag);
+                        } else if (r == 3) {
+                            s[st][j] = declare_smaller(prev_bag);
+                        } else {
+                            s[st][j] = terminal;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    int last_cur_bag = ((L - 1) % 2 == 0 ? 1 : 0);
+    int terminal_bag = 1 - last_cur_bag;
+    int other_bag = 1 - terminal_bag;
+
+    s[terminal][0] = terminal_bag;
+    for (int j = 1; j <= N; ++j) {
+        int r = rem4(j);
+        if (r <= 1) s[terminal][j] = declare_smaller(terminal_bag);
+        else s[terminal][j] = declare_smaller(other_bag);
+    }
+
+    return s;
+}

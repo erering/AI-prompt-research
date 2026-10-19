@@ -1,0 +1,130 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static const int MAXN = 10000;
+static const int LOG = 15;
+
+static int upTbl[LOG][MAXN];
+static int depTbl[MAXN];
+static int curA = 0, curB = 0, diamLen = 0;
+static int firstEndpoint = -1;
+
+static int lca_node(int a, int b) {
+    if (depTbl[a] < depTbl[b]) swap(a, b);
+    int diff = depTbl[a] - depTbl[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = upTbl[k][a];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (upTbl[k][a] != upTbl[k][b]) {
+            a = upTbl[k][a];
+            b = upTbl[k][b];
+        }
+    }
+    return upTbl[0][a];
+}
+
+static int dist_node(int a, int b) {
+    int c = lca_node(a, b);
+    return depTbl[a] + depTbl[b] - 2 * depTbl[c];
+}
+
+static int update_diameter(int x) {
+    int oldA = curA, oldB = curB;
+    int da = dist_node(x, oldA);
+    int db = dist_node(x, oldB);
+    if (da > diamLen || db > diamLen) {
+        if (da >= db) {
+            curA = x;
+            curB = oldA;
+            diamLen = da;
+            return 2;
+        } else {
+            curA = x;
+            curB = oldB;
+            diamLen = db;
+            return 3;
+        }
+    }
+    return 1;
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        depTbl[0] = 0;
+        for (int k = 0; k < LOG; ++k) upTbl[k][0] = 0;
+        curA = 0;
+        curB = 0;
+        diamLen = 0;
+        firstEndpoint = -1;
+    }
+
+    depTbl[i] = depTbl[Pi] + 1;
+    upTbl[0][i] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        upTbl[k][i] = upTbl[k - 1][upTbl[k - 1][i]];
+    }
+
+    int code = update_diameter(i);
+    int start = N - 50;
+
+    if (i < start) return 0;
+
+    if (i == start) {
+        firstEndpoint = curA;
+        return firstEndpoint + 1;
+    }
+
+    if (i == start + 1) {
+        if (curA == firstEndpoint) {
+            int v = curB;
+            curA = firstEndpoint;
+            curB = v;
+            return v + 1;
+        }
+        if (curB == firstEndpoint) {
+            int v = curA;
+            curA = firstEndpoint;
+            curB = v;
+            return v + 1;
+        }
+        int v = (curA == i ? curB : curA);
+        curA = i;
+        curB = v;
+        return 10000 + v + 1;
+    }
+
+    return code;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+    int start = N - 50;
+
+    int A = S[start] - 1;
+    int B = 0;
+
+    int v = S[start + 1];
+    if (v <= 10000) {
+        B = v - 1;
+    } else {
+        A = start + 1;
+        B = v - 10001;
+    }
+
+    for (int i = start + 2; i < N; ++i) {
+        int c = S[i];
+        if (c == 2) {
+            int oldA = A;
+            A = i;
+            B = oldA;
+        } else if (c == 3) {
+            int oldB = B;
+            A = i;
+            B = oldB;
+        }
+    }
+
+    return {A, B};
+}

@@ -1,0 +1,232 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+struct FastScanner {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    size_t idx = 0, size = 0;
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        char c;
+        do { c = getChar(); } while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do { c = getChar(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+ull LAST_MASK;
+vector<vector<ull>> adjg;
+int bestClique = 0;
+
+inline void setBit(vector<ull>& b, int i) {
+    b[i >> 6] |= 1ULL << (i & 63);
+}
+
+inline void resetBit(vector<ull>& b, int i) {
+    b[i >> 6] &= ~(1ULL << (i & 63));
+}
+
+inline bool testBit(const vector<ull>& b, int i) {
+    return (b[i >> 6] >> (i & 63)) & 1ULL;
+}
+
+inline int popcountBits(const vector<ull>& b) {
+    int s = 0;
+    for (ull x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline bool emptyBits(const vector<ull>& b) {
+    for (ull x : b) if (x) return false;
+    return true;
+}
+
+inline int firstBit(const vector<ull>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+void colorSort(const vector<ull>& C, vector<int>& vertices, vector<int>& colors) {
+    vertices.clear();
+    colors.clear();
+
+    vector<ull> uncolored = C;
+    vector<ull> available(W);
+
+    int color = 0;
+    while (!emptyBits(uncolored)) {
+        ++color;
+        available = uncolored;
+
+        while (true) {
+            int v = firstBit(available);
+            if (v < 0 || v >= N) break;
+
+            vertices.push_back(v);
+            colors.push_back(color);
+
+            resetBit(uncolored, v);
+            resetBit(available, v);
+
+            for (int i = 0; i < W; ++i) {
+                available[i] &= ~adjg[v][i];
+            }
+            available[W - 1] &= LAST_MASK;
+        }
+    }
+}
+
+void expand(vector<ull> C, int curSize) {
+    int cnt = popcountBits(C);
+    if (curSize + cnt <= bestClique) return;
+
+    if (cnt == 0) {
+        if (curSize > bestClique) bestClique = curSize;
+        return;
+    }
+
+    vector<int> vertices, colors;
+    colorSort(C, vertices, colors);
+
+    for (int i = (int)vertices.size() - 1; i >= 0; --i) {
+        if (curSize + colors[i] <= bestClique) return;
+
+        int v = vertices[i];
+
+        vector<ull> nextC(W);
+        for (int j = 0; j < W; ++j) {
+            nextC[j] = C[j] & adjg[v][j];
+        }
+
+        if (emptyBits(nextC)) {
+            if (curSize + 1 > bestClique) bestClique = curSize + 1;
+        } else {
+            expand(std::move(nextC), curSize + 1);
+        }
+
+        resetBit(C, v);
+
+        if (curSize + popcountBits(C) <= bestClique) return;
+    }
+}
+
+int greedyInitialClique() {
+    vector<ull> C(W, ~0ULL);
+    C[W - 1] &= LAST_MASK;
+
+    int sz = 0;
+    while (!emptyBits(C)) {
+        int bestV = -1;
+        int bestDeg = -1;
+
+        for (int wi = 0; wi < W; ++wi) {
+            ull x = C[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                if (v < N) {
+                    int d = 0;
+                    for (int k = 0; k < W; ++k) d += __builtin_popcountll(C[k] & adjg[v][k]);
+                    if (d > bestDeg) {
+                        bestDeg = d;
+                        bestV = v;
+                    }
+                }
+                x &= x - 1;
+            }
+        }
+
+        if (bestV < 0) break;
+
+        ++sz;
+        for (int k = 0; k < W; ++k) C[k] &= adjg[bestV][k];
+    }
+
+    return sz;
+}
+
+int main() {
+    FastScanner fs;
+    N = fs.nextInt();
+    if (N <= 0) return 0;
+
+    W = (N + 63) >> 6;
+    LAST_MASK = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    vector<vector<ull>> oldAdj(N, vector<ull>(W, 0));
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = fs.nextBit();
+            if (b && i != j) setBit(oldAdj[i], j);
+        }
+        oldAdj[i][W - 1] &= LAST_MASK;
+        resetBit(oldAdj[i], i);
+    }
+
+    vector<int> deg(N);
+    for (int i = 0; i < N; ++i) deg[i] = popcountBits(oldAdj[i]);
+
+    vector<int> order(N), pos(N);
+    iota(order.begin(), order.end(), 0);
+    sort(order.begin(), order.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    for (int i = 0; i < N; ++i) pos[order[i]] = i;
+
+    adjg.assign(N, vector<ull>(W, 0));
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = order[ni];
+        for (int wi = 0; wi < W; ++wi) {
+            ull x = oldAdj[oi][wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (wi << 6) + b;
+                if (oj < N) {
+                    int nj = pos[oj];
+                    if (nj != ni) setBit(adjg[ni], nj);
+                }
+                x &= x - 1;
+            }
+        }
+        adjg[ni][W - 1] &= LAST_MASK;
+        resetBit(adjg[ni], ni);
+    }
+
+    bestClique = greedyInitialClique();
+
+    vector<ull> all(W, ~0ULL);
+    all[W - 1] &= LAST_MASK;
+
+    expand(std::move(all), 0);
+
+    printf("%d\n", bestClique);
+    return 0;
+}

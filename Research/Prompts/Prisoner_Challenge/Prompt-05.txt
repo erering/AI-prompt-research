@@ -1,0 +1,10 @@
+Checklist for the C++20 code to output:
+Required function: vector<vector<int>> devise_strategy(int N); called once. Do not read input, print output, or include any explanation.
+Input constraint: 2 <= N <= 5000.
+Hidden data: bag A has a coins and bag B has b coins, where 1 <= a,b <= N and a != b.
+Process model: one whiteboard integer state, initially 0; up to 500 prisoners; each prisoner reads the current state, inspects exactly one bag determined by the strategy, observes that bag's coin count, then either writes a new state or declares the smaller bag; the first declaration ends the process.
+Return format: return table s; let x = s.size()-1; valid states are 0..x; every row s[i] must have length N+1.
+Bag choice entries: for every i in 0..x, s[i][0] must be 0 for inspecting A or 1 for inspecting B.
+Action entries: for every i in 0..x and j in 1..N, s[i][j] must be -1, -2, or a non-negative state. -1 means declare A smaller. -2 means declare B smaller. A non-negative value k means write k on the whiteboard, and must satisfy 0 <= k <= x.
+Correctness checklist: for every valid distinct pair (a,b), simulation from state 0 must make a declaration within the first 500 prisoners; the declaration must be A iff a < b and B iff b < a; wrong declarations and no declaration after 500 prisoners are invalid.
+Optimization/limits checklist: minimize x. Subtask 1: N<=500, x<=500. Subtask 2: N<=500, x<=70. Subtask 3: all N, x<=60. Subtask 3 partial scoring uses m=max x across tests: 40<=m<=60 gives 20; 26<=m<=39 gives 25+1.5*(40-m); m=25 gives 50; m=24 gives 55; m=23 gives 62; m=22 gives 70; m=21 gives 80; m<=20 gives 90.

@@ -1,0 +1,11 @@
+You are competing to design the best ultra-low-bandwidth protocol for an online tree. Output only valid C++20 code, no prose, no Markdown, no fences, no I/O, no main. Implement:
+int send_message(int N, int i, int Pi);
+std::pair<int,int> longest_path(std::vector<int> S);
+
+Benchmark setting: N=10000 vertices arrive as 1,2,...,9999. When vertex i arrives, its parent Pi with 0<=Pi<i is revealed. The undirected parent edges form a tree on vertices 0..9999. The receiver must later output any diameter endpoints of this tree.
+
+Protocol rules: send_message is the online sender. It sees N, i, Pi, plus its own state from earlier calls in the same run. It returns 0 for no packet or an integer packet in [1,20000]. Total packets, i.e. nonzero returns, must be at most 50. The adversary may choose each next Pi after observing earlier packets, so your protocol must be universally correct.
+
+Decoder rules: longest_path runs in a fresh execution. It receives only vector S, with S[0]=0 and S[i] equal to the sender return at vertex i. The decoder knows which indices sent packets because nonzero S entries remain. It receives no parents and no sender memory. It must return a pair at maximum tree distance.
+
+Scoring pressure: let Z be the largest packet value and M the packet count. Any invalid packet, Z>20000, M>50, or wrong diameter gives zero. For the promised case where vertex 0 is a diameter endpoint, scores are 30/23/16/10 for Z ranges <=4, 5..101, 102..9997, 9998..20000. For the unrestricted case, packet values 5..20000 score 35-25*log_{4000}(Z/5); with Z<=4, packet counts score 70 for M<=8, 70-30*log_4(M/8) for 9..31, and 40 for 32..50. Beat weaker solvers by minimizing Z and M without sacrificing correctness.

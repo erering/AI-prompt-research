@@ -1,0 +1,149 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int S = 20;
+
+    vector<long long> dp(S + 1, 0);
+    vector<int> choice(S + 1, 1);
+    dp[0] = 2;
+    for (int s = 1; s <= S; ++s) {
+        for (int k = 1; k <= s; ++k) {
+            long long val = 2 + 1LL * k * dp[s - k];
+            if (val > dp[s]) {
+                dp[s] = val;
+                choice[s] = k;
+            }
+        }
+    }
+
+    vector<int> ks;
+    int remS = S;
+    while (remS > 0) {
+        int k = choice[remS];
+        ks.push_back(k);
+        remS -= k;
+    }
+
+    int Lcnt = (int)ks.size();
+    vector<int> cap(Lcnt + 1);
+    cap[Lcnt] = 2;
+    for (int i = Lcnt - 1; i >= 0; --i) {
+        cap[i] = 2 + ks[i] * cap[i + 1];
+    }
+
+    vector<int> off(Lcnt);
+    int total = 0;
+    for (int i = 0; i < Lcnt; ++i) {
+        off[i] = total;
+        total += ks[i];
+    }
+
+    vector<vector<int>> ans(total + 1, vector<int>(N + 1, -1));
+    ans[0][0] = 0;
+
+    auto state_id = [&](int level, int idx) {
+        return 1 + off[level] + idx;
+    };
+
+    auto declare_action = [&](int bag, bool observed_smaller) {
+        if (bag == 0) return observed_smaller ? -1 : -2;
+        return observed_smaller ? -2 : -1;
+    };
+
+    auto child_interval = [&](int L, int R, int level, int idx) {
+        int ccap = cap[level + 1];
+        int rem = max(0, R - L - 1);
+        int st = L + 1;
+        for (int c = 0; c < idx; ++c) {
+            int len = min(ccap, rem);
+            st += len;
+            rem -= len;
+        }
+        int len = min(ccap, rem);
+        return array<int, 2>{st, st + len - 1};
+    };
+
+    auto find_child = [&](int L, int R, int level, int val) {
+        int ccap = cap[level + 1];
+        int rem = max(0, R - L - 1);
+        int st = L + 1;
+        for (int c = 0; c < ks[level]; ++c) {
+            int len = min(ccap, rem);
+            if (len > 0 && st <= val && val <= st + len - 1) {
+                return array<int, 3>{c, st, st + len - 1};
+            }
+            st += len;
+            rem -= len;
+        }
+        return array<int, 3>{0, L, R};
+    };
+
+    struct Info {
+        int type;
+        int idx;
+        int L;
+        int R;
+    };
+
+    auto get_info = [&](int level, int val) {
+        int L = 1, R = N;
+        for (int t = 0; t < level; ++t) {
+            if (val == L) return Info{-1, -1, L, R};
+            if (val == R) return Info{-2, -1, L, R};
+            auto ch = find_child(L, R, t, val);
+            L = ch[1];
+            R = ch[2];
+        }
+        if (val == L) return Info{-1, -1, L, R};
+        if (val == R) return Info{-2, -1, L, R};
+        auto ch = find_child(L, R, level, val);
+        return Info{0, ch[0], ch[1], ch[2]};
+    };
+
+    for (int j = 1; j <= N; ++j) {
+        if (j == 1) {
+            ans[0][j] = -1;
+        } else if (j == N) {
+            ans[0][j] = -2;
+        } else {
+            auto ch = find_child(1, N, 0, j);
+            ans[0][j] = state_id(0, ch[0]);
+        }
+    }
+
+    for (int level = 0; level < Lcnt; ++level) {
+        int bag = (level + 1) & 1;
+        for (int p = 0; p < ks[level]; ++p) {
+            int id = state_id(level, p);
+            ans[id][0] = bag;
+
+            for (int j = 1; j <= N; ++j) {
+                Info inf = get_info(level, j);
+
+                if (inf.type == -1) {
+                    ans[id][j] = declare_action(bag, true);
+                } else if (inf.type == -2) {
+                    ans[id][j] = declare_action(bag, false);
+                } else if (inf.idx < p) {
+                    ans[id][j] = declare_action(bag, true);
+                } else if (inf.idx > p) {
+                    ans[id][j] = declare_action(bag, false);
+                } else {
+                    if (j == inf.L) {
+                        ans[id][j] = declare_action(bag, true);
+                    } else if (j == inf.R) {
+                        ans[id][j] = declare_action(bag, false);
+                    } else if (level + 1 < Lcnt) {
+                        auto nxt = find_child(inf.L, inf.R, level + 1, j);
+                        ans[id][j] = state_id(level + 1, nxt[0]);
+                    } else {
+                        ans[id][j] = declare_action(bag, true);
+                    }
+                }
+            }
+        }
+    }
+
+    return ans;
+}

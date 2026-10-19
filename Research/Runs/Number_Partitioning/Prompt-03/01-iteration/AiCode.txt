@@ -1,0 +1,429 @@
+#include <algorithm>
+#include <bit>
+#include <chrono>
+#include <cstdint>
+#include <exception>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <string>
+#include <vector>
+
+using u64 = std::uint64_t;
+
+[[noreturn]] void give_up() {
+    volatile u64 x = 0;
+    for (;;) {
+        ++x;
+    }
+}
+
+bool parse_u64(const std::string& s, u64& out) {
+    if (s.empty()) return false;
+    u64 v = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9') return false;
+        u64 d = static_cast<u64>(c - '0');
+        if (v > (std::numeric_limits<u64>::max() - d) / 10) return false;
+        v = v * 10 + d;
+    }
+    out = v;
+    return true;
+}
+
+u64 abs_diff(u64 a, u64 b) {
+    return a >= b ? a - b : b - a;
+}
+
+bool solve_dp(const std::vector<u64>& a, u64 total, u64& answer) {
+    u64 target = total / 2;
+    if (target > (std::numeric_limits<std::size_t>::max() - 63) / 64) return false;
+
+    std::size_t words = static_cast<std::size_t>(target / 64) + 1;
+    long double ops = static_cast<long double>(words) * static_cast<long double>(a.size());
+
+    if (words > 4000000ULL || ops > 150000000.0L) return false;
+
+    try {
+        std::vector<u64> bits(words, 0);
+        bits[0] = 1;
+
+        unsigned extra = static_cast<unsigned>((target + 1) & 63);
+        u64 last_mask = extra == 0 ? ~0ULL : ((1ULL << extra) - 1ULL);
+
+        for (u64 x : a) {
+            if (x > target) continue;
+
+            std::size_t ws = static_cast<std::size_t>(x / 64);
+            unsigned bs = static_cast<unsigned>(x & 63);
+
+            for (std::size_t i = words; i-- > ws;) {
+                u64 v = bits[i - ws] << bs;
+                if (bs != 0 && i > ws) {
+                    v |= bits[i - ws - 1] >> (64 - bs);
+                }
+                bits[i] |= v;
+            }
+            bits.back() &= last_mask;
+        }
+
+        std::size_t wi = static_cast<std::size_t>(target / 64);
+        unsigned bi = static_cast<unsigned>(target & 63);
+        u64 w = bits[wi] & (bi == 63 ? ~0ULL : ((1ULL << (bi + 1)) - 1ULL));
+
+        for (;;) {
+            if (w != 0) {
+                unsigned p = std::bit_width(w) - 1;
+                u64 best = static_cast<u64>(wi) * 64ULL + p;
+                answer = total - 2ULL * best;
+                return true;
+            }
+            if (wi == 0) break;
+            --wi;
+            w = bits[wi];
+        }
+    } catch (...) {
+        return false;
+    }
+
+    return false;
+}
+
+bool solve_mitm(const std::vector<u64>& a, u64 total, u64 goal, u64& answer) {
+    std::size_t n = a.size();
+    if (n > 47) return false;
+
+    u64 target = total / 2;
+    std::size_t n1 = std::min<std::size_t>(22, n / 2);
+    std::size_t n2 = n - n1;
+    if (n2 > 25) return false;
+
+    try {
+        std::vector<u64> sums;
+        sums.reserve(1ULL << n1);
+        sums.push_back(0);
+
+        for (std::size_t i = 0; i < n1; ++i) {
+            u64 x = a[i];
+            if (x > target) continue;
+            std::size_t sz = sums.size();
+            for (std::size_t j = 0; j < sz; ++j) {
+                if (sums[j] <= target - x) {
+                    sums.push_back(sums[j] + x);
+                }
+            }
+        }
+
+        std::sort(sums.begin(), sums.end());
+        sums.erase(std::unique(sums.begin(), sums.end()), sums.end());
+
+        u64 best_sum = 0;
+        answer = total;
+
+        auto upd = [&](u64 s) {
+            if (s > best_sum) {
+                best_sum = s;
+                answer = total - 2ULL * s;
+            }
+        };
+
+        auto dfs = [&](auto&& self, std::size_t idx, u64 cur) -> void {
+            if (answer == goal) return;
+            if (idx == n) {
+                auto it = std::upper_bound(sums.begin(), sums.end(), target - cur);
+                if (it != sums.begin()) {
+                    --it;
+                    upd(cur + *it);
+                }
+                return;
+            }
+
+            self(self, idx + 1, cur);
+            if (a[idx] <= target - cur) {
+                self(self, idx + 1, cur + a[idx]);
+            }
+        };
+
+        dfs(dfs, n1, 0);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+struct BoundedSubsetSearch {
+    const std::vector<u64>* vals;
+    std::vector<u64> suffix;
+    u64 total;
+    u64 target;
+    u64 goal;
+    u64 best_sum;
+    u64 best_diff;
+    bool cut = false;
+    bool found_goal = false;
+    u64 nodes = 0;
+    std::chrono::steady_clock::time_point deadline;
+
+    void update(u64 s) {
+        if (s > best_sum) {
+            best_sum = s;
+            best_diff = total - 2ULL * s;
+            if (best_diff == goal) found_goal = true;
+        }
+    }
+
+    void dfs(std::size_t idx, u64 cur) {
+        if (found_goal || cut) return;
+
+        if ((++nodes & 16383ULL) == 0) {
+            if (std::chrono::steady_clock::now() >= deadline) {
+                cut = true;
+                return;
+            }
+        }
+
+        const auto& a = *vals;
+        std::size_t n = a.size();
+
+        if (cur + suffix[idx] <= best_sum) {
+            update(cur + suffix[idx]);
+            return;
+        }
+
+        if (idx == n) {
+            update(cur);
+            return;
+        }
+
+        u64 x = a[idx];
+
+        if (x <= target - cur) {
+            dfs(idx + 1, cur + x);
+        }
+
+        std::size_t next = idx + 1;
+        while (next < n && a[next] == x) ++next;
+        dfs(next, cur);
+    }
+};
+
+bool try_bounded_subset(
+    const std::vector<u64>& a,
+    u64 total,
+    u64 goal,
+    u64 initial_best_diff,
+    u64& answer
+) {
+    if (a.size() > 256) return false;
+
+    u64 target = total / 2;
+    BoundedSubsetSearch s;
+    s.vals = &a;
+    s.total = total;
+    s.target = target;
+    s.goal = goal;
+    s.best_diff = initial_best_diff;
+    s.best_sum = (total - initial_best_diff) / 2;
+    s.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(150);
+
+    u64 greedy = 0;
+    for (u64 x : a) {
+        if (x <= target - greedy) greedy += x;
+    }
+    s.update(greedy);
+
+    s.suffix.assign(a.size() + 1, 0);
+    for (std::size_t i = a.size(); i-- > 0;) {
+        s.suffix[i] = s.suffix[i + 1] + a[i];
+    }
+
+    s.dfs(0, 0);
+    answer = s.best_diff;
+
+    return s.found_goal || !s.cut;
+}
+
+struct CKK {
+    u64 best;
+    u64 goal;
+
+    void update(u64 d) {
+        if (d < best) best = d;
+    }
+
+    std::vector<u64> child_with(const std::vector<u64>& v, u64 value) {
+        std::vector<u64> r;
+        r.reserve(v.size() - 1);
+
+        bool inserted = (value == 0);
+        for (std::size_t i = 2; i < v.size(); ++i) {
+            if (!inserted && value >= v[i]) {
+                r.push_back(value);
+                inserted = true;
+            }
+            if (v[i] != 0) r.push_back(v[i]);
+        }
+        if (!inserted) r.push_back(value);
+        return r;
+    }
+
+    void search(const std::vector<u64>& v, u64 sum) {
+        if (best == goal) return;
+
+        if (v.empty()) {
+            update(0);
+            return;
+        }
+
+        if (v.size() == 1) {
+            update(v[0]);
+            return;
+        }
+
+        u64 a = v[0];
+        u64 rest = sum - a;
+
+        if (a >= rest) {
+            update(a - rest);
+            return;
+        }
+
+        u64 b = v[1];
+        u64 rest_after_pair = sum - a - b;
+
+        u64 d = a - b;
+        if (d >= rest_after_pair) {
+            update(d - rest_after_pair);
+        } else {
+            std::vector<u64> cd = child_with(v, d);
+            search(cd, rest_after_pair + d);
+        }
+
+        if (best == goal) return;
+
+        u64 s = a + b;
+        if (s >= rest_after_pair) {
+            update(s - rest_after_pair);
+        } else {
+            std::vector<u64> cs = child_with(v, s);
+            search(cs, sum);
+        }
+    }
+};
+
+u64 kk_heuristic(const std::vector<u64>& a) {
+    std::priority_queue<u64> pq;
+    for (u64 x : a) {
+        if (x != 0) pq.push(x);
+    }
+
+    while (pq.size() > 1) {
+        u64 x = pq.top(); pq.pop();
+        u64 y = pq.top(); pq.pop();
+        u64 d = x - y;
+        if (d != 0) pq.push(d);
+    }
+
+    return pq.empty() ? 0 : pq.top();
+}
+
+u64 lpt_heuristic(const std::vector<u64>& a) {
+    u64 s0 = 0, s1 = 0;
+    for (u64 x : a) {
+        if (s0 <= s1) s0 += x;
+        else s1 += x;
+    }
+    return abs_diff(s0, s1);
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    try {
+        std::size_t n;
+        if (!(std::cin >> n)) return 0;
+
+        std::vector<u64> a;
+        a.reserve(n);
+
+        bool bad = false;
+        u64 total = 0;
+        u64 g = 0;
+
+        for (std::size_t i = 0; i < n; ++i) {
+            std::string s;
+            std::cin >> s;
+
+            u64 x = 0;
+            if (!parse_u64(s, x)) {
+                bad = true;
+                x = 0;
+            }
+
+            if (!bad && x > std::numeric_limits<u64>::max() - total) {
+                bad = true;
+            }
+
+            if (!bad) {
+                total += x;
+                g = std::gcd(g, x);
+                if (x != 0) a.push_back(x);
+            }
+        }
+
+        if (bad) give_up();
+
+        if (a.empty()) {
+            std::cout << 0 << '\n';
+            return 0;
+        }
+
+        std::sort(a.begin(), a.end(), std::greater<u64>());
+
+        u64 goal = 0;
+        if (g != 0 && ((total / g) & 1ULL)) goal = g;
+
+        u64 best = std::min(kk_heuristic(a), lpt_heuristic(a));
+
+        if (best == goal) {
+            std::cout << best << '\n';
+            return 0;
+        }
+
+        u64 ans = 0;
+
+        if (solve_dp(a, total, ans)) {
+            std::cout << ans << '\n';
+            return 0;
+        }
+
+        if (solve_mitm(a, total, goal, ans)) {
+            std::cout << ans << '\n';
+            return 0;
+        }
+
+        if (try_bounded_subset(a, total, goal, best, ans)) {
+            std::cout << ans << '\n';
+            return 0;
+        }
+
+        if (ans == goal) {
+            std::cout << ans << '\n';
+            return 0;
+        }
+
+        if (a.size() > 256) give_up();
+
+        CKK ckk;
+        ckk.best = std::min(best, ans == 0 ? best : ans);
+        ckk.goal = goal;
+        ckk.search(a, total);
+
+        std::cout << ckk.best << '\n';
+        return 0;
+    } catch (...) {
+        give_up();
+    }
+}

@@ -1,0 +1,143 @@
+#include <vector>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    constexpr int N = 31;
+    constexpr int K = 16;
+    constexpr int RANK_BITS = 29;
+    constexpr int LEN_BITS = 10;
+
+    std::uint64_t comb[32][32];
+    bool comb_ready = false;
+
+    void init_comb() {
+        if (comb_ready) return;
+        comb_ready = true;
+        for (int n = 0; n <= 31; ++n) {
+            comb[n][0] = comb[n][n] = 1;
+            for (int k = 1; k < n; ++k) {
+                comb[n][k] = comb[n - 1][k - 1] + comb[n - 1][k];
+            }
+        }
+    }
+
+    std::uint64_t rank_subset(const std::vector<int>& s) {
+        init_comb();
+        std::uint64_t rank = 0;
+        int prev = -1;
+        for (int i = 0; i < K; ++i) {
+            for (int v = prev + 1; v < s[i]; ++v) {
+                rank += comb[N - 1 - v][K - 1 - i];
+            }
+            prev = s[i];
+        }
+        return rank;
+    }
+
+    std::vector<int> unrank_subset(std::uint64_t rank) {
+        init_comb();
+        std::vector<int> s;
+        s.reserve(K);
+        int prev = -1;
+        for (int i = 0; i < K; ++i) {
+            for (int v = prev + 1; v < N; ++v) {
+                std::uint64_t cnt = comb[N - 1 - v][K - 1 - i];
+                if (rank >= cnt) {
+                    rank -= cnt;
+                } else {
+                    s.push_back(v);
+                    prev = v;
+                    break;
+                }
+            }
+        }
+        return s;
+    }
+
+    void send_majority_bit(bool bit) {
+        std::vector<bool> a(N, bit);
+        send_packet(a);
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> reliable;
+    reliable.reserve(K);
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) reliable.push_back(i);
+    }
+
+    std::uint64_t r = rank_subset(reliable);
+
+    for (int b = 0; b < RANK_BITS; ++b) {
+        send_majority_bit((r >> b) & 1ULL);
+    }
+
+    std::vector<bool> payload;
+    int L = static_cast<int>(M.size());
+    int enc_len = L - 1;
+
+    for (int b = 0; b < LEN_BITS; ++b) {
+        payload.push_back((enc_len >> b) & 1);
+    }
+    for (bool x : M) {
+        payload.push_back(x);
+    }
+
+    int pos = 0;
+    while (pos < static_cast<int>(payload.size())) {
+        std::vector<bool> a(N, false);
+        for (int j = 0; j < K; ++j) {
+            if (pos < static_cast<int>(payload.size())) {
+                a[reliable[j]] = payload[pos++];
+            } else {
+                a[reliable[j]] = false;
+            }
+        }
+        send_packet(a);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    std::uint64_t r = 0;
+
+    for (int p = 0; p < RANK_BITS; ++p) {
+        int ones = 0;
+        for (int i = 0; i < N; ++i) {
+            if (R[p][i]) ++ones;
+        }
+        if (ones >= K) {
+            r |= (1ULL << p);
+        }
+    }
+
+    std::vector<int> reliable = unrank_subset(r);
+
+    std::vector<bool> stream;
+    for (int p = RANK_BITS; p < static_cast<int>(R.size()); ++p) {
+        for (int idx : reliable) {
+            stream.push_back(R[p][idx]);
+        }
+    }
+
+    int enc_len = 0;
+    for (int b = 0; b < LEN_BITS; ++b) {
+        if (b < static_cast<int>(stream.size()) && stream[b]) {
+            enc_len |= (1 << b);
+        }
+    }
+
+    int L = enc_len + 1;
+    std::vector<bool> M;
+    M.reserve(L);
+
+    for (int i = 0; i < L; ++i) {
+        int pos = LEN_BITS + i;
+        M.push_back(pos < static_cast<int>(stream.size()) ? stream[pos] : false);
+    }
+
+    return M;
+}

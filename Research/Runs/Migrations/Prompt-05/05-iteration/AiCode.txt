@@ -1,0 +1,120 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    const int LOG = 20;
+    const int L = 28;
+    const int DIG = 14;
+
+    int gN = 0;
+    vector<int> depthArr;
+    vector<array<int, LOG>> upArr;
+    int diamA = 0, diamB = 0, diamD = 0;
+    int cutA = 0, cutB = 0;
+
+    void init_state(int N) {
+        gN = N;
+        depthArr.assign(N, 0);
+        upArr.assign(N, {});
+        for (int k = 0; k < LOG; ++k) upArr[0][k] = 0;
+        diamA = diamB = diamD = 0;
+        cutA = cutB = 0;
+    }
+
+    int lca_node(int a, int b) {
+        if (depthArr[a] < depthArr[b]) swap(a, b);
+        int diff = depthArr[a] - depthArr[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = upArr[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (upArr[a][k] != upArr[b][k]) {
+                a = upArr[a][k];
+                b = upArr[b][k];
+            }
+        }
+        return upArr[a][0];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return depthArr[a] + depthArr[b] - 2 * depthArr[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || gN != N) init_state(N);
+
+    depthArr[i] = depthArr[Pi] + 1;
+    upArr[i][0] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        upArr[i][k] = upArr[upArr[i][k - 1]][k - 1];
+    }
+
+    int prevA = diamA, prevB = diamB;
+    int upd = 0;
+
+    int dA = dist_node(i, prevA);
+    int dB = dist_node(i, prevB);
+
+    if (dA > diamD) {
+        diamA = i;
+        diamB = prevA;
+        diamD = dA;
+        upd = 1;
+    } else if (dB > diamD) {
+        diamA = i;
+        diamB = prevB;
+        diamD = dB;
+        upd = 2;
+    }
+
+    int C = N - 1 - L;
+
+    if (i == C) {
+        cutA = diamA;
+        cutB = diamB;
+        return 0;
+    }
+
+    if (i > C) {
+        int k = i - (C + 1);
+        int bit;
+        if (k < DIG) bit = (cutA >> k) & 1;
+        else bit = (cutB >> (k - DIG)) & 1;
+        return upd + 3 * bit;
+    }
+
+    return 0;
+}
+
+std::pair<int,int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    int C = N - 1 - L;
+
+    int a = 0, b = 0;
+    int upd[L];
+
+    for (int k = 0; k < L; ++k) {
+        int val = S[C + 1 + k];
+        upd[k] = val % 3;
+        int bit = val / 3;
+        if (k < DIG) a |= (bit << k);
+        else b |= (bit << (k - DIG));
+    }
+
+    for (int k = 0; k < L; ++k) {
+        int v = C + 1 + k;
+        int oldA = a, oldB = b;
+        if (upd[k] == 1) {
+            a = v;
+            b = oldA;
+        } else if (upd[k] == 2) {
+            a = v;
+            b = oldB;
+        }
+    }
+
+    return {a, b};
+}

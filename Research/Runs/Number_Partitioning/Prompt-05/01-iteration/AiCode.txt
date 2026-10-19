@@ -1,0 +1,271 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <numeric>
+#include <queue>
+#include <vector>
+
+using U = std::uint64_t;
+
+static U diff_from_subset(U sum, U sub) {
+    U half = sum / 2;
+    if (sub <= half) return sum - sub - sub;
+    U d = sub - half;
+    return (sum & 1ULL) ? d + (d - 1) : d + d;
+}
+
+static bool solve_dp(const std::vector<U>& a, U sum, U& ans) {
+    std::size_t nwords = static_cast<std::size_t>(sum / 64 + 1);
+    std::vector<U> bits(nwords, 0);
+    bits[0] = 1;
+
+    for (U x : a) {
+        std::size_t sh = static_cast<std::size_t>(x);
+        std::size_t w = sh / 64;
+        unsigned r = static_cast<unsigned>(sh % 64);
+        if (w >= nwords) continue;
+
+        for (std::size_t i = nwords; i-- > w;) {
+            U v = bits[i - w] << r;
+            if (r && i > w) v |= bits[i - w - 1] >> (64 - r);
+            bits[i] |= v;
+        }
+    }
+
+    U half = sum / 2;
+    std::size_t wi = static_cast<std::size_t>(half / 64);
+    unsigned bi = static_cast<unsigned>(half % 64);
+
+    U mask = bits[wi] & (bi == 63 ? ~0ULL : ((1ULL << (bi + 1)) - 1));
+
+    while (true) {
+        if (mask) {
+            int b = 63 - std::countl_zero(mask);
+            U s = static_cast<U>(wi) * 64 + static_cast<U>(b);
+            ans = sum - s - s;
+            return true;
+        }
+        if (wi == 0) break;
+        --wi;
+        mask = bits[wi];
+    }
+
+    ans = sum;
+    return true;
+}
+
+static U kk_heuristic(const std::vector<U>& a) {
+    std::priority_queue<U> pq;
+    for (U x : a) if (x) pq.push(x);
+
+    while (pq.size() > 1) {
+        U x = pq.top(); pq.pop();
+        U y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+
+    return pq.empty() ? 0 : pq.top();
+}
+
+static U greedy_heuristic(const std::vector<U>& a) {
+    U x = 0, y = 0;
+    for (U v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return x >= y ? x - y : y - x;
+}
+
+static U solve_mitm(const std::vector<U>& a, U sum, U target) {
+    std::size_t n = a.size();
+    std::size_t rn = n / 2;
+    std::size_t ln = n - rn;
+
+    std::vector<U> right;
+    right.reserve(1ULL << rn);
+    right.push_back(0);
+
+    for (std::size_t i = ln; i < n; ++i) {
+        U x = a[i];
+        std::size_t old = right.size();
+        right.resize(old * 2);
+        for (std::size_t j = 0; j < old; ++j) {
+            right[old + j] = right[j] + x;
+        }
+    }
+
+    std::sort(right.begin(), right.end());
+
+    U best = sum;
+    U half = sum / 2;
+
+    auto upd = [&](U sub) {
+        U d = diff_from_subset(sum, sub);
+        if (d < best) best = d;
+    };
+
+    auto check = [&](U left_sum) {
+        if (best == target) return;
+
+        std::vector<U>::const_iterator it;
+        if (left_sum <= half) {
+            it = std::lower_bound(right.begin(), right.end(), half - left_sum);
+        } else {
+            it = right.begin();
+        }
+
+        if (it != right.end()) upd(left_sum + *it);
+        if (it != right.begin()) {
+            --it;
+            upd(left_sum + *it);
+        }
+    };
+
+    U cur = 0;
+    check(0);
+
+    if (ln > 0) {
+        std::size_t total = 1ULL << ln;
+        std::size_t prev_gray = 0;
+
+        for (std::size_t k = 1; k < total && best != target; ++k) {
+            std::size_t gray = k ^ (k >> 1);
+            std::size_t ch = gray ^ prev_gray;
+            unsigned bit = std::countr_zero(ch);
+
+            if (gray & ch) cur += a[bit];
+            else cur -= a[bit];
+
+            check(cur);
+            prev_gray = gray;
+        }
+    }
+
+    return best;
+}
+
+struct CKK {
+    U best;
+    U target;
+
+    std::vector<U> child_with(const std::vector<U>& v, U val) {
+        std::vector<U> c;
+        c.reserve(v.size() - (val ? 1 : 2));
+
+        std::size_t i = 2;
+        while (i < v.size() && v[i] > val) {
+            c.push_back(v[i]);
+            ++i;
+        }
+
+        if (val) c.push_back(val);
+
+        while (i < v.size()) {
+            c.push_back(v[i]);
+            ++i;
+        }
+
+        return c;
+    }
+
+    void search(const std::vector<U>& v, U sum) {
+        if (best == target) return;
+
+        if (v.empty()) {
+            best = 0;
+            return;
+        }
+
+        if (v.size() == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+
+        U rest = sum - v[0];
+        if (v[0] >= rest) {
+            U d = v[0] - rest;
+            if (d < best) best = d;
+            return;
+        }
+
+        U a = v[0], b = v[1];
+
+        {
+            std::vector<U> c = child_with(v, a - b);
+            search(c, sum - b - b);
+        }
+
+        if (best == target) return;
+
+        {
+            std::vector<U> c = child_with(v, a + b);
+            search(c, sum);
+        }
+    }
+};
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t n;
+    if (!(std::cin >> n)) return 0;
+
+    std::vector<U> a(n);
+    U g = 0;
+
+    for (std::size_t i = 0; i < n; ++i) {
+        std::cin >> a[i];
+        g = std::gcd(g, a[i]);
+    }
+
+    if (n == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    U sum = 0;
+    for (U& x : a) {
+        x /= g;
+        sum += x;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<U>());
+
+    U target = sum & 1ULL;
+    U best = sum;
+
+    best = std::min(best, greedy_heuristic(a));
+    best = std::min(best, kk_heuristic(a));
+
+    if (best == target) {
+        std::cout << best * g << '\n';
+        return 0;
+    }
+
+    const U MAX_SUM_DP = 200000000ULL;
+    const std::size_t MAX_WORD_OPS = 150000000ULL;
+
+    if (sum <= MAX_SUM_DP) {
+        std::size_t words = static_cast<std::size_t>(sum / 64 + 1);
+        if (n == 0 || words <= MAX_WORD_OPS / n) {
+            U ans;
+            solve_dp(a, sum, ans);
+            std::cout << ans * g << '\n';
+            return 0;
+        }
+    }
+
+    if (n <= 46) {
+        U ans = solve_mitm(a, sum, target);
+        std::cout << ans * g << '\n';
+        return 0;
+    }
+
+    CKK solver{best, target};
+    solver.search(a, sum);
+
+    std::cout << solver.best * g << '\n';
+    return 0;
+}

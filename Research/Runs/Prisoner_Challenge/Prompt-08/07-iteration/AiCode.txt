@@ -1,0 +1,96 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int INF = 1e9;
+    const int MAXR = 25;
+
+    vector<int> dist(N + 1, INF), preP(N + 1, -1), preR(N + 1, -1);
+    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+    dist[1] = 0;
+    pq.push({0, 1});
+
+    while (!pq.empty()) {
+        auto [cd, p] = pq.top();
+        pq.pop();
+        if (cd != dist[p]) continue;
+        if (p == N) break;
+
+        for (int r = 2; r <= MAXR; r++) {
+            int np = min<long long>(N, 1LL * p * r);
+            int nd = cd + r;
+            if (nd < dist[np]) {
+                dist[np] = nd;
+                preP[np] = p;
+                preR[np] = r;
+                pq.push({nd, np});
+            }
+        }
+    }
+
+    vector<int> base;
+    int cur = N;
+    while (cur != 1) {
+        base.push_back(preR[cur]);
+        cur = preP[cur];
+    }
+    reverse(base.begin(), base.end());
+
+    int L = (int)base.size();
+    vector<long long> suf(L + 1, 1);
+    for (int i = L - 1; i >= 0; i--) suf[i] = suf[i + 1] * base[i];
+
+    auto digit = [&](int v, int pos) -> int {
+        long long z = v - 1;
+        return (int)((z / suf[pos + 1]) % base[pos]);
+    };
+
+    vector<int> offset(L);
+    int x = 0;
+    for (int i = 0; i < L; i++) {
+        offset[i] = x + 1;
+        x += base[i];
+    }
+
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; j++) {
+        s[0][j] = offset[0] + digit(j, 0);
+    }
+
+    for (int pos = 0; pos < L; pos++) {
+        for (int stored = 0; stored < base[pos]; stored++) {
+            int id = offset[pos] + stored;
+            s[id][0] = (pos % 2 == 0 ? 1 : 0);
+
+            for (int j = 1; j <= N; j++) {
+                int curDigit = digit(j, pos);
+
+                if (curDigit == stored) {
+                    if (pos + 1 < L) {
+                        s[id][j] = offset[pos + 1] + digit(j, pos + 1);
+                    } else {
+                        s[id][j] = 0;
+                    }
+                } else {
+                    bool inspectingA = (s[id][0] == 0);
+                    int da, db;
+
+                    if (inspectingA) {
+                        da = curDigit;
+                        db = stored;
+                    } else {
+                        da = stored;
+                        db = curDigit;
+                    }
+
+                    s[id][j] = (da < db ? -1 : -2);
+                }
+            }
+        }
+    }
+
+    return s;
+}

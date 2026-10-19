@@ -1,0 +1,77 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+void send_message(vector<bool> M, vector<bool> C) {
+    for (int j = 0; j < 31; ++j) {
+        vector<bool> A(31, C[j]);
+        send_packet(A);
+    }
+
+    vector<int> reliable;
+    reliable.reserve(16);
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) reliable.push_back(i);
+    }
+
+    vector<bool> payload;
+    int L = (int)M.size();
+    int encoded_length = L - 1;
+
+    for (int b = 0; b < 10; ++b) {
+        payload.push_back((encoded_length >> b) & 1);
+    }
+    for (bool bit : M) payload.push_back(bit);
+
+    int pos = 0;
+    while (pos < (int)payload.size()) {
+        vector<bool> A(31, false);
+        for (int idx : reliable) {
+            if (pos < (int)payload.size()) {
+                A[idx] = payload[pos++];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    vector<bool> C(31, false);
+
+    for (int j = 0; j < 31; ++j) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[j][i]) ++ones;
+        }
+        C[j] = (ones >= 16);
+    }
+
+    vector<int> reliable;
+    reliable.reserve(16);
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) reliable.push_back(i);
+    }
+
+    vector<bool> stream;
+    for (int p = 31; p < (int)R.size(); ++p) {
+        for (int idx : reliable) {
+            stream.push_back(R[p][idx]);
+        }
+    }
+
+    int encoded_length = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (stream[b]) encoded_length |= (1 << b);
+    }
+
+    int L = encoded_length + 1;
+    vector<bool> M;
+    M.reserve(L);
+
+    for (int i = 0; i < L; ++i) {
+        M.push_back(stream[10 + i]);
+    }
+
+    return M;
+}

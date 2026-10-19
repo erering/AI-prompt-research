@@ -1,0 +1,283 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class FastScanner {
+    static constexpr size_t SZ = 1 << 20;
+    char buf[SZ];
+    size_t idx = 0, size = 0;
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+public:
+    int nextInt() {
+        char c;
+        do c = getChar(); while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do c = getChar(); while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+struct Solver {
+    int N, W;
+    vector<unsigned long long> adj;
+    vector<vector<int>> comp;
+    int best = 0;
+
+    vector<int> pairMark;
+    int pairToken = 1;
+
+    inline bool bitTest(const vector<unsigned long long>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline void bitClear(vector<unsigned long long>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    int greedyClique(unsigned seed) {
+        vector<int> deg(N), prio(N);
+        vector<unsigned char> active(N, 1);
+
+        unsigned x = seed;
+        auto rnd = [&]() {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            return x;
+        };
+
+        using T = tuple<int, int, int>;
+        priority_queue<T, vector<T>, greater<T>> pq;
+
+        for (int i = 0; i < N; ++i) {
+            deg[i] = (int)comp[i].size();
+            prio[i] = (int)(rnd() & 0x7fffffff);
+            pq.emplace(deg[i], prio[i], i);
+        }
+
+        auto removeVertex = [&](int v) {
+            active[v] = 0;
+            for (int u : comp[v]) {
+                if (active[u]) {
+                    --deg[u];
+                    pq.emplace(deg[u], prio[u], u);
+                }
+            }
+        };
+
+        int res = 0;
+        vector<int> rem;
+        while (!pq.empty()) {
+            auto [d, p, v] = pq.top();
+            pq.pop();
+            if (!active[v] || d != deg[v]) continue;
+
+            ++res;
+            rem.clear();
+            rem.push_back(v);
+            for (int u : comp[v]) {
+                if (active[u]) rem.push_back(u);
+            }
+            for (int u : rem) {
+                if (active[u]) removeVertex(u);
+            }
+        }
+        return res;
+    }
+
+    int greedyPairUpperBound(const vector<unsigned long long>& P, int sz) {
+        if (++pairToken == INT_MAX) {
+            fill(pairMark.begin(), pairMark.end(), 0);
+            pairToken = 1;
+        }
+
+        int matched = 0;
+        for (int w = 0; w < W; ++w) {
+            unsigned long long word = P[w];
+            while (word) {
+                int b = __builtin_ctzll(word);
+                int v = (w << 6) + b;
+                word &= word - 1;
+                if (v >= N) continue;
+                if (pairMark[v] == pairToken) continue;
+
+                for (int u : comp[v]) {
+                    if (pairMark[u] != pairToken && bitTest(P, u)) {
+                        pairMark[v] = pairToken;
+                        pairMark[u] = pairToken;
+                        ++matched;
+                        break;
+                    }
+                }
+            }
+        }
+        return sz - matched;
+    }
+
+    void colorSort(const vector<unsigned long long>& P, vector<int>& order, vector<int>& colors) {
+        order.clear();
+        colors.clear();
+
+        vector<unsigned long long> U = P;
+        vector<unsigned long long> avail(W);
+
+        int color = 0;
+        while (true) {
+            bool any = false;
+            for (int i = 0; i < W; ++i) {
+                if (U[i]) {
+                    any = true;
+                    break;
+                }
+            }
+            if (!any) break;
+
+            ++color;
+            avail = U;
+
+            while (true) {
+                int v = -1;
+                for (int w = 0; w < W; ++w) {
+                    if (avail[w]) {
+                        v = (w << 6) + __builtin_ctzll(avail[w]);
+                        break;
+                    }
+                }
+                if (v < 0 || v >= N) break;
+
+                order.push_back(v);
+                colors.push_back(color);
+
+                unsigned long long mask = 1ULL << (v & 63);
+                int vw = v >> 6;
+                U[vw] &= ~mask;
+                avail[vw] &= ~mask;
+
+                const unsigned long long* av = &adj[(size_t)v * W];
+                for (int k = 0; k < W; ++k) {
+                    avail[k] &= ~av[k];
+                }
+            }
+        }
+    }
+
+    void expand(vector<unsigned long long> P, int sz, int cur) {
+        if (cur + sz <= best) return;
+
+        if (sz > 128) {
+            int ub = greedyPairUpperBound(P, sz);
+            if (cur + ub <= best) return;
+        }
+
+        vector<int> order, colors;
+        order.reserve(sz);
+        colors.reserve(sz);
+        colorSort(P, order, colors);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (cur + colors[i] <= best) return;
+
+            int v = order[i];
+            vector<unsigned long long> newP(W);
+            const unsigned long long* av = &adj[(size_t)v * W];
+
+            int newSz = 0;
+            for (int k = 0; k < W; ++k) {
+                unsigned long long x = P[k] & av[k];
+                newP[k] = x;
+                newSz += __builtin_popcountll(x);
+            }
+
+            if (newSz == 0) {
+                if (cur + 1 > best) best = cur + 1;
+            } else if (cur + 1 + newSz > best) {
+                expand(std::move(newP), newSz, cur + 1);
+            }
+
+            bitClear(P, v);
+        }
+    }
+
+    int solve() {
+        if (N == 0) return 0;
+
+        int runs;
+        if (N <= 500) runs = 80;
+        else if (N <= 1500) runs = 40;
+        else if (N <= 4000) runs = 18;
+        else runs = 8;
+
+        for (int r = 0; r < runs; ++r) {
+            best = max(best, greedyClique(123456789u + 1000003u * (unsigned)r));
+            if (best == N) return best;
+        }
+
+        pairMark.assign(N, 0);
+
+        vector<unsigned long long> P(W, ~0ULL);
+        if (N & 63) P[W - 1] = (1ULL << (N & 63)) - 1ULL;
+
+        expand(std::move(P), N, 0);
+        return best;
+    }
+};
+
+int main() {
+    FastScanner fs;
+    int N = fs.nextInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    Solver s;
+    s.N = N;
+    s.W = (N + 63) >> 6;
+    s.comp.assign(N, {});
+
+    unsigned long long lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+    s.adj.assign((size_t)N * s.W, ~0ULL);
+
+    for (int i = 0; i < N; ++i) {
+        s.adj[(size_t)i * s.W + s.W - 1] &= lastMask;
+    }
+
+    for (int i = 0; i < N; ++i) {
+        size_t base = (size_t)i * s.W;
+        for (int j = 0; j < N; ++j) {
+            int bit = fs.nextBit();
+            if (!bit) {
+                s.adj[base + (j >> 6)] &= ~(1ULL << (j & 63));
+                if (i < j) {
+                    s.comp[i].push_back(j);
+                    s.comp[j].push_back(i);
+                }
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        s.adj[(size_t)i * s.W + (i >> 6)] &= ~(1ULL << (i & 63));
+    }
+
+    printf("%d\n", s.solve());
+    return 0;
+}

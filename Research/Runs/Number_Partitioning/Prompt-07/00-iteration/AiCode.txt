@@ -1,0 +1,326 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <queue>
+#include <limits>
+#include <cstdint>
+
+using u128 = unsigned __int128;
+using u64 = unsigned long long;
+
+static u128 parse_u128(const std::string& s) {
+    u128 x = 0;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') x = x * 10 + (c - '0');
+    }
+    return x;
+}
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        std::cout << "0\n";
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + x % 10));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static u128 gcd_u128(u128 a, u128 b) {
+    while (b != 0) {
+        u128 r = a % b;
+        a = b;
+        b = r;
+    }
+    return a;
+}
+
+static u128 absdiff(u128 a, u128 b) {
+    return a >= b ? a - b : b - a;
+}
+
+static u128 kk_heuristic(const std::vector<u128>& a) {
+    std::priority_queue<u128> pq;
+    for (u128 x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        u128 x = pq.top(); pq.pop();
+        u128 y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static u128 greedy_heuristic(const std::vector<u128>& a) {
+    u128 s1 = 0, s2 = 0;
+    for (u128 x : a) {
+        if (s1 <= s2) s1 += x;
+        else s2 += x;
+    }
+    return absdiff(s1, s2);
+}
+
+static bool dp_solve(const std::vector<u128>& a, u128 total, u128& ans) {
+    const u128 MAX_TARGET = (u128)500000000ULL;
+    const u128 MAX_OPS = (u128)350000000ULL;
+
+    u128 target128 = total / 2;
+    if (target128 > MAX_TARGET) return false;
+
+    size_t target = (size_t)target128;
+    size_t words = target / 64 + 1;
+
+    if ((u128)words * (u128)a.size() > MAX_OPS) return false;
+
+    try {
+        std::vector<u64> dp(words, 0);
+        dp[0] = 1;
+
+        size_t valid = (target + 1) & 63;
+        u64 lastMask = valid == 0 ? ~0ULL : ((1ULL << valid) - 1ULL);
+
+        for (u128 x128 : a) {
+            if (x128 > target128) continue;
+            size_t sh = (size_t)x128;
+            if (sh == 0) continue;
+
+            size_t ws = sh / 64;
+            unsigned bs = (unsigned)(sh & 63);
+
+            for (size_t i = words; i-- > 0; ) {
+                u64 v = 0;
+                if (i >= ws) {
+                    v = dp[i - ws] << bs;
+                    if (bs && i > ws) v |= dp[i - ws - 1] >> (64 - bs);
+                }
+                dp[i] |= v;
+            }
+            dp.back() &= lastMask;
+        }
+
+        for (size_t i = words; i-- > 0; ) {
+            u64 w = dp[i];
+            if (w) {
+                unsigned bit = 63u - (unsigned)__builtin_clzll(w);
+                u128 best = (u128)i * 64 + bit;
+                ans = total - 2 * best;
+                return true;
+            }
+        }
+    } catch (...) {
+        return false;
+    }
+    return false;
+}
+
+static std::vector<u64> generate_sums_u64(const std::vector<u64>& a, size_t l, size_t r, u64 target) {
+    std::vector<u64> sums;
+    sums.reserve((r - l) >= 63 ? 0 : (size_t(1) << (r - l)));
+    sums.push_back(0);
+
+    for (size_t i = l; i < r; ++i) {
+        u64 x = a[i];
+        size_t old = sums.size();
+        for (size_t j = 0; j < old; ++j) {
+            u64 y = sums[j] + x;
+            if (y <= target) sums.push_back(y);
+        }
+    }
+    return sums;
+}
+
+static bool mitm_solve(const std::vector<u128>& a128, u128 total128, u128& ans) {
+    if (a128.size() > 46) return false;
+    if (total128 > (u128)std::numeric_limits<u64>::max()) return false;
+
+    std::vector<u64> a;
+    a.reserve(a128.size());
+    for (u128 x : a128) {
+        if (x > (u128)std::numeric_limits<u64>::max()) return false;
+        a.push_back((u64)x);
+    }
+
+    u64 total = (u64)total128;
+    u64 target = total / 2;
+    size_t n = a.size();
+    size_t m1 = n / 2;
+
+    try {
+        std::vector<u64> left = generate_sums_u64(a, 0, m1, target);
+        std::vector<u64> right = generate_sums_u64(a, m1, n, target);
+        std::sort(right.begin(), right.end());
+
+        u64 best = 0;
+        for (u64 x : left) {
+            if (x > target) continue;
+            u64 rem = target - x;
+            auto it = std::upper_bound(right.begin(), right.end(), rem);
+            if (it != right.begin()) {
+                --it;
+                u64 cur = x + *it;
+                if (cur > best) {
+                    best = cur;
+                    if (best == target) break;
+                }
+            }
+        }
+
+        ans = (u128)total - 2 * (u128)best;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+class CKK {
+public:
+    u128 best;
+
+    explicit CKK(u128 initial) : best(initial) {}
+
+    void solve(std::vector<u128>& v, u128 sum) {
+        if (best == 0) return;
+        rec(v, sum);
+    }
+
+private:
+    static void insert_desc_from_rest(const std::vector<u128>& v, u128 val, std::vector<u128>& out) {
+        bool inserted = false;
+        if (val == 0) inserted = true;
+        for (size_t i = 2; i < v.size(); ++i) {
+            if (!inserted && val >= v[i]) {
+                out.push_back(val);
+                inserted = true;
+            }
+            out.push_back(v[i]);
+        }
+        if (!inserted) out.push_back(val);
+    }
+
+    void rec(const std::vector<u128>& v, u128 sum) {
+        if (best == 0 || v.empty()) {
+            if (v.empty()) best = 0;
+            return;
+        }
+
+        size_t n = v.size();
+
+        u128 rest = sum - v[0];
+        u128 lb = v[0] > rest ? v[0] - rest : 0;
+        if ((lb & 1) != (sum & 1)) ++lb;
+        if (lb >= best) return;
+
+        if (n == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+
+        if (n == 2) {
+            u128 d = v[0] - v[1];
+            if (d < best) best = d;
+            return;
+        }
+
+        u128 a = v[0], b = v[1];
+
+        {
+            std::vector<u128> child;
+            child.reserve(n - 1);
+            insert_desc_from_rest(v, a - b, child);
+            rec(child, sum - 2 * b);
+            if (best == 0) return;
+        }
+
+        {
+            std::vector<u128> child;
+            child.reserve(n - 1);
+            child.push_back(a + b);
+            for (size_t i = 2; i < n; ++i) child.push_back(v[i]);
+            rec(child, sum);
+        }
+    }
+};
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u128> a;
+    a.reserve(N);
+
+    u128 total = 0;
+    u128 g = 0;
+
+    for (size_t i = 0; i < N; ++i) {
+        std::string s;
+        std::cin >> s;
+        u128 x = parse_u128(s);
+        a.push_back(x);
+        total += x;
+        g = (g == 0) ? x : gcd_u128(g, x);
+    }
+
+    if (N == 0 || total == 0) {
+        std::cout << "0\n";
+        return 0;
+    }
+
+    if (g == 0) g = 1;
+    for (u128& x : a) x /= g;
+    total /= g;
+
+    std::sort(a.begin(), a.end(), [](u128 x, u128 y) { return x > y; });
+    a.erase(std::remove(a.begin(), a.end(), (u128)0), a.end());
+
+    if (a.empty()) {
+        std::cout << "0\n";
+        return 0;
+    }
+
+    if (a[0] >= total - a[0]) {
+        print_u128((a[0] - (total - a[0])) * g);
+        return 0;
+    }
+
+    u128 initial = kk_heuristic(a);
+    u128 gr = greedy_heuristic(a);
+    if (gr < initial) initial = gr;
+
+    if (initial == 0 || ((total & 1) && initial == 1)) {
+        print_u128(initial * g);
+        return 0;
+    }
+
+    u128 ans;
+
+    size_t targetWords = (size_t)((total / 2) / 64 + 1);
+    u128 dpOps = (u128)targetWords * (u128)a.size();
+
+    if (dpOps <= (u128)80000000ULL && dp_solve(a, total, ans)) {
+        print_u128(ans * g);
+        return 0;
+    }
+
+    if (mitm_solve(a, total, ans)) {
+        print_u128(ans * g);
+        return 0;
+    }
+
+    if (dp_solve(a, total, ans)) {
+        print_u128(ans * g);
+        return 0;
+    }
+
+    CKK solver(initial);
+    solver.solve(a, total);
+    print_u128(solver.best * g);
+
+    return 0;
+}

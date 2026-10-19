@@ -1,0 +1,463 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+static inline bool bit_test(const vector<ull>& b, int i) {
+    return (b[i >> 6] >> (i & 63)) & 1ULL;
+}
+static inline void bit_set(vector<ull>& b, int i) {
+    b[i >> 6] |= 1ULL << (i & 63);
+}
+static inline void bit_clear(vector<ull>& b, int i) {
+    b[i >> 6] &= ~(1ULL << (i & 63));
+}
+static inline bool bit_any(const vector<ull>& b) {
+    for (ull x : b) if (x) return true;
+    return false;
+}
+static inline int bit_first(const vector<ull>& b) {
+    for (int i = 0; i < (int)b.size(); ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+static inline int bit_count(const vector<ull>& b) {
+    int r = 0;
+    for (ull x : b) r += __builtin_popcountll(x);
+    return r;
+}
+static inline int bit_count_inter(const vector<ull>& a, const vector<ull>& b) {
+    int r = 0;
+    for (int i = 0; i < (int)a.size(); ++i) r += __builtin_popcountll(a[i] & b[i]);
+    return r;
+}
+
+struct MaxCliqueSolver {
+    int n, W, best = 0;
+    ull lastMask;
+    vector<vector<ull>> adj, comp;
+    unsigned rng = 123456789u;
+
+    MaxCliqueSolver(vector<vector<ull>> a, vector<vector<ull>> c, int n_)
+        : n(n_), W((n_ + 63) >> 6), adj(move(a)), comp(move(c)) {
+        int rem = n & 63;
+        lastMask = rem ? ((1ULL << rem) - 1ULL) : ~0ULL;
+    }
+
+    unsigned rnd() {
+        rng ^= rng << 13;
+        rng ^= rng >> 17;
+        rng ^= rng << 5;
+        return rng;
+    }
+
+    int greedy(bool randomize) {
+        vector<ull> cand(W, ~0ULL);
+        if (W) cand[W - 1] &= lastMask;
+        int cnt = 0;
+
+        while (bit_any(cand)) {
+            int chosen = -1;
+            int bestScore = INT_MAX;
+
+            for (int wi = 0; wi < W; ++wi) {
+                ull x = cand[wi];
+                while (x) {
+                    int lb = __builtin_ctzll(x);
+                    int v = (wi << 6) + lb;
+                    if (v < n) {
+                        int d = bit_count_inter(cand, comp[v]);
+                        int score = d * 1024;
+                        if (randomize) score += (int)(rnd() & 1023);
+                        if (score < bestScore) {
+                            bestScore = score;
+                            chosen = v;
+                        }
+                    }
+                    x &= x - 1;
+                }
+            }
+
+            ++cnt;
+            for (int i = 0; i < W; ++i) cand[i] &= adj[chosen][i];
+        }
+        return cnt;
+    }
+
+    void colorSort(const vector<ull>& P, vector<int>& order, vector<int>& colors) {
+        order.clear();
+        colors.clear();
+
+        vector<ull> U = P, Q(W);
+        int color = 0;
+
+        while (bit_any(U)) {
+            ++color;
+            Q = U;
+
+            while (bit_any(Q)) {
+                int v = bit_first(Q);
+                order.push_back(v);
+                colors.push_back(color);
+
+                bit_clear(U, v);
+                bit_clear(Q, v);
+
+                for (int i = 0; i < W; ++i) Q[i] &= comp[v][i];
+            }
+        }
+    }
+
+    void expand(vector<ull> P, int sz) {
+        if (!bit_any(P)) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        vector<int> order, colors;
+        colorSort(P, order, colors);
+
+        vector<ull> cur = P;
+
+        for (int idx = (int)order.size() - 1; idx >= 0; --idx) {
+            if (sz + colors[idx] <= best) return;
+
+            int v = order[idx];
+            if (!bit_test(cur, v)) continue;
+
+            vector<ull> newP(W);
+            for (int i = 0; i < W; ++i) newP[i] = cur[i] & adj[v][i];
+
+            if (sz + 1 + bit_count(newP) > best) {
+                if (bit_any(newP)) expand(move(newP), sz + 1);
+                else if (sz + 1 > best) best = sz + 1;
+            }
+
+            bit_clear(cur, v);
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+
+        best = greedy(false);
+        int tries = (n <= 800 ? 12 : (n <= 2000 ? 5 : 2));
+        for (int i = 0; i < tries; ++i) best = max(best, greedy(true));
+
+        vector<ull> P(W, ~0ULL);
+        P[W - 1] &= lastMask;
+        expand(move(P), 0);
+        return best;
+    }
+};
+
+struct HopcroftKarp {
+    int L, R;
+    vector<vector<int>> g;
+    vector<int> pairU, pairV, dist;
+
+    HopcroftKarp(int l, int r) : L(l), R(r), g(l), pairU(l, -1), pairV(r, -1), dist(l) {}
+
+    bool bfs() {
+        queue<int> q;
+        bool found = false;
+        for (int u = 0; u < L; ++u) {
+            if (pairU[u] == -1) {
+                dist[u] = 0;
+                q.push(u);
+            } else {
+                dist[u] = -1;
+            }
+        }
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            for (int v : g[u]) {
+                int u2 = pairV[v];
+                if (u2 == -1) {
+                    found = true;
+                } else if (dist[u2] == -1) {
+                    dist[u2] = dist[u] + 1;
+                    q.push(u2);
+                }
+            }
+        }
+        return found;
+    }
+
+    bool dfs(int u) {
+        for (int v : g[u]) {
+            int u2 = pairV[v];
+            if (u2 == -1 || (dist[u2] == dist[u] + 1 && dfs(u2))) {
+                pairU[u] = v;
+                pairV[v] = u;
+                return true;
+            }
+        }
+        dist[u] = -1;
+        return false;
+    }
+
+    int maxMatching() {
+        int m = 0;
+        while (bfs()) {
+            for (int u = 0; u < L; ++u) {
+                if (pairU[u] == -1 && dfs(u)) ++m;
+            }
+        }
+        return m;
+    }
+};
+
+bool bipartite_alpha(const vector<vector<ull>>& comp, int n, int& alpha) {
+    vector<int> color(n, -1);
+    queue<int> q;
+
+    for (int s = 0; s < n; ++s) {
+        if (color[s] != -1) continue;
+        color[s] = 0;
+        q.push(s);
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+
+            for (int wi = 0; wi < (int)comp[u].size(); ++wi) {
+                ull x = comp[u][wi];
+                while (x) {
+                    int lb = __builtin_ctzll(x);
+                    int v = (wi << 6) + lb;
+                    if (v < n) {
+                        if (color[v] == -1) {
+                            color[v] = color[u] ^ 1;
+                            q.push(v);
+                        } else if (color[v] == color[u]) {
+                            return false;
+                        }
+                    }
+                    x &= x - 1;
+                }
+            }
+        }
+    }
+
+    vector<int> lid(n, -1), rid(n, -1);
+    int L = 0, R = 0;
+    for (int i = 0; i < n; ++i) {
+        if (color[i] == 0) lid[i] = L++;
+        else rid[i] = R++;
+    }
+
+    HopcroftKarp hk(L, R);
+    for (int u = 0; u < n; ++u) {
+        if (color[u] != 0) continue;
+        int lu = lid[u];
+        for (int wi = 0; wi < (int)comp[u].size(); ++wi) {
+            ull x = comp[u][wi];
+            while (x) {
+                int lb = __builtin_ctzll(x);
+                int v = (wi << 6) + lb;
+                if (v < n && color[v] == 1) hk.g[lu].push_back(rid[v]);
+                x &= x - 1;
+            }
+        }
+    }
+
+    alpha = n - hk.maxMatching();
+    return true;
+}
+
+int solve_component(const vector<vector<ull>>& globalComp, const vector<int>& verts) {
+    int n = (int)verts.size();
+    if (n <= 1) return n;
+
+    int W = (n + 63) >> 6;
+    ull lastMask = (n & 63) ? ((1ULL << (n & 63)) - 1ULL) : ~0ULL;
+
+    vector<vector<ull>> comp(n, vector<ull>(W, 0));
+    vector<vector<ull>> adj(n, vector<ull>(W, ~0ULL));
+
+    for (int i = 0; i < n; ++i) {
+        adj[i][W - 1] &= lastMask;
+        bit_clear(adj[i], i);
+    }
+
+    for (int i = 0; i < n; ++i) {
+        int gi = verts[i];
+        for (int j = i + 1; j < n; ++j) {
+            int gj = verts[j];
+            if (bit_test(globalComp[gi], gj)) {
+                bit_set(comp[i], j);
+                bit_set(comp[j], i);
+                bit_clear(adj[i], j);
+                bit_clear(adj[j], i);
+            }
+        }
+    }
+
+    int alpha = 0;
+    if (bipartite_alpha(comp, n, alpha)) return alpha;
+
+    MaxCliqueSolver solver(move(adj), move(comp), n);
+    return solver.solve();
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    cin >> N;
+
+    int W0 = (N + 63) >> 6;
+    vector<vector<ull>> adjOld(N, vector<ull>(W0, 0));
+
+    char c;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            cin >> c;
+            while (c != '0' && c != '1') cin >> c;
+            if (c == '1' && i != j) bit_set(adjOld[i], j);
+        }
+    }
+
+    vector<vector<int>> compList(N);
+
+    for (int i = 0; i < N; ++i) bit_clear(adjOld[i], i);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool e = bit_test(adjOld[i], j) || bit_test(adjOld[j], i);
+            if (e) {
+                bit_set(adjOld[i], j);
+                bit_set(adjOld[j], i);
+            } else {
+                bit_clear(adjOld[i], j);
+                bit_clear(adjOld[j], i);
+                compList[i].push_back(j);
+                compList[j].push_back(i);
+            }
+        }
+    }
+
+    adjOld.clear();
+    adjOld.shrink_to_fit();
+
+    vector<char> active(N, 1);
+    vector<int> deg(N);
+    queue<int> qu;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)compList[i].size();
+        if (deg[i] <= 1) qu.push(i);
+    }
+
+    int answer = 0;
+
+    auto remove_vertex = [&](int v) {
+        active[v] = 0;
+        for (int u : compList[v]) {
+            if (active[u]) {
+                --deg[u];
+                if (deg[u] <= 1) qu.push(u);
+            }
+        }
+    };
+
+    while (!qu.empty()) {
+        int v = qu.front();
+        qu.pop();
+        if (!active[v] || deg[v] > 1) continue;
+
+        if (deg[v] == 0) {
+            ++answer;
+            remove_vertex(v);
+        } else {
+            int u = -1;
+            for (int x : compList[v]) {
+                if (active[x]) {
+                    u = x;
+                    break;
+                }
+            }
+            ++answer;
+            remove_vertex(v);
+            if (u != -1 && active[u]) remove_vertex(u);
+        }
+    }
+
+    vector<int> oldToNew(N, -1), newToOld;
+    for (int i = 0; i < N; ++i) {
+        if (active[i]) {
+            oldToNew[i] = (int)newToOld.size();
+            newToOld.push_back(i);
+        }
+    }
+
+    int M = (int)newToOld.size();
+    if (M == 0) {
+        cout << answer << '\n';
+        return 0;
+    }
+
+    int W = (M + 63) >> 6;
+    vector<vector<ull>> compM(M, vector<ull>(W, 0));
+
+    for (int oi = 0; oi < N; ++oi) {
+        if (!active[oi]) continue;
+        int i = oldToNew[oi];
+        for (int oj : compList[oi]) {
+            if (active[oj] && oi < oj) {
+                int j = oldToNew[oj];
+                bit_set(compM[i], j);
+                bit_set(compM[j], i);
+            }
+        }
+    }
+
+    vector<char> vis(M, 0);
+    vector<vector<int>> components;
+
+    for (int s = 0; s < M; ++s) {
+        if (vis[s]) continue;
+
+        vector<int> compVerts;
+        queue<int> q;
+        vis[s] = 1;
+        q.push(s);
+
+        while (!q.empty()) {
+            int u = q.front();
+            q.pop();
+            compVerts.push_back(u);
+
+            for (int wi = 0; wi < W; ++wi) {
+                ull x = compM[u][wi];
+                while (x) {
+                    int lb = __builtin_ctzll(x);
+                    int v = (wi << 6) + lb;
+                    if (v < M && !vis[v]) {
+                        vis[v] = 1;
+                        q.push(v);
+                    }
+                    x &= x - 1;
+                }
+            }
+        }
+
+        components.push_back(move(compVerts));
+    }
+
+    sort(components.begin(), components.end(), [](const auto& a, const auto& b) {
+        return a.size() < b.size();
+    });
+
+    for (const auto& cv : components) {
+        answer += solve_component(compM, cv);
+    }
+
+    cout << answer << '\n';
+    return 0;
+}

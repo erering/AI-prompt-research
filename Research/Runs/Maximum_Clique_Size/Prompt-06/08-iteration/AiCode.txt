@@ -1,0 +1,374 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static const int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+    inline char getch() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (!size) return 0;
+        }
+        return buf[idx++];
+    }
+    int nextInt() {
+        char c;
+        do { c = getch(); } while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getch();
+        }
+        return x;
+    }
+    int nextBit() {
+        char c;
+        do { c = getch(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+vector<vector<int>> adjList;
+vector<unsigned long long> adjBits;
+vector<int> markArr, pairU, pairV, distHK;
+int stampMark = 1;
+unsigned long long lastMask;
+
+inline bool testBit(const vector<unsigned long long>& a, int v) {
+    return (a[v >> 6] >> (v & 63)) & 1ULL;
+}
+inline void clearBit(vector<unsigned long long>& a, int v) {
+    a[v >> 6] &= ~(1ULL << (v & 63));
+}
+inline bool adjTest(int u, int v) {
+    return (adjBits[(size_t)u * W + (v >> 6)] >> (v & 63)) & 1ULL;
+}
+inline void addEdge(int u, int v) {
+    adjList[u].push_back(v);
+    adjList[v].push_back(u);
+    adjBits[(size_t)u * W + (v >> 6)] |= 1ULL << (v & 63);
+    adjBits[(size_t)v * W + (u >> 6)] |= 1ULL << (u & 63);
+}
+
+int degreeOf(int v, const vector<unsigned long long>& active) {
+    int d = 0;
+    for (int u : adjList[v]) d += testBit(active, u);
+    return d;
+}
+
+int greedyISRun(uint64_t &rng, int mode) {
+    vector<unsigned long long> active(W, ~0ULL);
+    if (N & 63) active[W - 1] = lastMask;
+    int sz = 0;
+    while (true) {
+        int bestD = INT_MAX, cnt = 0, chosen = -1;
+        if (mode == 0) {
+            for (int v = 0; v < N; ++v) if (testBit(active, v)) {
+                int d = degreeOf(v, active);
+                if (d < bestD) bestD = d, chosen = v;
+            }
+        } else {
+            for (int v = 0; v < N; ++v) if (testBit(active, v)) {
+                int d = degreeOf(v, active);
+                if (d < bestD) bestD = d;
+            }
+            if (bestD == INT_MAX) break;
+            int slack = (mode & 1) + ((mode % 5) == 0);
+            for (int v = 0; v < N; ++v) if (testBit(active, v)) {
+                int d = degreeOf(v, active);
+                if (d <= bestD + slack) {
+                    ++cnt;
+                    rng ^= rng << 7; rng ^= rng >> 9;
+                    if ((uint64_t)(rng % cnt) == 0) chosen = v;
+                }
+            }
+        }
+        if (chosen < 0) break;
+        ++sz;
+        clearBit(active, chosen);
+        for (int u : adjList[chosen]) clearBit(active, u);
+    }
+    return sz;
+}
+
+int greedyCover() {
+    vector<unsigned long long> active(W, ~0ULL);
+    if (N & 63) active[W - 1] = lastMask;
+    int cover = 0;
+    while (true) {
+        int bv = -1, bd = 0;
+        for (int v = 0; v < N; ++v) if (testBit(active, v)) {
+            int d = degreeOf(v, active);
+            if (d > bd) bd = d, bv = v;
+        }
+        if (bd == 0) break;
+        ++cover;
+        clearBit(active, bv);
+    }
+    return cover;
+}
+
+int greedyMatchDir(const vector<unsigned long long>& active, bool rev) {
+    vector<unsigned long long> avail = active;
+    int m = 0;
+    if (!rev) {
+        for (int v = 0; v < N; ++v) if (testBit(avail, v)) {
+            for (int u : adjList[v]) if (testBit(avail, u)) {
+                ++m;
+                clearBit(avail, v);
+                clearBit(avail, u);
+                break;
+            }
+        }
+    } else {
+        for (int v = N - 1; v >= 0; --v) if (testBit(avail, v)) {
+            for (int u : adjList[v]) if (testBit(avail, u)) {
+                ++m;
+                clearBit(avail, v);
+                clearBit(avail, u);
+                break;
+            }
+        }
+    }
+    return m;
+}
+
+int greedyMatchingLB(const vector<unsigned long long>& active) {
+    int a = greedyMatchDir(active, false);
+    int b = greedyMatchDir(active, true);
+    return max(a, b);
+}
+
+bool bfsHK(const vector<unsigned long long>& active) {
+    queue<int> q;
+    bool found = false;
+    for (int u = 0; u < N; ++u) {
+        if (testBit(active, u) && pairU[u] == -1) {
+            distHK[u] = 0;
+            q.push(u);
+        } else distHK[u] = -1;
+    }
+    while (!q.empty()) {
+        int u = q.front(); q.pop();
+        for (int v : adjList[u]) if (testBit(active, v)) {
+            int pu = pairV[v];
+            if (pu == -1) found = true;
+            else if (distHK[pu] < 0) {
+                distHK[pu] = distHK[u] + 1;
+                q.push(pu);
+            }
+        }
+    }
+    return found;
+}
+
+bool dfsHK(int u, const vector<unsigned long long>& active) {
+    for (int v : adjList[u]) if (testBit(active, v)) {
+        int pu = pairV[v];
+        if (pu == -1 || (distHK[pu] == distHK[u] + 1 && dfsHK(pu, active))) {
+            pairU[u] = v;
+            pairV[v] = u;
+            return true;
+        }
+    }
+    distHK[u] = -1;
+    return false;
+}
+
+int lpLowerBound(const vector<unsigned long long>& active) {
+    fill(pairU.begin(), pairU.end(), -1);
+    fill(pairV.begin(), pairV.end(), -1);
+    int matching = 0;
+    while (bfsHK(active)) {
+        for (int u = 0; u < N; ++u)
+            if (testBit(active, u) && pairU[u] == -1 && dfsHK(u, active))
+                ++matching;
+    }
+    return (matching + 1) >> 1;
+}
+
+struct Comp {
+    int cnt;
+    vector<unsigned long long> bits;
+};
+
+vector<Comp> componentsOf(const vector<unsigned long long>& active, int activeCnt) {
+    vector<Comp> comps;
+    ++stampMark;
+    if (stampMark == INT_MAX) {
+        fill(markArr.begin(), markArr.end(), 0);
+        stampMark = 1;
+    }
+    vector<int> st;
+    for (int s = 0; s < N; ++s) if (testBit(active, s) && markArr[s] != stampMark) {
+        Comp c;
+        c.cnt = 0;
+        c.bits.assign(W, 0ULL);
+        st.clear();
+        st.push_back(s);
+        markArr[s] = stampMark;
+        while (!st.empty()) {
+            int v = st.back(); st.pop_back();
+            ++c.cnt;
+            c.bits[v >> 6] |= 1ULL << (v & 63);
+            for (int u : adjList[v]) if (testBit(active, u) && markArr[u] != stampMark) {
+                markArr[u] = stampMark;
+                st.push_back(u);
+            }
+        }
+        comps.push_back(std::move(c));
+        if ((int)comps.size() == 1 && comps[0].cnt == activeCnt) return comps;
+    }
+    return comps;
+}
+
+int cycleCoverExact(const vector<unsigned long long>& active) {
+    auto comps = componentsOf(active, 0);
+    int res = 0;
+    for (auto &c : comps) res += (c.cnt + 1) >> 1;
+    return res;
+}
+
+int solveVC(vector<unsigned long long> active, int limit) {
+    if (limit <= 0) return limit;
+    int offset = 0;
+
+    while (true) {
+        bool changed = false;
+        for (int v = 0; v < N; ++v) if (testBit(active, v)) {
+            int d = 0, n1 = -1, n2 = -1;
+            for (int u : adjList[v]) if (testBit(active, u)) {
+                if (d == 0) n1 = u;
+                else if (d == 1) n2 = u;
+                if (++d > 2) break;
+            }
+            if (d == 0) {
+                clearBit(active, v);
+                changed = true;
+            } else if (d == 1) {
+                ++offset;
+                if (offset >= limit) return limit;
+                clearBit(active, v);
+                clearBit(active, n1);
+                changed = true;
+            } else if (d == 2 && adjTest(n1, n2)) {
+                offset += 2;
+                if (offset >= limit) return limit;
+                clearBit(active, v);
+                clearBit(active, n1);
+                clearBit(active, n2);
+                changed = true;
+            }
+        }
+        if (!changed) break;
+    }
+
+    int activeCnt = 0, maxD = -1, branchV = -1;
+    for (int v = 0; v < N; ++v) if (testBit(active, v)) {
+        ++activeCnt;
+        int d = degreeOf(v, active);
+        if (d > maxD) maxD = d, branchV = v;
+    }
+    if (activeCnt == 0) return offset;
+    if (offset >= limit) return limit;
+
+    if (maxD <= 2) {
+        int val = offset + cycleCoverExact(active);
+        return val >= limit ? limit : val;
+    }
+
+    int lb = greedyMatchingLB(active);
+    if (offset + lb >= limit) return limit;
+
+    int gap = limit - offset - lb;
+    if (activeCnt <= 500 || gap <= 28) {
+        int lp = lpLowerBound(active);
+        if (lp > lb) {
+            lb = lp;
+            if (offset + lb >= limit) return limit;
+        }
+    }
+
+    auto comps = componentsOf(active, activeCnt);
+    if (comps.size() > 1) {
+        sort(comps.begin(), comps.end(), [](const Comp& a, const Comp& b) {
+            return a.cnt > b.cnt;
+        });
+        int total = offset;
+        for (auto &c : comps) {
+            int remLimit = limit - total;
+            int r = solveVC(std::move(c.bits), remLimit);
+            if (r >= remLimit) return limit;
+            total += r;
+        }
+        return total;
+    }
+
+    int v = branchV;
+    int deg = maxD;
+    int best = limit - offset;
+
+    if (best > 1) {
+        vector<unsigned long long> a1 = active;
+        clearBit(a1, v);
+        int r1 = solveVC(std::move(a1), best - 1);
+        if (1 + r1 < best) best = 1 + r1;
+    } else {
+        best = 1;
+    }
+
+    if (deg < best) {
+        vector<unsigned long long> a2 = active;
+        clearBit(a2, v);
+        for (int u : adjList[v]) clearBit(a2, u);
+        int r2 = solveVC(std::move(a2), best - deg);
+        if (deg + r2 < best) best = deg + r2;
+    }
+
+    int ans = offset + best;
+    return ans >= limit ? limit : ans;
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+    if (N <= 0) return 0;
+    W = (N + 63) >> 6;
+    lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    adjList.assign(N, {});
+    adjBits.assign((size_t)N * W, 0ULL);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = in.nextBit();
+            if (i < j && b == 0) addEdge(i, j);
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        sort(adjList[i].begin(), adjList[i].end());
+    }
+
+    markArr.assign(N, 0);
+    pairU.assign(N, -1);
+    pairV.assign(N, -1);
+    distHK.assign(N, -1);
+
+    int bestIS = 0;
+    uint64_t rng = 88172645463393265ULL ^ (uint64_t)N;
+    int runs = (N <= 250 ? 120 : (N <= 700 ? 50 : (N <= 1500 ? 20 : 8)));
+    for (int r = 0; r < runs; ++r) bestIS = max(bestIS, greedyISRun(rng, r));
+    int upper = N - bestIS;
+    upper = min(upper, greedyCover());
+
+    vector<unsigned long long> active(W, ~0ULL);
+    if (N & 63) active[W - 1] = lastMask;
+
+    int minCover = solveVC(std::move(active), upper);
+    cout << (N - minCover) << '\n';
+    return 0;
+}

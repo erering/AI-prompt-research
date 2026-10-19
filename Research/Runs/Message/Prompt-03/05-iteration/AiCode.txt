@@ -1,0 +1,157 @@
+#include <vector>
+#include <cstdint>
+#include <unordered_map>
+#include <utility>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    unsigned long long comb_table[32][17];
+    bool comb_ready = false;
+
+    void init_comb() {
+        if (comb_ready) return;
+        comb_table[0][0] = 1;
+        for (int n = 1; n <= 31; ++n) {
+            comb_table[n][0] = 1;
+            for (int k = 1; k <= 16; ++k) {
+                comb_table[n][k] = comb_table[n - 1][k];
+                comb_table[n][k] += comb_table[n - 1][k - 1];
+            }
+        }
+        comb_ready = true;
+    }
+
+    unsigned long long rank_excluding_position(const std::vector<int>& protected_positions, int excluded) {
+        unsigned long long rank = 0;
+        int idx = 0;
+        for (int x : protected_positions) {
+            if (x == excluded) continue;
+            int mapped = (x < excluded ? x : x - 1);
+            ++idx;
+            rank += comb_table[mapped][idx];
+        }
+        return rank;
+    }
+
+    std::vector<int> unrank_mapped_subset(unsigned long long rank, int n, int m) {
+        std::vector<int> pos(m);
+        int upper = n;
+        for (int j = m; j >= 1; --j) {
+            int x = upper - 1;
+            while (x >= 0 && comb_table[x][j] > rank) --x;
+            pos[j - 1] = x;
+            rank -= comb_table[x][j];
+            upper = x;
+        }
+        return pos;
+    }
+
+    uint32_t unrank_excluding_mask(int included, unsigned long long rank) {
+        std::vector<int> mapped = unrank_mapped_subset(rank, 30, 15);
+        uint32_t mask = (1u << included);
+        for (int v : mapped) {
+            int original = (v < included ? v : v + 1);
+            mask |= (1u << original);
+        }
+        return mask;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    init_comb();
+
+    std::vector<int> protected_positions;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) protected_positions.push_back(i);
+    }
+
+    int rem = static_cast<int>(M.size() % 16);
+
+    unsigned long long code[31] = {};
+    for (int x : protected_positions) {
+        unsigned long long r = rank_excluding_position(protected_positions, x);
+        code[x] = (r << 4) | static_cast<unsigned long long>(rem);
+    }
+
+    for (int t = 0; t < 32; ++t) {
+        std::vector<bool> A(31, false);
+        for (int x : protected_positions) {
+            A[x] = ((code[x] >> t) & 1ULL) != 0;
+        }
+        send_packet(A);
+    }
+
+    int payload_packets = static_cast<int>((M.size() + 15) / 16);
+    int ptr = 0;
+
+    for (int p = 0; p < payload_packets; ++p) {
+        std::vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            if (ptr < static_cast<int>(M.size())) {
+                A[protected_positions[j]] = M[ptr];
+            }
+            ++ptr;
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    init_comb();
+
+    std::unordered_map<unsigned long long, int> freq;
+    freq.reserve(64);
+
+    const unsigned long long limit = comb_table[30][15];
+
+    for (int i = 0; i < 31; ++i) {
+        unsigned long long code = 0;
+        for (int t = 0; t < 32; ++t) {
+            if (R[t][i]) code |= (1ULL << t);
+        }
+
+        int rem = static_cast<int>(code & 15ULL);
+        unsigned long long rank = code >> 4;
+
+        if (rank < limit) {
+            uint32_t mask = unrank_excluding_mask(i, rank);
+            unsigned long long key = (static_cast<unsigned long long>(mask) << 4) | static_cast<unsigned long long>(rem);
+            ++freq[key];
+        }
+    }
+
+    unsigned long long best_key = 0;
+    int best_count = -1;
+    for (const auto& kv : freq) {
+        if (kv.second > best_count) {
+            best_count = kv.second;
+            best_key = kv.first;
+        }
+    }
+
+    int rem_code = static_cast<int>(best_key & 15ULL);
+    uint32_t protected_mask = static_cast<uint32_t>(best_key >> 4);
+
+    std::vector<int> protected_positions;
+    for (int i = 0; i < 31; ++i) {
+        if ((protected_mask >> i) & 1u) protected_positions.push_back(i);
+    }
+
+    int payload_packets = static_cast<int>(R.size()) - 32;
+    int last = (rem_code == 0 ? 16 : rem_code);
+    int S = (payload_packets - 1) * 16 + last;
+
+    std::vector<bool> M;
+    M.reserve(S);
+
+    for (int t = 32; t < static_cast<int>(R.size()); ++t) {
+        for (int x : protected_positions) {
+            if (static_cast<int>(M.size()) < S) {
+                M.push_back(R[t][x]);
+            }
+        }
+    }
+
+    return M;
+}

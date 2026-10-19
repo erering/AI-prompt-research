@@ -1,0 +1,95 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static int curN = 0;
+static int LOGN = 0;
+static vector<vector<int>> up_tbl;
+static vector<int> depth_tbl;
+static int diamA = 0, diamB = 0, diamD = 0;
+
+static void init_sender_state(int N) {
+    curN = N;
+    LOGN = 1;
+    while ((1 << LOGN) <= N) ++LOGN;
+    up_tbl.assign(LOGN, vector<int>(N, 0));
+    depth_tbl.assign(N, 0);
+    diamA = diamB = 0;
+    diamD = 0;
+}
+
+static int lca_node(int u, int v) {
+    if (depth_tbl[u] < depth_tbl[v]) swap(u, v);
+    int diff = depth_tbl[u] - depth_tbl[v];
+    for (int k = 0; k < LOGN; ++k) {
+        if (diff & (1 << k)) u = up_tbl[k][u];
+    }
+    if (u == v) return u;
+    for (int k = LOGN - 1; k >= 0; --k) {
+        if (up_tbl[k][u] != up_tbl[k][v]) {
+            u = up_tbl[k][u];
+            v = up_tbl[k][v];
+        }
+    }
+    return up_tbl[0][u];
+}
+
+static int dist_node(int u, int v) {
+    int w = lca_node(u, v);
+    return depth_tbl[u] + depth_tbl[v] - 2 * depth_tbl[w];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || curN != N) init_sender_state(N);
+
+    up_tbl[0][i] = Pi;
+    depth_tbl[i] = depth_tbl[Pi] + 1;
+    for (int k = 1; k < LOGN; ++k) {
+        up_tbl[k][i] = up_tbl[k - 1][up_tbl[k - 1][i]];
+    }
+
+    int oldA = diamA, oldB = diamB, oldD = diamD;
+    int da = dist_node(i, oldA);
+    int db = dist_node(i, oldB);
+
+    bool updated = false;
+    int other = -1;
+
+    if (da > oldD || db > oldD) {
+        updated = true;
+        if (da >= db) {
+            diamA = i;
+            diamB = oldA;
+            diamD = da;
+            other = oldA;
+        } else {
+            diamA = i;
+            diamB = oldB;
+            diamD = db;
+            other = oldB;
+        }
+    }
+
+    if (i == N - 2) {
+        return diamA + 1;
+    }
+
+    if (i == N - 1) {
+        if (updated) return other + 10001;
+        return diamB + 1;
+    }
+
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+
+    if (N == 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    if (S[N - 1] > 10000) {
+        return {N - 1, S[N - 1] - 10001};
+    }
+
+    return {S[N - 2] - 1, S[N - 1] - 1};
+}

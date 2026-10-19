@@ -1,0 +1,138 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static long long COMB[32][32];
+
+static void init_comb() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    for (int n = 0; n <= 31; ++n) {
+        COMB[n][0] = COMB[n][n] = 1;
+        for (int k = 1; k < n; ++k) COMB[n][k] = COMB[n - 1][k - 1] + COMB[n - 1][k];
+    }
+}
+
+static long long rank_control_set(const vector<bool>& C) {
+    init_comb();
+    long long r = 0;
+    int need = 15;
+    for (int i = 0; i < 31; ++i) {
+        if (C[i]) {
+            for (int v = 0; v < i; ++v) {
+                bool already = false;
+                for (int u = 0; u < i; ++u) {
+                    if (C[u] && u == v) {
+                        already = true;
+                        break;
+                    }
+                }
+                (void)already;
+            }
+        }
+    }
+
+    r = 0;
+    int chosen = 0;
+    int last = -1;
+    vector<int> pos;
+    for (int i = 0; i < 31; ++i) if (C[i]) pos.push_back(i);
+
+    int prev = -1;
+    for (int t = 0; t < 15; ++t) {
+        for (int x = prev + 1; x < pos[t]; ++x) {
+            int rem_positions = 31 - x - 1;
+            int rem_choose = 15 - t - 1;
+            if (rem_choose >= 0 && rem_choose <= rem_positions) r += COMB[rem_positions][rem_choose];
+        }
+        prev = pos[t];
+    }
+    return r;
+}
+
+static vector<bool> unrank_control_set(long long r) {
+    init_comb();
+    vector<bool> C(31, false);
+    int prev = -1;
+    for (int t = 0; t < 15; ++t) {
+        for (int x = prev + 1; x < 31; ++x) {
+            int rem_positions = 31 - x - 1;
+            int rem_choose = 15 - t - 1;
+            long long cnt = (rem_choose >= 0 && rem_choose <= rem_positions) ? COMB[rem_positions][rem_choose] : 0;
+            if (r >= cnt) {
+                r -= cnt;
+            } else {
+                C[x] = true;
+                prev = x;
+                break;
+            }
+        }
+    }
+    return C;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    init_comb();
+
+    long long r = rank_control_set(C);
+    vector<bool> header;
+    for (int i = 0; i < 29; ++i) header.push_back((r >> i) & 1LL);
+
+    int S = (int)M.size();
+    int rem = S % 16;
+    if (rem == 0) rem = 16;
+    int rem_code = rem - 1;
+    for (int i = 0; i < 4; ++i) header.push_back((rem_code >> i) & 1);
+
+    for (bool b : header) {
+        vector<bool> A(31, b);
+        send_packet(A);
+    }
+
+    int ptr = 0;
+    while (ptr < S) {
+        vector<bool> A(31, false);
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i]) {
+                if (ptr < S) A[i] = M[ptr++];
+                else A[i] = false;
+            }
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    init_comb();
+
+    vector<bool> header;
+    for (int p = 0; p < 33; ++p) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) if (R[p][i]) ++ones;
+        header.push_back(ones >= 16);
+    }
+
+    long long r = 0;
+    for (int i = 0; i < 29; ++i) if (header[i]) r |= (1LL << i);
+    vector<bool> C = unrank_control_set(r);
+
+    int rem_code = 0;
+    for (int i = 0; i < 4; ++i) if (header[29 + i]) rem_code |= (1 << i);
+    int rem = rem_code + 1;
+
+    int payload_packets = (int)R.size() - 33;
+    int S = (payload_packets - 1) * 16 + rem;
+
+    vector<bool> M;
+    M.reserve(S);
+    for (int p = 33; p < (int)R.size(); ++p) {
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i] && (int)M.size() < S) {
+                M.push_back(R[p][i]);
+            }
+        }
+    }
+    return M;
+}

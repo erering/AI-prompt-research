@@ -1,0 +1,141 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace diameter_message_solution {
+    constexpr int MAXN = 10005;
+    constexpr int LOG = 15;
+
+    int currentN = 0;
+    int up[MAXN][LOG];
+    int depth_arr[MAXN];
+
+    int diamA = 0, diamB = 0, diamD = 0;
+    int savedA = 0, savedB = 0, savedD = 0;
+    int emitted = 0;
+
+    void stage1_online_initialization(int N) {
+        currentN = N;
+        diamA = diamB = diamD = 0;
+        savedA = savedB = savedD = 0;
+        emitted = 0;
+        depth_arr[0] = 0;
+        for (int k = 0; k < LOG; ++k) up[0][k] = 0;
+    }
+
+    int lca(int a, int b) {
+        if (depth_arr[a] < depth_arr[b]) swap(a, b);
+
+        int diff = depth_arr[a] - depth_arr[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[a][k];
+        }
+
+        if (a == b) return a;
+
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[a][k] != up[b][k]) {
+                a = up[a][k];
+                b = up[b][k];
+            }
+        }
+
+        return up[a][0];
+    }
+
+    int dist(int a, int b) {
+        int c = lca(a, b);
+        return depth_arr[a] + depth_arr[b] - 2 * depth_arr[c];
+    }
+
+    void stage2_process_revealed_edge(int i, int Pi) {
+        up[i][0] = Pi;
+        depth_arr[i] = depth_arr[Pi] + 1;
+
+        for (int k = 1; k < LOG; ++k) {
+            up[i][k] = up[up[i][k - 1]][k - 1];
+        }
+
+        int oldA = diamA;
+        int oldB = diamB;
+        int oldD = diamD;
+
+        int da = dist(i, oldA);
+        int db = dist(i, oldB);
+
+        if (da >= db && da > oldD) {
+            diamA = i;
+            diamB = oldA;
+            diamD = da;
+        } else if (db > oldD) {
+            diamA = i;
+            diamB = oldB;
+            diamD = db;
+        }
+    }
+
+    int stage3_apply_decision_rule(int N, int i) {
+        if (N < 3) return 0;
+
+        if (i == N - 2) {
+            savedA = diamA;
+            savedB = diamB;
+            savedD = diamD;
+            return savedA + 1;
+        }
+
+        if (i == N - 1) {
+            int da = dist(i, savedA);
+            int db = dist(i, savedB);
+
+            if (max(da, db) > savedD) {
+                int other = (da >= db ? savedA : savedB);
+                return 10001 + other;
+            }
+
+            return savedB + 1;
+        }
+
+        return 0;
+    }
+
+    int stage4_ensure_message_bound(int value) {
+        if (value != 0) ++emitted;
+        return value;
+    }
+
+    pair<int, int> stage5_independent_decoder(const vector<int>& S) {
+        int N = (int)S.size();
+
+        if (N <= 1) return {0, 0};
+        if (N == 2) return {0, 1};
+
+        int first = S[N - 2];
+        int second = S[N - 1];
+
+        int a = first - 1;
+
+        if (second >= 10001) {
+            return {N - 1, second - 10001};
+        }
+
+        return {a, second - 1};
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    using namespace diameter_message_solution;
+
+    if (i == 1) {
+        stage1_online_initialization(N);
+    }
+
+    stage2_process_revealed_edge(i, Pi);
+
+    int value = stage3_apply_decision_rule(N, i);
+
+    return stage4_ensure_message_bound(value);
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    return diameter_message_solution::stage5_independent_decoder(S);
+}

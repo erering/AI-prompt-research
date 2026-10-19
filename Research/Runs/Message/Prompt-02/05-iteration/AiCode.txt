@@ -1,0 +1,78 @@
+#include <vector>
+#include <cstddef>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    for (int j = 0; j < 31; ++j) {
+        std::vector<bool> A(31, C[j]);
+        send_packet(A);
+    }
+
+    std::vector<int> protected_indices;
+    protected_indices.reserve(16);
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) protected_indices.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    bits.reserve(1040);
+
+    int len = (int)M.size() - 1;
+    for (int i = 0; i < 10; ++i) {
+        bits.push_back((len >> i) & 1);
+    }
+
+    for (bool b : M) bits.push_back(b);
+    while ((int)bits.size() < 1040) bits.push_back(false);
+
+    int p = 0;
+    for (int packet = 0; packet < 65; ++packet) {
+        std::vector<bool> A(31, false);
+        for (int k = 0; k < 16; ++k) {
+            A[protected_indices[k]] = bits[p++];
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    std::vector<bool> C(31, false);
+
+    for (int j = 0; j < 31; ++j) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[j][i]) ++ones;
+        }
+        C[j] = (ones >= 16);
+    }
+
+    std::vector<int> protected_indices;
+    protected_indices.reserve(16);
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) protected_indices.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    bits.reserve(1040);
+
+    for (int packet = 31; packet < 96; ++packet) {
+        for (int k = 0; k < 16; ++k) {
+            bits.push_back(R[packet][protected_indices[k]]);
+        }
+    }
+
+    int len = 0;
+    for (int i = 0; i < 10; ++i) {
+        if (bits[i]) len |= (1 << i);
+    }
+    int S = len + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[10 + i]);
+    }
+
+    return M;
+}

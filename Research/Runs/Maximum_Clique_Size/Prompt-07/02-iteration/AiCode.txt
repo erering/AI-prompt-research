@@ -1,0 +1,287 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct MaxCliqueSolver {
+    int n, W;
+    uint64_t lastMask;
+    vector<vector<uint64_t>> adj;
+    int best = 0;
+
+    MaxCliqueSolver(int n_, vector<vector<uint64_t>> adj_) : n(n_), adj(std::move(adj_)) {
+        W = (n + 63) >> 6;
+        int r = n & 63;
+        lastMask = r ? ((1ULL << r) - 1ULL) : ~0ULL;
+    }
+
+    inline bool testBit(const vector<uint64_t>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline void resetBit(vector<uint64_t>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline int popcountBits(const vector<uint64_t>& b) const {
+        int s = 0;
+        for (uint64_t x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline bool anyBits(const vector<uint64_t>& b) const {
+        for (uint64_t x : b) if (x) return true;
+        return false;
+    }
+
+    inline int firstBit(const vector<uint64_t>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    void colorSort(const vector<uint64_t>& P, vector<int>& order, vector<int>& colors) const {
+        order.clear();
+        colors.clear();
+
+        vector<uint64_t> U = P;
+        U[W - 1] &= lastMask;
+
+        int color = 0;
+        while (anyBits(U)) {
+            ++color;
+            vector<uint64_t> Q = U;
+
+            while (anyBits(Q)) {
+                int v = firstBit(Q);
+                order.push_back(v);
+                colors.push_back(color);
+
+                resetBit(U, v);
+                resetBit(Q, v);
+
+                for (int i = 0; i < W; ++i) {
+                    Q[i] &= ~adj[v][i];
+                }
+                Q[W - 1] &= lastMask;
+            }
+        }
+    }
+
+    void expand(vector<uint64_t> P, int sz) {
+        if (sz + popcountBits(P) <= best) return;
+
+        vector<int> order, colors;
+        order.reserve(n);
+        colors.reserve(n);
+        colorSort(P, order, colors);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (sz + colors[i] <= best) return;
+
+            int v = order[i];
+            if (!testBit(P, v)) continue;
+
+            vector<uint64_t> P2(W);
+            for (int j = 0; j < W; ++j) P2[j] = P[j] & adj[v][j];
+            P2[W - 1] &= lastMask;
+
+            int ns = sz + 1;
+            if (!anyBits(P2)) {
+                if (ns > best) best = ns;
+            } else if (ns + popcountBits(P2) > best) {
+                expand(std::move(P2), ns);
+            }
+
+            resetBit(P, v);
+        }
+    }
+
+    int solve(int initialBest) {
+        best = initialBest;
+        vector<uint64_t> P(W, ~0ULL);
+        P[W - 1] = lastMask;
+        expand(std::move(P), 0);
+        return best;
+    }
+};
+
+static inline void setBit(vector<uint64_t>& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+static inline void clearBit(vector<uint64_t>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+static inline bool getBit(const vector<uint64_t>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    int W = (N + 63) >> 6;
+    int r = N & 63;
+    uint64_t lastMask = r ? ((1ULL << r) - 1ULL) : ~0ULL;
+
+    vector<vector<uint64_t>> oldAdj(N, vector<uint64_t>(W, 0));
+
+    char c;
+    int cnt = 0;
+    while (cnt < N * N && cin.get(c)) {
+        if (c == '0' || c == '1') {
+            int i = cnt / N;
+            int j = cnt % N;
+            if (c == '1' && i != j) setBit(oldAdj[i], j);
+            ++cnt;
+        }
+    }
+
+    for (int i = 0; i < N; ++i) clearBit(oldAdj[i], i);
+
+    vector<int> degG(N, 0);
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool e = getBit(oldAdj[i], j) || getBit(oldAdj[j], i);
+            if (e) {
+                setBit(oldAdj[i], j);
+                setBit(oldAdj[j], i);
+                ++degG[i];
+                ++degG[j];
+            } else {
+                clearBit(oldAdj[i], j);
+                clearBit(oldAdj[j], i);
+            }
+        }
+        clearBit(oldAdj[i], i);
+        oldAdj[i][W - 1] &= lastMask;
+    }
+
+    vector<int> perm(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        int ca = N - 1 - degG[a];
+        int cb = N - 1 - degG[b];
+        if (ca != cb) return ca > cb;
+        return a < b;
+    });
+
+    vector<vector<uint64_t>> adj(N, vector<uint64_t>(W, 0));
+    for (int i = 0; i < N; ++i) {
+        int oi = perm[i];
+        for (int j = i + 1; j < N; ++j) {
+            int oj = perm[j];
+            if (getBit(oldAdj[oi], oj)) {
+                setBit(adj[i], j);
+                setBit(adj[j], i);
+            }
+        }
+    }
+
+    oldAdj.clear();
+    oldAdj.shrink_to_fit();
+
+    vector<vector<int>> comp(N);
+    vector<int> compDeg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        clearBit(adj[i], i);
+        adj[i][W - 1] &= lastMask;
+    }
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            if (!getBit(adj[i], j)) {
+                comp[i].push_back(j);
+                comp[j].push_back(i);
+                ++compDeg[i];
+                ++compDeg[j];
+            }
+        }
+    }
+
+    int best = 0;
+
+    {
+        vector<uint64_t> cand(W, ~0ULL);
+        cand[W - 1] = lastMask;
+        int cur = 0;
+
+        while (true) {
+            int bv = -1, bd = -1;
+            for (int wi = 0; wi < W; ++wi) {
+                uint64_t x = cand[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (wi << 6) + b;
+                    if (v < N) {
+                        int d = 0;
+                        for (int k = 0; k < W; ++k) d += __builtin_popcountll(cand[k] & adj[v][k]);
+                        if (d > bd) {
+                            bd = d;
+                            bv = v;
+                        }
+                    }
+                    x &= x - 1;
+                }
+            }
+            if (bv < 0) break;
+            ++cur;
+            for (int k = 0; k < W; ++k) cand[k] &= adj[bv][k];
+            cand[W - 1] &= lastMask;
+        }
+        best = max(best, cur);
+    }
+
+    auto greedyByOrder = [&](const vector<int>& order) {
+        vector<unsigned char> chosen(N, 0);
+        int s = 0;
+        for (int v : order) {
+            bool ok = true;
+            for (int u : comp[v]) {
+                if (chosen[u]) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                chosen[v] = 1;
+                ++s;
+            }
+        }
+        best = max(best, s);
+    };
+
+    vector<int> order(N);
+    iota(order.begin(), order.end(), 0);
+    sort(order.begin(), order.end(), [&](int a, int b) {
+        if (compDeg[a] != compDeg[b]) return compDeg[a] < compDeg[b];
+        return a < b;
+    });
+    greedyByOrder(order);
+
+    mt19937 rng(712367821);
+    int trials = (N <= 500 ? 80 : (N <= 1500 ? 35 : 12));
+    for (int t = 0; t < trials; ++t) {
+        iota(order.begin(), order.end(), 0);
+        shuffle(order.begin(), order.end(), rng);
+        stable_sort(order.begin(), order.end(), [&](int a, int b) {
+            int da = compDeg[a] + int(rng() % 5);
+            int db = compDeg[b] + int(rng() % 5);
+            return da < db;
+        });
+        greedyByOrder(order);
+    }
+
+    MaxCliqueSolver solver(N, std::move(adj));
+    cout << solver.solve(best) << '\n';
+
+    return 0;
+}

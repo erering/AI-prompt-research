@@ -1,0 +1,248 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+int N, W;
+ull LAST_MASK;
+vector<vector<ull>> adjB;
+vector<vector<int>> adjL;
+int bestAns = 0;
+
+inline bool testBit(const vector<ull>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void setBit(vector<ull>& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+inline void clearBit(vector<ull>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline int popcountBits(const vector<ull>& b) {
+    int s = 0;
+    for (ull x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline int firstBit(const vector<ull>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+inline void intersectWith(vector<ull>& a, const vector<ull>& b) {
+    for (int i = 0; i < W; ++i) a[i] &= b[i];
+}
+
+int greedyInitial(vector<ull> P) {
+    int res = 0;
+    while (true) {
+        int cnt = popcountBits(P);
+        if (cnt == 0) break;
+
+        int bv = -1, bd = INT_MAX;
+        for (int wi = 0; wi < W; ++wi) {
+            ull x = P[wi];
+            while (x) {
+                int bit = __builtin_ctzll(x);
+                int v = (wi << 6) + bit;
+                if (v < N) {
+                    int d = 0;
+                    for (int u : adjL[v]) {
+                        if (testBit(P, u)) ++d;
+                    }
+                    if (d < bd) {
+                        bd = d;
+                        bv = v;
+                        if (d == 0) break;
+                    }
+                }
+                x &= x - 1;
+            }
+            if (bd == 0) break;
+        }
+
+        ++res;
+        clearBit(P, bv);
+        for (int u : adjL[bv]) clearBit(P, u);
+    }
+    return res;
+}
+
+void reduceGraph(vector<ull>& P, int& cur) {
+    bool changed = true;
+    while (changed) {
+        changed = false;
+
+        for (int wi = 0; wi < W && !changed; ++wi) {
+            ull x = P[wi];
+            while (x && !changed) {
+                int bit = __builtin_ctzll(x);
+                int v = (wi << 6) + bit;
+
+                if (v < N) {
+                    int d = 0, a = -1, b = -1;
+                    for (int u : adjL[v]) {
+                        if (testBit(P, u)) {
+                            if (d == 0) a = u;
+                            else if (d == 1) b = u;
+                            ++d;
+                            if (d > 2) break;
+                        }
+                    }
+
+                    if (d == 0) {
+                        clearBit(P, v);
+                        ++cur;
+                        changed = true;
+                    } else if (d == 1) {
+                        clearBit(P, v);
+                        clearBit(P, a);
+                        ++cur;
+                        changed = true;
+                    } else if (d == 2 && testBit(adjB[a], b)) {
+                        clearBit(P, v);
+                        clearBit(P, a);
+                        clearBit(P, b);
+                        ++cur;
+                        changed = true;
+                    }
+                }
+
+                x &= x - 1;
+            }
+        }
+    }
+}
+
+void colorSort(const vector<ull>& P, vector<int>& order, vector<int>& colors) {
+    order.clear();
+    colors.clear();
+
+    vector<ull> U = P;
+    int color = 0;
+
+    while (true) {
+        int fv = firstBit(U);
+        if (fv < 0 || fv >= N) break;
+
+        ++color;
+        vector<ull> Q = U;
+
+        while (true) {
+            int v = firstBit(Q);
+            if (v < 0 || v >= N) break;
+
+            order.push_back(v);
+            colors.push_back(color);
+
+            clearBit(U, v);
+            clearBit(Q, v);
+            intersectWith(Q, adjB[v]);
+        }
+    }
+}
+
+void expand(vector<ull> P, int cur) {
+    reduceGraph(P, cur);
+
+    int pc = popcountBits(P);
+    if (pc == 0) {
+        if (cur > bestAns) bestAns = cur;
+        return;
+    }
+
+    if (cur + pc <= bestAns) return;
+
+    vector<int> order, colors;
+    colorSort(P, order, colors);
+
+    if (order.empty()) {
+        if (cur > bestAns) bestAns = cur;
+        return;
+    }
+
+    if (cur + colors.back() <= bestAns) return;
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (cur + colors[i] <= bestAns) return;
+
+        int v = order[i];
+        if (!testBit(P, v)) continue;
+
+        vector<ull> NP(W);
+        for (int j = 0; j < W; ++j) NP[j] = P[j] & ~adjB[v][j];
+        clearBit(NP, v);
+        NP[W - 1] &= LAST_MASK;
+
+        if (cur + 1 + popcountBits(NP) > bestAns) {
+            expand(std::move(NP), cur + 1);
+        } else if (cur + 1 > bestAns) {
+            bestAns = cur + 1;
+        }
+
+        clearBit(P, v);
+    }
+
+    if (cur > bestAns) bestAns = cur;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    cin >> N;
+
+    W = (N + 63) >> 6;
+    if (N % 64 == 0) LAST_MASK = ~0ULL;
+    else LAST_MASK = (1ULL << (N % 64)) - 1ULL;
+
+    vector<pair<int,int>> edges;
+    vector<int> deg(N, 0);
+
+    char c;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            cin >> c;
+            if (i < j && c == '0') {
+                edges.push_back({i, j});
+                ++deg[i];
+                ++deg[j];
+            }
+        }
+    }
+
+    vector<int> ord(N);
+    iota(ord.begin(), ord.end(), 0);
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    vector<int> id(N);
+    for (int i = 0; i < N; ++i) id[ord[i]] = i;
+
+    adjB.assign(N, vector<ull>(W, 0));
+    adjL.assign(N, {});
+
+    for (auto [a, b] : edges) {
+        int u = id[a], v = id[b];
+        setBit(adjB[u], v);
+        setBit(adjB[v], u);
+        adjL[u].push_back(v);
+        adjL[v].push_back(u);
+    }
+
+    vector<ull> all(W, ~0ULL);
+    all[W - 1] = LAST_MASK;
+
+    bestAns = greedyInitial(all);
+    expand(all, 0);
+
+    cout << bestAns;
+    return 0;
+}

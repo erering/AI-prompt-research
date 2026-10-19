@@ -1,0 +1,65 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    int L = 0;
+    int p = 1;
+    while (p < N) {
+        p *= 3;
+        ++L;
+    }
+
+    vector<int> pow3(L + 1, 1);
+    for (int i = 1; i <= L; ++i) pow3[i] = pow3[i - 1] * 3;
+
+    int states = 1 + 3 * L;
+    vector<vector<int>> s(states, vector<int>(N + 1, -1));
+
+    auto id = [&](int layer, int digit) {
+        return 1 + layer * 3 + digit;
+    };
+
+    auto digit_at = [&](int value, int layer) {
+        int v = value - 1;
+        int place = pow3[L - 1 - layer];
+        return (v / place) % 3;
+    };
+
+    s[0][0] = 0;
+
+    if (L == 0) {
+        for (int j = 1; j <= N; ++j) s[0][j] = -1;
+        return s;
+    }
+
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = id(0, digit_at(j, 0));
+    }
+
+    for (int layer = 0; layer < L; ++layer) {
+        for (int stored = 0; stored < 3; ++stored) {
+            int st = id(layer, stored);
+            s[st][0] = (layer % 2 == 0 ? 1 : 0);
+
+            for (int j = 1; j <= N; ++j) {
+                int cur = digit_at(j, layer);
+
+                if (cur != stored) {
+                    if (layer % 2 == 0) {
+                        s[st][j] = (stored < cur ? -1 : -2);
+                    } else {
+                        s[st][j] = (cur < stored ? -1 : -2);
+                    }
+                } else {
+                    if (layer == L - 1) {
+                        s[st][j] = -1;
+                    } else {
+                        s[st][j] = id(layer + 1, digit_at(j, layer + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

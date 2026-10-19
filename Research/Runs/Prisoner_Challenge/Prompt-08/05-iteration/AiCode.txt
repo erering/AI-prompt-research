@@ -1,0 +1,89 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int LIM = 60;
+    vector<long long> dp(LIM + 1, -1);
+    vector<pair<int,int>> par(LIM + 1, {-1, -1});
+    dp[0] = 1;
+
+    for (int s = 1; s <= LIM; ++s) {
+        for (int prev = 0; prev <= s - 2; ++prev) {
+            if (dp[prev] < 0) continue;
+            int r = s - prev;
+            long long val = dp[prev] * r;
+            if (val > dp[s]) {
+                dp[s] = val;
+                par[s] = {prev, r};
+            }
+        }
+    }
+
+    int sum = 0;
+    for (int s = 1; s <= LIM; ++s) {
+        if (dp[s] >= N) {
+            sum = s;
+            break;
+        }
+    }
+
+    vector<int> rad;
+    for (int cur = sum; cur > 0; cur = par[cur].first) {
+        rad.push_back(par[cur].second);
+    }
+
+    int L = (int)rad.size();
+    vector<int> off(L);
+    int x = 0;
+    for (int i = 0; i < L; ++i) {
+        off[i] = 1 + x;
+        x += rad[i];
+    }
+
+    vector<vector<int>> dig(L, vector<int>(N + 1));
+    for (int j = 1; j <= N; ++j) {
+        int v = j - 1;
+        for (int p = L - 1; p >= 0; --p) {
+            dig[p][j] = v % rad[p];
+            v /= rad[p];
+        }
+    }
+
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, -1));
+    s[0][0] = 0;
+
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = off[0] + dig[0][j];
+    }
+
+    for (int p = 0; p < L; ++p) {
+        for (int d = 0; d < rad[p]; ++d) {
+            int id = off[p] + d;
+            s[id][0] = (p % 2 == 0 ? 1 : 0);
+
+            for (int j = 1; j <= N; ++j) {
+                int e = dig[p][j];
+
+                if (e != d) {
+                    int ad, bd;
+                    if (p % 2 == 0) {
+                        ad = d;
+                        bd = e;
+                    } else {
+                        ad = e;
+                        bd = d;
+                    }
+                    s[id][j] = (ad < bd ? -1 : -2);
+                } else {
+                    if (p + 1 == L) {
+                        s[id][j] = -1;
+                    } else {
+                        s[id][j] = off[p + 1] + dig[p + 1][j];
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

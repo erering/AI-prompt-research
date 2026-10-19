@@ -1,0 +1,259 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <cstdint>
+#include <climits>
+#include <bit>
+#include <queue>
+#include <functional>
+
+using namespace std;
+
+using ll = long long;
+
+static ll bestResidue;
+static ll perfectResidue;
+
+static inline ll absll(ll x) {
+    return x < 0 ? -x : x;
+}
+
+ll kkHeuristic(const vector<ll>& a) {
+    priority_queue<ll> pq;
+    for (ll x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        ll x = pq.top(); pq.pop();
+        ll y = pq.top(); pq.pop();
+        if (x != y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+ll greedyHeuristic(const vector<ll>& a) {
+    ll s1 = 0, s2 = 0;
+    for (ll x : a) {
+        if (s1 <= s2) s1 += x;
+        else s2 += x;
+    }
+    return absll(s1 - s2);
+}
+
+ll bitsetDP(const vector<ll>& a, ll total) {
+    ll targetLL = total / 2;
+    size_t target = (size_t)targetLL;
+    size_t words = target / 64 + 1;
+
+    vector<uint64_t> bits(words, 0);
+    bits[0] = 1;
+
+    for (ll xll : a) {
+        if (xll > targetLL) continue;
+        size_t x = (size_t)xll;
+        size_t sw = x >> 6;
+        unsigned sb = (unsigned)(x & 63);
+
+        for (size_t i = words; i-- > sw; ) {
+            uint64_t v = bits[i - sw] << sb;
+            if (sb && i > sw) v |= bits[i - sw - 1] >> (64 - sb);
+            bits[i] |= v;
+        }
+
+        if ((bits[target >> 6] >> (target & 63)) & 1ULL) {
+            return total - 2 * targetLL;
+        }
+    }
+
+    for (size_t wi = words; wi-- > 0; ) {
+        uint64_t v = bits[wi];
+        if (wi == (target >> 6)) {
+            unsigned r = (unsigned)(target & 63);
+            if (r != 63) v &= ((1ULL << (r + 1)) - 1ULL);
+        }
+        if (v) {
+            int b = 63 - std::countl_zero((unsigned long long)v);
+            ll s = (ll)wi * 64 + b;
+            return total - 2 * s;
+        }
+    }
+
+    return total;
+}
+
+void generateSums(const vector<ll>& a, int l, int r, vector<ll>& sums) {
+    sums.clear();
+    sums.reserve(size_t(1) << (r - l));
+    sums.push_back(0);
+    for (int i = l; i < r; ++i) {
+        size_t old = sums.size();
+        sums.resize(old * 2);
+        for (size_t j = 0; j < old; ++j) {
+            sums[old + j] = sums[j] + a[i];
+        }
+    }
+}
+
+ll meetInMiddle(const vector<ll>& a, ll total) {
+    int n = (int)a.size();
+    int m = min(n / 2, 24);
+    vector<ll> left;
+    generateSums(a, 0, m, left);
+    sort(left.begin(), left.end());
+
+    ll target = total / 2;
+    ll best = total;
+
+    function<void(int, ll)> dfs = [&](int idx, ll cur) {
+        if (best == perfectResidue) return;
+
+        if (cur > target && 2 * (cur - target) >= best) return;
+
+        if (idx == n) {
+            ll need = target - cur;
+            auto it = lower_bound(left.begin(), left.end(), need);
+
+            if (it != left.end()) {
+                ll s = cur + *it;
+                ll d = absll(total - 2 * s);
+                if (d < best) best = d;
+            }
+            if (it != left.begin()) {
+                --it;
+                ll s = cur + *it;
+                ll d = absll(total - 2 * s);
+                if (d < best) best = d;
+            }
+            return;
+        }
+
+        dfs(idx + 1, cur);
+        dfs(idx + 1, cur + a[idx]);
+    };
+
+    dfs(m, 0);
+    return best;
+}
+
+void makeChild(const vector<ll>& v, ll val, vector<ll>& child, ll& gchild) {
+    child.clear();
+    child.reserve(v.size() - (val == 0 ? 2 : 1));
+    gchild = 0;
+
+    auto add = [&](ll x) {
+        if (x == 0) return;
+        child.push_back(x);
+        gchild = std::gcd(gchild, x);
+    };
+
+    size_t i = 2;
+    if (val > 0) {
+        while (i < v.size() && v[i] >= val) add(v[i++]);
+        add(val);
+    }
+    while (i < v.size()) add(v[i++]);
+}
+
+void ckkSearch(const vector<ll>& v, ll sum, ll g) {
+    if (bestResidue == perfectResidue) return;
+
+    size_t n = v.size();
+    if (n == 0) {
+        if (bestResidue > 0) bestResidue = 0;
+        return;
+    }
+    if (n == 1) {
+        if (v[0] < bestResidue) bestResidue = v[0];
+        return;
+    }
+
+    if (g > 0) {
+        ll nodeLB = ((sum / g) & 1LL) ? g : 0;
+        if (nodeLB >= bestResidue) return;
+    }
+
+    ll largest = v[0];
+    ll rest = sum - largest;
+    if (largest >= rest) {
+        ll cand = largest - rest;
+        if (cand < bestResidue) bestResidue = cand;
+        return;
+    }
+
+    ll a = v[0], b = v[1];
+
+    vector<ll> child;
+    ll gchild = 0;
+
+    makeChild(v, a - b, child, gchild);
+    ckkSearch(child, sum - 2 * b, gchild);
+
+    if (bestResidue == perfectResidue) return;
+
+    makeChild(v, a + b, child, gchild);
+    ckkSearch(child, sum, gchild);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    vector<ll> a(N);
+    ll g = 0;
+    ll totalOriginal = 0;
+
+    for (int i = 0; i < N; ++i) {
+        cin >> a[i];
+        g = std::gcd(g, a[i]);
+        totalOriginal += a[i];
+    }
+
+    if (N == 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    for (ll& x : a) x /= g;
+
+    sort(a.begin(), a.end(), greater<ll>());
+
+    ll total = totalOriginal / g;
+    perfectResidue = total & 1LL;
+
+    bestResidue = min(greedyHeuristic(a), kkHeuristic(a));
+
+    if (bestResidue == perfectResidue) {
+        cout << bestResidue * g << '\n';
+        return 0;
+    }
+
+    ll target = total / 2;
+    if (target >= 0) {
+        size_t words = (size_t)target / 64 + 1;
+        const unsigned long long MAX_TARGET = 200000000ULL;
+        const unsigned long long MAX_OPS = 250000000ULL;
+
+        if ((unsigned long long)target <= MAX_TARGET &&
+            (unsigned long long)words * (unsigned long long)a.size() <= MAX_OPS) {
+            ll ans = bitsetDP(a, total);
+            cout << ans * g << '\n';
+            return 0;
+        }
+    }
+
+    if (N <= 49) {
+        ll ans = meetInMiddle(a, total);
+        cout << ans * g << '\n';
+        return 0;
+    }
+
+    ll gscaled = 0;
+    for (ll x : a) gscaled = std::gcd(gscaled, x);
+
+    ckkSearch(a, total, gscaled);
+
+    cout << bestResidue * g << '\n';
+    return 0;
+}

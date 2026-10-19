@@ -1,0 +1,335 @@
+#include <iostream>
+#include <vector>
+#include <queue>
+#include <algorithm>
+#include <string>
+#include <limits>
+#include <cstdint>
+#include <cstddef>
+
+using U64 = unsigned long long;
+using U128 = unsigned __int128;
+
+static void print_u128(U128 x) {
+    if (x == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + x % 10));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static U128 kk_heuristic(const std::vector<U64>& a) {
+    std::priority_queue<U128> pq;
+    for (U64 x : a) {
+        if (x) pq.push((U128)x);
+    }
+    while (pq.size() > 1) {
+        U128 x = pq.top(); pq.pop();
+        U128 y = pq.top(); pq.pop();
+        pq.push(x >= y ? x - y : y - x);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static U128 solve_dense_bitset(const std::vector<U64>& a, std::size_t target, U128 total, U128 min_possible) {
+    std::size_t words = target / 64 + 1;
+    std::vector<U64> dp(words, 0);
+    dp[0] = 1ULL;
+
+    const std::size_t last_word = target / 64;
+    const unsigned last_bit = unsigned(target & 63);
+    const U64 last_mask = (last_bit == 63) ? ~0ULL : ((1ULL << (last_bit + 1)) - 1ULL);
+
+    for (U64 x : a) {
+        if (x == 0 || (U128)x > (U128)target) continue;
+
+        std::size_t sw = std::size_t(x / 64);
+        unsigned sb = unsigned(x & 63);
+
+        for (std::size_t i = words; i-- > sw; ) {
+            U64 v = dp[i - sw] << sb;
+            if (sb && i > sw) {
+                v |= dp[i - sw - 1] >> (64 - sb);
+            }
+            dp[i] |= v;
+        }
+        dp[last_word] &= last_mask;
+
+        if ((dp[target / 64] >> (target & 63)) & 1ULL) {
+            return min_possible;
+        }
+    }
+
+    for (std::size_t i = words; i-- > 0; ) {
+        U64 w = dp[i];
+        if (i == last_word) w &= last_mask;
+        if (w) {
+            std::size_t best = i * 64 + (63u - (unsigned)__builtin_clzll(w));
+            return total - (U128)2 * best;
+        }
+    }
+    return total;
+}
+
+static std::vector<U64> subset_sums_limited(const std::vector<U64>& a, std::size_t l, std::size_t r, U64 target) {
+    std::vector<U64> sums;
+    sums.reserve(1ULL << std::min<std::size_t>(r - l, 23));
+    sums.push_back(0);
+
+    for (std::size_t i = l; i < r; ++i) {
+        U64 x = a[i];
+        if (x > target) continue;
+        std::size_t sz = sums.size();
+        for (std::size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= target - x) {
+                sums.push_back(sums[j] + x);
+            }
+        }
+    }
+    return sums;
+}
+
+static U128 solve_mitm(const std::vector<U64>& a, U64 target, U128 total, U128 min_possible) {
+    std::size_t n = a.size();
+    std::size_t mid = n / 2;
+
+    std::vector<U64> left = subset_sums_limited(a, 0, mid, target);
+    std::vector<U64> right = subset_sums_limited(a, mid, n, target);
+
+    std::sort(right.begin(), right.end());
+
+    U64 best = 0;
+    for (U64 x : left) {
+        if (x > target) continue;
+        U64 rem = target - x;
+        auto it = std::upper_bound(right.begin(), right.end(), rem);
+        if (it != right.begin()) {
+            --it;
+            U64 cand = x + *it;
+            if (cand > best) {
+                best = cand;
+                if (best == target) return min_possible;
+            }
+        }
+    }
+    return total - (U128)2 * best;
+}
+
+class CKK {
+public:
+    U128 best;
+    U128 min_possible;
+
+    CKK(U128 initial_best, U128 mp) : best(initial_best), min_possible(mp) {}
+
+    void search(const std::vector<U128>& v, U128 sum) {
+        if (best == min_possible) return;
+
+        std::size_t n = v.size();
+        if (n == 0) {
+            if (0 < best) best = 0;
+            return;
+        }
+        if (n == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+
+        U128 rest = sum - v[0];
+        U128 lb = (v[0] > rest) ? (v[0] - rest) : 0;
+        if (lb < min_possible) lb = min_possible;
+        if (lb >= best) return;
+
+        U128 a = v[0], b = v[1];
+
+        if (n == 2) {
+            U128 d = a >= b ? a - b : b - a;
+            if (d < best) best = d;
+            return;
+        }
+
+        U128 diff = a - b;
+        {
+            std::vector<U128> child = make_child(v, diff);
+            search(child, sum - (U128)2 * b);
+        }
+        if (best == min_possible) return;
+
+        {
+            std::vector<U128> child = make_child(v, a + b);
+            search(child, sum);
+        }
+    }
+
+private:
+    static std::vector<U128> make_child(const std::vector<U128>& v, U128 x) {
+        std::vector<U128> child;
+        child.reserve(v.size() - (x == 0 ? 2 : 1));
+
+        bool inserted = (x == 0);
+        for (std::size_t i = 2; i < v.size(); ++i) {
+            if (!inserted && x >= v[i]) {
+                child.push_back(x);
+                inserted = true;
+            }
+            child.push_back(v[i]);
+        }
+        if (!inserted) child.push_back(x);
+        return child;
+    }
+};
+
+static U128 solve_ckk(const std::vector<U64>& a, U128 total, U128 initial_best, U128 min_possible) {
+    std::vector<U128> v;
+    v.reserve(a.size());
+    for (U64 x : a) {
+        if (x) v.push_back((U128)x);
+    }
+    std::sort(v.begin(), v.end(), [](U128 x, U128 y) { return x > y; });
+
+    CKK solver(initial_best, min_possible);
+    solver.search(v, total);
+    return solver.best;
+}
+
+static U128 solve_subset_dfs(const std::vector<U64>& a, U128 total, U128 initial_diff) {
+    U128 target = total / 2;
+
+    std::vector<U128> v;
+    v.reserve(a.size());
+    for (U64 x : a) {
+        if ((U128)x <= target) v.push_back((U128)x);
+    }
+
+    std::sort(v.begin(), v.end(), [](U128 x, U128 y) { return x > y; });
+
+    std::size_t n = v.size();
+    std::vector<U128> suffix(n + 1, 0);
+    for (std::size_t i = n; i-- > 0; ) {
+        U128 s = suffix[i + 1] + v[i];
+        suffix[i] = (s > target) ? target : s;
+    }
+
+    U128 best = (total >= initial_diff) ? ((total - initial_diff) / 2) : 0;
+    if (best > target) best = target;
+
+    U128 greedy = 0;
+    for (U128 x : v) {
+        if (greedy + x <= target) greedy += x;
+    }
+    if (greedy > best) best = greedy;
+
+    struct Frame {
+        std::size_t idx;
+        U128 cur;
+    };
+
+    auto can_exceed = [&](U128 cur, U128 add) -> bool {
+        return cur > best || add > best - cur;
+    };
+
+    std::vector<Frame> st;
+    st.reserve(n + 1);
+    st.push_back({0, 0});
+
+    while (!st.empty() && best != target) {
+        Frame f = st.back();
+        st.pop_back();
+
+        if (!can_exceed(f.cur, suffix[f.idx])) continue;
+
+        if (f.idx == n) {
+            if (f.cur > best) best = f.cur;
+            continue;
+        }
+
+        U128 x = v[f.idx];
+
+        if (can_exceed(f.cur, suffix[f.idx + 1])) {
+            st.push_back({f.idx + 1, f.cur});
+        }
+
+        if (f.cur + x <= target) {
+            U128 nc = f.cur + x;
+            if (nc > best) {
+                best = nc;
+                if (best == target) break;
+            }
+            if (can_exceed(nc, suffix[f.idx + 1])) {
+                st.push_back({f.idx + 1, nc});
+            }
+        }
+    }
+
+    return total - (U128)2 * best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<U64> a;
+    a.reserve(N);
+
+    U128 total = 0;
+    for (std::size_t i = 0; i < N; ++i) {
+        U64 x;
+        std::cin >> x;
+        a.push_back(x);
+        total += (U128)x;
+    }
+
+    U128 min_possible = total & 1;
+    U128 heuristic = kk_heuristic(a);
+
+    if (heuristic == min_possible) {
+        print_u128(heuristic);
+        return 0;
+    }
+
+    U128 target128 = total / 2;
+    bool target_fits_size = target128 <= (U128)std::numeric_limits<std::size_t>::max();
+    bool target_fits_u64 = target128 <= (U128)std::numeric_limits<U64>::max();
+
+    if (target_fits_size) {
+        std::size_t target = (std::size_t)target128;
+        U128 words128 = (U128)(target / 64 + 1);
+        U128 bytes128 = words128 * 8;
+        long double cost = (long double)(target / 64 + 1) * (long double)N;
+        const U128 MEMORY_LIMIT = (U128)128 * 1024 * 1024;
+
+        bool dense_possible = bytes128 <= MEMORY_LIMIT;
+
+        if (N <= 46 && target_fits_u64 && (!dense_possible || cost > 200000000.0L)) {
+            print_u128(solve_mitm(a, (U64)target128, total, min_possible));
+            return 0;
+        }
+
+        if (dense_possible) {
+            print_u128(solve_dense_bitset(a, target, total, min_possible));
+            return 0;
+        }
+    }
+
+    if (N <= 46 && target_fits_u64) {
+        print_u128(solve_mitm(a, (U64)target128, total, min_possible));
+        return 0;
+    }
+
+    if (N <= 2000) {
+        print_u128(solve_ckk(a, total, heuristic, min_possible));
+        return 0;
+    }
+
+    print_u128(solve_subset_dfs(a, total, heuristic));
+    return 0;
+}

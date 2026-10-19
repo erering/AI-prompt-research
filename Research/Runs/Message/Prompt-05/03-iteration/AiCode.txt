@@ -1,0 +1,115 @@
+#include <vector>
+#include <cstdint>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    bool comb_ready = false;
+    std::uint64_t combv[32][32];
+
+    void init_comb() {
+        if (comb_ready) return;
+        for (int n = 0; n <= 31; ++n) {
+            combv[n][0] = combv[n][n] = 1;
+            for (int k = 1; k < n; ++k) {
+                combv[n][k] = combv[n - 1][k - 1] + combv[n - 1][k];
+            }
+        }
+        comb_ready = true;
+    }
+
+    std::uint64_t rank_mask(const std::vector<bool>& C) {
+        init_comb();
+        std::uint64_t rank = 0;
+        int rem = 15;
+        for (int i = 0; i < 31; ++i) {
+            if (C[i]) {
+                rank += combv[31 - i - 1][rem];
+                --rem;
+            }
+        }
+        return rank;
+    }
+
+    std::vector<bool> unrank_mask(std::uint64_t rank) {
+        init_comb();
+        std::vector<bool> C(31, false);
+        int rem = 15;
+        for (int i = 0; i < 31; ++i) {
+            if (rem == 0) break;
+            std::uint64_t cnt0 = combv[31 - i - 1][rem];
+            if (rank < cnt0) {
+                C[i] = false;
+            } else {
+                C[i] = true;
+                rank -= cnt0;
+                --rem;
+            }
+        }
+        return C;
+    }
+
+    bool data_bit(const std::vector<bool>& M, int idx) {
+        int S = (int)M.size();
+        if (idx < 10) return ((S - 1) >> idx) & 1;
+        idx -= 10;
+        if (idx < S) return M[idx];
+        return false;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::uint64_t rank = rank_mask(C);
+
+    for (int p = 0; p < 29; ++p) {
+        bool b = (rank >> p) & 1ULL;
+        std::vector<bool> A(31, b);
+        send_packet(A);
+    }
+
+    int ptr = 0;
+    for (int p = 0; p < 65; ++p) {
+        std::vector<bool> A(31, false);
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i]) {
+                A[i] = data_bit(M, ptr);
+                ++ptr;
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    std::uint64_t rank = 0;
+
+    for (int p = 0; p < 29; ++p) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[p][i]) ++ones;
+        }
+        if (ones >= 16) rank |= (1ULL << p);
+    }
+
+    std::vector<bool> C = unrank_mask(rank);
+    std::vector<bool> bits;
+    bits.reserve(1040);
+
+    for (int p = 29; p < 94; ++p) {
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i]) bits.push_back(R[p][i]);
+        }
+    }
+
+    int S = 1;
+    for (int i = 0; i < 10; ++i) {
+        if (bits[i]) S += (1 << i);
+    }
+
+    std::vector<bool> M(S);
+    for (int i = 0; i < S; ++i) {
+        M[i] = bits[10 + i];
+    }
+
+    return M;
+}

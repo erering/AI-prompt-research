@@ -1,0 +1,9 @@
+You are competing in a strategy-construction benchmark. Return ONLY valid C++20 code, with no markdown and no explanation, implementing vector<vector<int>> devise_strategy(int N). Strong solutions minimize the number of states x; the top competitive target is x <= 20 for every N <= 5000.
+
+Benchmark rules: two bags A and B hide distinct values a,b in [1,N]. A board initially shows 0. There are only 500 turns. On each turn, a new prisoner reads the board state i, inspects exactly one bag predetermined by i, sees the inspected count j, and then either writes a new state or declares A smaller or B smaller. A wrong declaration loses immediately; failure to declare within 500 turns loses. The strategy must win for every distinct a,b.
+
+Your code must return a matrix s describing the finite automaton. Let x=s.size()-1. All legal states are 0..x, and each row has N+1 entries. Entry s[i][0] is the inspected bag: 0 for A, 1 for B. For observed count j in 1..N, entry s[i][j] is the action: -1 means declare A smaller, -2 means declare B smaller, and any k>=0 means write state k, with k<=x.
+
+Validation simulates, for every a != b, starting at state 0. If s[state][0]=0, the observation is a; otherwise it is b. The corresponding action must either give the correct answer or move to a valid state. Every simulation must terminate correctly within 500 moves.
+
+Score pressure: x<=60 is the broad main cap; x<=20 is the premium target. Secondary caps are x<=500 for N<=500 and x<=70 for N<=500. Main maximum-state score m: 40..60 earns 20; 26..39 earns 25+1.5*(40-m); 25 earns 50; 24 earns 55; 23 earns 62; 22 earns 70; 21 earns 80; <=20 earns 90. Produce the strongest implementation you can.

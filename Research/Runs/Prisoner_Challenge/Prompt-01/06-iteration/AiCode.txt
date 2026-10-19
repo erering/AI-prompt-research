@@ -1,0 +1,86 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int MAXS = 60;
+    vector<long long> best(MAXS + 1, -1);
+    vector<int> par(MAXS + 1, -1);
+    best[0] = 1;
+
+    for (int s = 1; s <= MAXS; ++s) {
+        for (int r = 2; r <= s; ++r) {
+            if (best[s - r] < 0) continue;
+            long long cand = best[s - r] * r;
+            if (cand > (long long)1e18 / 2) cand = (long long)1e18 / 2;
+            if (cand > best[s]) {
+                best[s] = cand;
+                par[s] = r;
+            }
+        }
+    }
+
+    int sum = 0;
+    for (int s = 2; s <= MAXS; ++s) {
+        if (best[s] >= N) {
+            sum = s;
+            break;
+        }
+    }
+
+    vector<int> base;
+    int cur = sum;
+    while (cur > 0) {
+        int r = par[cur];
+        base.push_back(r);
+        cur -= r;
+    }
+
+    int L = (int)base.size();
+    vector<int> suf(L + 1, 1);
+    for (int i = L - 1; i >= 0; --i) suf[i] = suf[i + 1] * base[i];
+
+    vector<int> start(L);
+    int x = 0;
+    for (int i = 0; i < L; ++i) {
+        start[i] = x + 1;
+        x += base[i];
+    }
+
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, -1));
+
+    auto digit = [&](int pos, int coins) {
+        int v = coins - 1;
+        return (v / suf[pos + 1]) % base[pos];
+    };
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = start[0] + digit(0, j);
+    }
+
+    for (int pos = 0; pos < L; ++pos) {
+        for (int d = 0; d < base[pos]; ++d) {
+            int st = start[pos] + d;
+            int inspect = (pos % 2 == 0 ? 1 : 0);
+            s[st][0] = inspect;
+
+            for (int j = 1; j <= N; ++j) {
+                int cd = digit(pos, j);
+
+                if (cd < d) {
+                    s[st][j] = (inspect == 0 ? -1 : -2);
+                } else if (cd > d) {
+                    s[st][j] = (inspect == 0 ? -2 : -1);
+                } else {
+                    if (pos == L - 1) {
+                        s[st][j] = -1;
+                    } else {
+                        s[st][j] = start[pos + 1] + digit(pos + 1, j);
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

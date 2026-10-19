@@ -1,0 +1,119 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int X = 20;
+    const int BLOCK = 22;
+    vector<vector<int>> s(X + 1, vector<int>(N + 1, -1));
+    int pw[5] = {81, 27, 9, 3, 1};
+
+    auto pref = [&](int j) {
+        return (j - 1) / BLOCK;
+    };
+    auto off = [&](int j) {
+        return (j - 1) % BLOCK;
+    };
+    auto digit = [&](int j, int lv) {
+        return (pref(j) / pw[lv]) % 3;
+    };
+    auto cur_smaller = [&](int cur) {
+        return cur == 0 ? -1 : -2;
+    };
+    auto cur_larger = [&](int cur) {
+        return cur == 0 ? -2 : -1;
+    };
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; j++) {
+        s[0][j] = 1 + digit(j, 0);
+    }
+
+    for (int lv = 0; lv < 5; lv++) {
+        int cur = (lv % 2 == 0 ? 1 : 0);
+        for (int d = 0; d < 3; d++) {
+            int id = 1 + lv * 3 + d;
+            s[id][0] = cur;
+            for (int j = 1; j <= N; j++) {
+                int e = digit(j, lv);
+                if (cur == 1) {
+                    if (e > d) {
+                        s[id][j] = -1;
+                        continue;
+                    }
+                    if (e < d) {
+                        s[id][j] = -2;
+                        continue;
+                    }
+                } else {
+                    if (e < d) {
+                        s[id][j] = -1;
+                        continue;
+                    }
+                    if (e > d) {
+                        s[id][j] = -2;
+                        continue;
+                    }
+                }
+
+                if (lv < 4) {
+                    s[id][j] = 1 + (lv + 1) * 3 + digit(j, lv + 1);
+                } else {
+                    int o = off(j);
+                    if (o == 0) s[id][j] = cur_smaller(cur);
+                    else if (o == 21) s[id][j] = cur_larger(cur);
+                    else if (o <= 10) s[id][j] = 16;
+                    else s[id][j] = 17;
+                }
+            }
+        }
+    }
+
+    for (int g = 0; g < 2; g++) {
+        int id = 16 + g;
+        int cur = 0;
+        s[id][0] = cur;
+        int lo = 1 + 10 * g, hi = 10 + 10 * g;
+        for (int j = 1; j <= N; j++) {
+            int o = off(j);
+            if (o < lo) s[id][j] = cur_smaller(cur);
+            else if (o > hi) s[id][j] = cur_larger(cur);
+            else {
+                int local = o - lo;
+                if (local == 0) s[id][j] = cur_smaller(cur);
+                else if (local == 9) s[id][j] = cur_larger(cur);
+                else if (local <= 4) s[id][j] = 18;
+                else s[id][j] = 19;
+            }
+        }
+    }
+
+    for (int h = 0; h < 2; h++) {
+        int id = 18 + h;
+        int cur = 1;
+        s[id][0] = cur;
+        int lo = 1 + 4 * h, hi = 4 + 4 * h;
+        for (int j = 1; j <= N; j++) {
+            int o = off(j);
+            int lt = (o + 9) % 10;
+            if (lt < lo) s[id][j] = cur_smaller(cur);
+            else if (lt > hi) s[id][j] = cur_larger(cur);
+            else {
+                int local = lt - lo;
+                if (local == 0) s[id][j] = cur_smaller(cur);
+                else if (local == 3) s[id][j] = cur_larger(cur);
+                else s[id][j] = 20;
+            }
+        }
+    }
+
+    s[20][0] = 0;
+    for (int j = 1; j <= N; j++) {
+        int o = off(j);
+        int lt = (o + 9) % 10;
+        int sub = (lt + 3) % 4;
+        if (sub <= 1) s[20][j] = -1;
+        else s[20][j] = -2;
+    }
+
+    return s;
+}

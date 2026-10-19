@@ -1,0 +1,380 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+struct FastInput {
+    static const int SZ = 1 << 20;
+    char buf[SZ];
+    int idx = 0, size = 0;
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    bool readInt(int &x) {
+        char c;
+        do {
+            c = getChar();
+            if (!c) return false;
+        } while (c <= ' ');
+        int sign = 1;
+        if (c == '-') {
+            sign = -1;
+            c = getChar();
+        }
+        x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        x *= sign;
+        return true;
+    }
+
+    int readBit() {
+        char c;
+        do {
+            c = getChar();
+            if (!c) return 0;
+        } while (c != '0' && c != '1');
+        return c - '0';
+    }
+};
+
+static inline void setBit(vector<ull> &a, int W, int i, int j) {
+    a[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+}
+
+static inline void clearBit(vector<ull> &a, int W, int i, int j) {
+    a[(size_t)i * W + (j >> 6)] &= ~(1ULL << (j & 63));
+}
+
+static inline bool testBit(const vector<ull> &a, int W, int i, int j) {
+    return (a[(size_t)i * W + (j >> 6)] >> (j & 63)) & 1ULL;
+}
+
+struct MaxCliqueSolver {
+    int n, W;
+    ull lastMask;
+    vector<ull> G, H;
+    int best = 0;
+    mt19937 rng;
+
+    MaxCliqueSolver(const vector<ull> &globalG, int globalW, const vector<int> &verts) {
+        rng.seed((uint32_t)chrono::steady_clock::now().time_since_epoch().count());
+        n = (int)verts.size();
+        W = (n + 63) >> 6;
+        lastMask = (n & 63) ? ((1ULL << (n & 63)) - 1ULL) : ~0ULL;
+
+        if (n == 0) return;
+
+        vector<int> deg(n, 0);
+        for (int i = 0; i < n; ++i) {
+            for (int j = i + 1; j < n; ++j) {
+                if (testBit(globalG, globalW, verts[i], verts[j])) {
+                    ++deg[i];
+                    ++deg[j];
+                }
+            }
+        }
+
+        vector<int> ord(n);
+        iota(ord.begin(), ord.end(), 0);
+        sort(ord.begin(), ord.end(), [&](int a, int b) {
+            if (deg[a] != deg[b]) return deg[a] > deg[b];
+            return verts[a] < verts[b];
+        });
+
+        vector<int> vmap(n);
+        for (int i = 0; i < n; ++i) vmap[i] = verts[ord[i]];
+
+        G.assign((size_t)n * W, 0);
+        for (int i = 0; i < n; ++i) {
+            for (int j = i + 1; j < n; ++j) {
+                if (testBit(globalG, globalW, vmap[i], vmap[j])) {
+                    setBit(G, W, i, j);
+                    setBit(G, W, j, i);
+                }
+            }
+        }
+
+        H.assign((size_t)n * W, 0);
+        for (int i = 0; i < n; ++i) {
+            for (int w = 0; w < W; ++w) {
+                ull mask = (w == W - 1) ? lastMask : ~0ULL;
+                H[(size_t)i * W + w] = (~G[(size_t)i * W + w]) & mask;
+            }
+            H[(size_t)i * W + (i >> 6)] &= ~(1ULL << (i & 63));
+        }
+    }
+
+    inline bool anyVec(const vector<ull> &v) const {
+        for (ull x : v) if (x) return true;
+        return false;
+    }
+
+    inline int popcountVec(const vector<ull> &v) const {
+        int s = 0;
+        for (ull x : v) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline int firstBit(const vector<ull> &v) const {
+        for (int w = 0; w < W; ++w) {
+            if (v[w]) return (w << 6) + __builtin_ctzll(v[w]);
+        }
+        return -1;
+    }
+
+    inline void clearVecBit(vector<ull> &v, int x) const {
+        v[x >> 6] &= ~(1ULL << (x & 63));
+    }
+
+    int intersectCountWithG(const vector<ull> &P, int v) const {
+        int s = 0;
+        const ull *row = &G[(size_t)v * W];
+        for (int w = 0; w < W; ++w) s += __builtin_popcountll(P[w] & row[w]);
+        return s;
+    }
+
+    int greedyClique(bool randomized) {
+        if (n == 0) return 0;
+
+        vector<ull> P(W, ~0ULL);
+        P[W - 1] &= lastMask;
+
+        int cnt = 0;
+        const int K = 12;
+
+        while (anyVec(P)) {
+            int chosen = -1;
+
+            if (!randomized) {
+                int bestScore = -1;
+                for (int w = 0; w < W; ++w) {
+                    ull bits = P[w];
+                    while (bits) {
+                        int b = __builtin_ctzll(bits);
+                        int v = (w << 6) + b;
+                        int sc = intersectCountWithG(P, v);
+                        if (sc > bestScore) {
+                            bestScore = sc;
+                            chosen = v;
+                        }
+                        bits &= bits - 1;
+                    }
+                }
+            } else {
+                vector<pair<int,int>> top;
+                top.reserve(K + 1);
+                for (int w = 0; w < W; ++w) {
+                    ull bits = P[w];
+                    while (bits) {
+                        int b = __builtin_ctzll(bits);
+                        int v = (w << 6) + b;
+                        int sc = intersectCountWithG(P, v);
+
+                        if ((int)top.size() < K) {
+                            top.push_back({sc, v});
+                            sort(top.begin(), top.end(), greater<pair<int,int>>());
+                        } else if (sc > top.back().first) {
+                            top.back() = {sc, v};
+                            sort(top.begin(), top.end(), greater<pair<int,int>>());
+                        }
+
+                        bits &= bits - 1;
+                    }
+                }
+                chosen = top[(int)(rng() % top.size())].second;
+            }
+
+            ++cnt;
+            const ull *row = &G[(size_t)chosen * W];
+            for (int w = 0; w < W; ++w) P[w] &= row[w];
+        }
+
+        return cnt;
+    }
+
+    void initialHeuristic() {
+        best = max(best, greedyClique(false));
+
+        int runs;
+        if (n <= 120) runs = 40;
+        else if (n <= 400) runs = 24;
+        else if (n <= 1000) runs = 12;
+        else if (n <= 2500) runs = 5;
+        else runs = 2;
+
+        for (int i = 0; i < runs; ++i) {
+            best = max(best, greedyClique(true));
+            if (best == n) break;
+        }
+    }
+
+    void colorSort(const vector<ull> &P, vector<int> &order, vector<int> &colors) {
+        order.clear();
+        colors.clear();
+
+        vector<ull> U = P, Q(W);
+        int color = 0;
+
+        while (anyVec(U)) {
+            ++color;
+            Q = U;
+
+            while (anyVec(Q)) {
+                int v = firstBit(Q);
+                order.push_back(v);
+                colors.push_back(color);
+
+                clearVecBit(U, v);
+                clearVecBit(Q, v);
+
+                const ull *row = &G[(size_t)v * W];
+                for (int w = 0; w < W; ++w) Q[w] &= ~row[w];
+                Q[W - 1] &= lastMask;
+            }
+        }
+    }
+
+    void expand(int cur, const vector<ull> &P) {
+        if (!anyVec(P)) {
+            if (cur > best) best = cur;
+            return;
+        }
+
+        if (cur + popcountVec(P) <= best) return;
+
+        vector<int> order, colors;
+        order.reserve(n);
+        colors.reserve(n);
+        colorSort(P, order, colors);
+
+        vector<ull> Pcur = P;
+        vector<ull> P2(W);
+
+        for (int idx = (int)order.size() - 1; idx >= 0; --idx) {
+            if (cur + colors[idx] <= best) return;
+
+            int v = order[idx];
+            clearVecBit(Pcur, v);
+
+            const ull *row = &G[(size_t)v * W];
+            bool nonempty = false;
+            for (int w = 0; w < W; ++w) {
+                P2[w] = Pcur[w] & row[w];
+                nonempty |= (P2[w] != 0);
+            }
+
+            if (!nonempty) {
+                if (cur + 1 > best) best = cur + 1;
+            } else {
+                expand(cur + 1, P2);
+            }
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        if (n == 1) return 1;
+
+        initialHeuristic();
+        if (best == n) return best;
+
+        vector<ull> P(W, ~0ULL);
+        P[W - 1] &= lastMask;
+
+        expand(0, P);
+        return best;
+    }
+};
+
+int main() {
+    FastInput in;
+
+    int N;
+    if (!in.readInt(N)) return 0;
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    int W = (N + 63) >> 6;
+    ull lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    vector<ull> G((size_t)N * W, 0);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = in.readBit();
+            if (b && i != j) {
+                setBit(G, W, i, j);
+                setBit(G, W, j, i);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        clearBit(G, W, i, i);
+        if (W > 0) G[(size_t)i * W + W - 1] &= lastMask;
+    }
+
+    vector<ull> H((size_t)N * W, 0);
+    for (int i = 0; i < N; ++i) {
+        for (int w = 0; w < W; ++w) {
+            ull mask = (w == W - 1) ? lastMask : ~0ULL;
+            H[(size_t)i * W + w] = (~G[(size_t)i * W + w]) & mask;
+        }
+        clearBit(H, W, i, i);
+    }
+
+    vector<char> vis(N, 0);
+    int answer = 0;
+
+    for (int s = 0; s < N; ++s) {
+        if (vis[s]) continue;
+
+        vector<int> comp;
+        vector<int> st;
+        st.push_back(s);
+        vis[s] = 1;
+
+        while (!st.empty()) {
+            int v = st.back();
+            st.pop_back();
+            comp.push_back(v);
+
+            const ull *row = &H[(size_t)v * W];
+            for (int w = 0; w < W; ++w) {
+                ull bits = row[w];
+                while (bits) {
+                    int b = __builtin_ctzll(bits);
+                    int u = (w << 6) + b;
+                    if (u < N && !vis[u]) {
+                        vis[u] = 1;
+                        st.push_back(u);
+                    }
+                    bits &= bits - 1;
+                }
+            }
+        }
+
+        if ((int)comp.size() == 1) {
+            answer += 1;
+        } else {
+            MaxCliqueSolver solver(G, W, comp);
+            answer += solver.solve();
+        }
+    }
+
+    printf("%d\n", answer);
+    return 0;
+}

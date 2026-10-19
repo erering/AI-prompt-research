@@ -1,0 +1,128 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int MAXN = 10005;
+    constexpr int LOG = 15;
+    constexpr int BASE = 10000;
+    constexpr int SPLIT = 6666;
+
+    int up[LOG][MAXN];
+    int depth_arr[MAXN];
+
+    int diamA = 0, diamB = 0, diamLen = 0;
+    int savedRemainder = 0;
+    int currentN = 0;
+
+    void reset_sender(int N) {
+        currentN = N;
+        depth_arr[0] = 0;
+        for (int k = 0; k < LOG; ++k) up[k][0] = 0;
+        diamA = diamB = 0;
+        diamLen = 0;
+        savedRemainder = 0;
+    }
+
+    int lca_node(int a, int b) {
+        if (depth_arr[a] < depth_arr[b]) swap(a, b);
+
+        int diff = depth_arr[a] - depth_arr[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[k][a];
+        }
+
+        if (a == b) return a;
+
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[k][a] != up[k][b]) {
+                a = up[k][a];
+                b = up[k][b];
+            }
+        }
+
+        return up[0][a];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return depth_arr[a] + depth_arr[b] - 2 * depth_arr[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || currentN != N) reset_sender(N);
+
+    up[0][i] = Pi;
+    depth_arr[i] = depth_arr[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up[k][i] = up[k - 1][up[k - 1][i]];
+    }
+
+    int oldA = diamA;
+    int oldB = diamB;
+    int oldLen = diamLen;
+
+    int da = dist_node(i, oldA);
+    int db = dist_node(i, oldB);
+
+    int option = 0;
+    if (da > oldLen) {
+        option = 1;
+        diamA = i;
+        diamB = oldA;
+        diamLen = da;
+    } else if (db > oldLen) {
+        option = 2;
+        diamA = i;
+        diamB = oldB;
+        diamLen = db;
+    }
+
+    if (i == N - 3) {
+        int code = diamA * BASE + diamB;
+        savedRemainder = code % SPLIT;
+        return code / SPLIT + 1;
+    }
+
+    if (i == N - 2) {
+        return savedRemainder * 3 + option + 1;
+    }
+
+    if (i == N - 1) {
+        return option + 1;
+    }
+
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+
+    int q = S[N - 3] - 1;
+    int packed = S[N - 2] - 1;
+    int r = packed / 3;
+    int option1 = packed % 3;
+    int option2 = S[N - 1] - 1;
+
+    int code = q * SPLIT + r;
+    int a = code / BASE;
+    int b = code % BASE;
+
+    if (option1 == 1) {
+        b = a;
+        a = N - 2;
+    } else if (option1 == 2) {
+        a = N - 2;
+    }
+
+    int oldA = a;
+    int oldB = b;
+
+    if (option2 == 1) {
+        return {N - 1, oldA};
+    } else if (option2 == 2) {
+        return {N - 1, oldB};
+    }
+
+    return {oldA, oldB};
+}

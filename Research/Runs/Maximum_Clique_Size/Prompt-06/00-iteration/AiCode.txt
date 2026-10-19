@@ -1,0 +1,224 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+int N, W;
+vector<ull> ADJ, ALLB;
+int bestAns = 0;
+
+static inline const ull* adjrow(int v) {
+    return &ADJ[(size_t)v * W];
+}
+
+static inline bool testbit(const vector<ull>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+static inline void clearbit(vector<ull>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+static inline int firstBit(const vector<ull>& b) {
+    for (int i = 0; i < W; ++i) {
+        ull x = b[i];
+        if (x) return (i << 6) + __builtin_ctzll(x);
+    }
+    return -1;
+}
+
+static inline int lastBit(const vector<ull>& b) {
+    for (int i = W - 1; i >= 0; --i) {
+        ull x = b[i];
+        if (x) return (i << 6) + 63 - __builtin_clzll(x);
+    }
+    return -1;
+}
+
+static inline int popcntBits(const vector<ull>& b) {
+    int s = 0;
+    for (ull x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+int greedyCliqueStart(int st) {
+    vector<ull> cand(W);
+    int sz = 0;
+
+    if (st >= 0) {
+        sz = 1;
+        const ull* r = adjrow(st);
+        for (int i = 0; i < W; ++i) cand[i] = r[i];
+    } else {
+        cand = ALLB;
+    }
+
+    while (true) {
+        int v = lastBit(cand);
+        if (v < 0 || v >= N) break;
+        ++sz;
+        const ull* r = adjrow(v);
+        bool any = false;
+        for (int i = 0; i < W; ++i) {
+            cand[i] &= r[i];
+            any |= cand[i] != 0;
+        }
+        if (!any) break;
+    }
+    return sz;
+}
+
+void colorSort(const vector<ull>& P, int pcnt, vector<int>& order, vector<int>& color) {
+    vector<ull> U = P, avail(W);
+    order.clear();
+    color.clear();
+    order.reserve(pcnt);
+    color.reserve(pcnt);
+
+    int rem = pcnt;
+    int c = 0;
+
+    while (rem > 0) {
+        ++c;
+        avail = U;
+
+        while (true) {
+            int v = firstBit(avail);
+            if (v < 0 || v >= N) break;
+
+            order.push_back(v);
+            color.push_back(c);
+
+            clearbit(U, v);
+            --rem;
+
+            const ull* r = adjrow(v);
+            for (int i = 0; i < W; ++i) {
+                avail[i] &= U[i] & ~r[i];
+            }
+        }
+    }
+}
+
+void expand(vector<ull>& P, int sz, int pcnt) {
+    if (sz + pcnt <= bestAns) return;
+
+    vector<int> order, color;
+    colorSort(P, pcnt, order, color);
+
+    vector<ull> child(W);
+
+    for (int idx = (int)order.size() - 1; idx >= 0; --idx) {
+        if (sz + color[idx] <= bestAns) return;
+
+        int v = order[idx];
+        if (!testbit(P, v)) continue;
+
+        const ull* r = adjrow(v);
+        int childCnt = 0;
+        for (int i = 0; i < W; ++i) {
+            ull x = P[i] & r[i];
+            child[i] = x;
+            childCnt += __builtin_popcountll(x);
+        }
+
+        int nsz = sz + 1;
+        if (childCnt == 0) {
+            if (nsz > bestAns) bestAns = nsz;
+        } else if (nsz + childCnt > bestAns) {
+            expand(child, nsz, childCnt);
+        }
+
+        clearbit(P, v);
+        --pcnt;
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    vector<ull> oldAdj((size_t)N * W, 0);
+
+    char c;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            cin >> c;
+            while (c != '0' && c != '1') cin >> c;
+            if (c == '1' && i != j) {
+                oldAdj[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+            }
+        }
+    }
+
+    vector<int> deg(N);
+    for (int i = 0; i < N; ++i) {
+        int d = 0;
+        ull* r = &oldAdj[(size_t)i * W];
+        for (int k = 0; k < W; ++k) d += __builtin_popcountll(r[k]);
+        deg[i] = d;
+    }
+
+    vector<int> ord(N), pos(N);
+    iota(ord.begin(), ord.end(), 0);
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] < deg[b];
+        return a < b;
+    });
+    for (int i = 0; i < N; ++i) pos[ord[i]] = i;
+
+    ADJ.assign((size_t)N * W, 0);
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = ord[ni];
+        ull* src = &oldAdj[(size_t)oi * W];
+        ull* dst = &ADJ[(size_t)ni * W];
+
+        for (int w = 0; w < W; ++w) {
+            ull bits = src[w];
+            while (bits) {
+                int b = __builtin_ctzll(bits);
+                int oj = (w << 6) + b;
+                if (oj < N) {
+                    int nj = pos[oj];
+                    if (nj != ni) dst[nj >> 6] |= 1ULL << (nj & 63);
+                }
+                bits &= bits - 1;
+            }
+        }
+    }
+
+    oldAdj.clear();
+    oldAdj.shrink_to_fit();
+
+    for (int i = 0; i < N; ++i) {
+        ADJ[(size_t)i * W + (i >> 6)] &= ~(1ULL << (i & 63));
+    }
+
+    ALLB.assign(W, ~0ULL);
+    if (N & 63) ALLB[W - 1] = (1ULL << (N & 63)) - 1ULL;
+
+    bestAns = max(bestAns, greedyCliqueStart(-1));
+
+    int lim = (N < 2000 ? min(N, 256) : min(N, 96));
+    for (int t = 0; t < lim; ++t) {
+        int st = N - 1 - t;
+        bestAns = max(bestAns, greedyCliqueStart(st));
+        if (bestAns == N) break;
+    }
+
+    if (bestAns < N) {
+        vector<ull> P = ALLB;
+        expand(P, 0, N);
+    }
+
+    cout << bestAns << '\n';
+    return 0;
+}

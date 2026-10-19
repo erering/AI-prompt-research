@@ -1,0 +1,133 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static unsigned long long COMB[32][32];
+
+static void init_comb() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    for (int n = 0; n <= 31; ++n) {
+        COMB[n][0] = COMB[n][n] = 1;
+        for (int k = 1; k < n; ++k) COMB[n][k] = COMB[n - 1][k - 1] + COMB[n - 1][k];
+    }
+}
+
+static unsigned long long rank_corrupt_mask(const vector<bool>& C) {
+    init_comb();
+    unsigned long long rank = 0;
+    int rem = 15;
+    for (int i = 0; i < 31; ++i) {
+        if (C[i]) {
+            rank += COMB[30 - i][rem];
+            --rem;
+        }
+    }
+    return rank;
+}
+
+static vector<bool> unrank_corrupt_mask(unsigned long long rank) {
+    init_comb();
+    vector<bool> C(31, false);
+    int rem = 15;
+    for (int i = 0; i < 31; ++i) {
+        if (rem == 0) break;
+        unsigned long long skip = COMB[30 - i][rem];
+        if (rank >= skip) {
+            C[i] = true;
+            rank -= skip;
+            --rem;
+        }
+    }
+    return C;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    init_comb();
+
+    unsigned long long r = rank_corrupt_mask(C);
+
+    for (int b = 0; b < 29; ++b) {
+        bool bit = ((r >> b) & 1ULL) != 0;
+        vector<bool> A(31, false);
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i]) A[i] = bit;
+        }
+        send_packet(A);
+    }
+
+    int S = (int)M.size();
+
+    vector<bool> payload;
+    int rem_code = (S - 1) & 15;
+    for (int b = 0; b < 4; ++b) payload.push_back(((rem_code >> b) & 1) != 0);
+    for (bool x : M) payload.push_back(x);
+
+    int data_packets = ((int)payload.size() + 15) / 16;
+
+    vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    int ptr = 0;
+    for (int p = 0; p < data_packets; ++p) {
+        vector<bool> A(31, false);
+        for (int k = 0; k < 16; ++k) {
+            bool bit = false;
+            if (ptr < (int)payload.size()) bit = payload[ptr];
+            ++ptr;
+            A[good[k]] = bit;
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    init_comb();
+
+    unsigned long long rank = 0;
+    for (int b = 0; b < 29; ++b) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) ++ones;
+        }
+        if (ones >= 16) rank |= (1ULL << b);
+    }
+
+    vector<bool> C = unrank_corrupt_mask(rank);
+
+    vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    vector<bool> bits;
+    for (int p = 29; p < (int)R.size(); ++p) {
+        for (int k = 0; k < 16; ++k) {
+            bits.push_back(R[p][good[k]]);
+        }
+    }
+
+    int rem_code = 0;
+    for (int b = 0; b < 4; ++b) {
+        if (bits[b]) rem_code |= (1 << b);
+    }
+
+    int data_packets = (int)R.size() - 29;
+    int S = 1;
+    for (int cand = 1; cand <= 1024; ++cand) {
+        if (((cand - 1) & 15) == rem_code && (cand + 4 + 15) / 16 == data_packets) {
+            S = cand;
+            break;
+        }
+    }
+
+    vector<bool> M;
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[4 + i]);
+    }
+    return M;
+}

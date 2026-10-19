@@ -1,0 +1,162 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+extern vector<bool> send_packet(vector<bool> A);
+
+static unsigned long long COMB_[32][32];
+static bool COMB_INIT_ = false;
+
+static void init_comb_() {
+    if (COMB_INIT_) return;
+    COMB_INIT_ = true;
+    for (int n = 0; n <= 31; ++n) {
+        COMB_[n][0] = COMB_[n][n] = 1;
+        for (int k = 1; k < n; ++k) COMB_[n][k] = COMB_[n - 1][k - 1] + COMB_[n - 1][k];
+    }
+}
+
+static unsigned int rank_comb_(const vector<int>& a, int n, int k) {
+    unsigned long long r = 0;
+    int prev = -1;
+    for (int i = 0; i < k; ++i) {
+        for (int v = prev + 1; v < a[i]; ++v) {
+            r += COMB_[n - 1 - v][k - 1 - i];
+        }
+        prev = a[i];
+    }
+    return (unsigned int)r;
+}
+
+static vector<int> unrank_comb_(unsigned int r, int n, int k) {
+    vector<int> a;
+    int prev = -1;
+    for (int i = 0; i < k; ++i) {
+        for (int v = prev + 1; v < n; ++v) {
+            unsigned long long cnt = COMB_[n - 1 - v][k - 1 - i];
+            if (r >= cnt) {
+                r -= (unsigned int)cnt;
+            } else {
+                a.push_back(v);
+                prev = v;
+                break;
+            }
+        }
+    }
+    return a;
+}
+
+static unsigned int rank_set_for_col_(unsigned int mask, int j) {
+    vector<int> a;
+    for (int x = 0; x < 31; ++x) {
+        if (x == j) continue;
+        if (mask & (1u << x)) a.push_back(x < j ? x : x - 1);
+    }
+    return rank_comb_(a, 30, 15);
+}
+
+static unsigned int unrank_set_for_col_(unsigned int r, int j) {
+    vector<int> a = unrank_comb_(r, 30, 15);
+    unsigned int mask = (1u << j);
+    for (int p : a) {
+        int x = (p < j ? p : p + 1);
+        mask |= (1u << x);
+    }
+    return mask;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    init_comb_();
+
+    unsigned int good_mask = 0;
+    vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) {
+            good_mask |= (1u << i);
+            good.push_back(i);
+        }
+    }
+
+    unsigned int ranks[31]{};
+    for (int j : good) ranks[j] = rank_set_for_col_(good_mask, j);
+
+    for (int b = 0; b < 28; ++b) {
+        vector<bool> A(31, false);
+        for (int j : good) A[j] = ((ranks[j] >> b) & 1u);
+        send_packet(A);
+    }
+
+    int S = (int)M.size();
+    int D = (S + 4 + 15) / 16;
+    int u = S + 4 - 16 * (D - 1);
+
+    vector<bool> payload(16 * D, false);
+    int code = u - 1;
+    for (int i = 0; i < 4; ++i) payload[i] = ((code >> i) & 1);
+    for (int i = 0; i < S; ++i) payload[4 + i] = M[i];
+
+    for (int p = 0; p < D; ++p) {
+        vector<bool> A(31, false);
+        for (int k = 0; k < 16; ++k) {
+            A[good[k]] = payload[p * 16 + k];
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    init_comb_();
+
+    unordered_map<unsigned int, int> votes;
+    votes.reserve(64);
+
+    const unsigned int LIM = (unsigned int)COMB_[30][15];
+
+    for (int j = 0; j < 31; ++j) {
+        unsigned int v = 0;
+        for (int b = 0; b < 28 && b < (int)R.size(); ++b) {
+            if (R[b][j]) v |= (1u << b);
+        }
+        if (v < LIM) {
+            unsigned int mask = unrank_set_for_col_(v, j);
+            votes[mask]++;
+        }
+    }
+
+    unsigned int good_mask = 0;
+    int best = -1;
+    for (auto &kv : votes) {
+        if (kv.second > best) {
+            best = kv.second;
+            good_mask = kv.first;
+        }
+    }
+
+    vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (good_mask & (1u << i)) good.push_back(i);
+    }
+
+    int D = max(0, (int)R.size() - 28);
+    vector<bool> bits;
+    bits.reserve(16 * D);
+
+    for (int p = 0; p < D; ++p) {
+        int row = 28 + p;
+        for (int j : good) bits.push_back(R[row][j]);
+    }
+
+    if ((int)bits.size() < 4) return {};
+
+    int code = 0;
+    for (int i = 0; i < 4; ++i) if (bits[i]) code |= (1 << i);
+    int u = code + 1;
+    int S = 16 * (D - 1) + u - 4;
+
+    if (S < 1) S = 1;
+    if (S > 1024) S = 1024;
+    if (4 + S > (int)bits.size()) S = max(0, (int)bits.size() - 4);
+
+    vector<bool> M(S);
+    for (int i = 0; i < S; ++i) M[i] = bits[4 + i];
+    return M;
+}

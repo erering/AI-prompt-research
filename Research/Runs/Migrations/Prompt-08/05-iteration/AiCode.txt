@@ -1,0 +1,145 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int LOG = 20;
+    constexpr int MESSAGE_LIMIT = 50;
+
+    int gN = 0;
+    int suffixStart = 1;
+    vector<array<int, LOG>> up;
+    vector<int> depthArr;
+
+    int diamA = 0, diamB = 0, diamLen = 0;
+    int encA = -1, encB = -1;
+
+    void reset_encoder(int N) {
+        gN = N;
+        suffixStart = max(1, N - MESSAGE_LIMIT);
+        up.assign(N, {});
+        depthArr.assign(N, 0);
+        for (int k = 0; k < LOG; ++k) up[0][k] = 0;
+        diamA = diamB = 0;
+        diamLen = 0;
+        encA = encB = -1;
+    }
+
+    int lca_node(int u, int v) {
+        if (depthArr[u] < depthArr[v]) swap(u, v);
+        int diff = depthArr[u] - depthArr[v];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) u = up[u][k];
+        }
+        if (u == v) return u;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[u][k] != up[v][k]) {
+                u = up[u][k];
+                v = up[v][k];
+            }
+        }
+        return up[u][0];
+    }
+
+    int dist_node(int u, int v) {
+        int w = lca_node(u, v);
+        return depthArr[u] + depthArr[v] - 2 * depthArr[w];
+    }
+
+    bool same_pair_unordered(int a, int b, int c, int d) {
+        return (a == c && b == d) || (a == d && b == c);
+    }
+
+    bool pair_contains(int a, int b, int x) {
+        return a == x || b == x;
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || gN != N) reset_encoder(N);
+
+    depthArr[i] = depthArr[Pi] + 1;
+    up[i][0] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up[i][k] = up[up[i][k - 1]][k - 1];
+    }
+
+    int oldA = diamA, oldB = diamB, oldD = diamLen;
+    int dA = dist_node(i, oldA);
+    int dB = dist_node(i, oldB);
+
+    if (dA > oldD) {
+        diamA = oldA;
+        diamB = i;
+        diamLen = dA;
+    } else if (dB > oldD) {
+        diamA = oldB;
+        diamB = i;
+        diamLen = dB;
+    }
+
+    if (i < suffixStart) return 0;
+
+    if (i == suffixStart) {
+        encA = diamA;
+        encB = diamB;
+        return encA + 1;
+    }
+
+    if (i == suffixStart + 1) {
+        if (same_pair_unordered(diamA, diamB, encA, encB)) {
+            return encB + 1;
+        }
+        if (pair_contains(diamA, diamB, encA)) {
+            encB = i;
+            return i + 1;
+        } else {
+            int oldEncB = encB;
+            encA = oldEncB;
+            encB = i;
+            return oldEncB + 10001;
+        }
+    }
+
+    if (same_pair_unordered(diamA, diamB, encA, encB)) {
+        return 0;
+    }
+
+    if (pair_contains(diamA, diamB, encA)) {
+        encB = i;
+        return 1;
+    } else {
+        encA = encB;
+        encB = i;
+        return 2;
+    }
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    int L = max(1, N - MESSAGE_LIMIT);
+
+    int a = S[L] - 1;
+    int b;
+
+    int val = S[L + 1];
+    if (val <= 10000) {
+        b = val - 1;
+    } else {
+        a = val - 10001;
+        b = L + 1;
+    }
+
+    for (int i = L + 2; i < N; ++i) {
+        if (S[i] == 1) {
+            b = i;
+        } else if (S[i] == 2) {
+            a = b;
+            b = i;
+        }
+    }
+
+    return {a, b};
+}

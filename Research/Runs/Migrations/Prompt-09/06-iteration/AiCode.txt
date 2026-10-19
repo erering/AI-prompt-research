@@ -1,0 +1,125 @@
+#include <vector>
+#include <utility>
+#include <algorithm>
+
+namespace {
+    constexpr int MAXN_STAGE = 10000;
+    constexpr int LOG_STAGE = 15;
+
+    int stage_N = -1;
+    int stage_last_i = -1;
+    int stage_depth[MAXN_STAGE + 5];
+    int stage_up[LOG_STAGE][MAXN_STAGE + 5];
+
+    int stage_diam_a = 0;
+    int stage_diam_b = 0;
+    int stage_diam_len = 0;
+    int stage_saved_a = 0;
+
+    void stage1_initialize(int N) {
+        stage_N = N;
+        stage_last_i = 0;
+        stage_diam_a = 0;
+        stage_diam_b = 0;
+        stage_diam_len = 0;
+        stage_saved_a = 0;
+        stage_depth[0] = 0;
+        for (int k = 0; k < LOG_STAGE; ++k) stage_up[k][0] = 0;
+    }
+
+    int stage_lca(int u, int v) {
+        if (stage_depth[u] < stage_depth[v]) std::swap(u, v);
+        int diff = stage_depth[u] - stage_depth[v];
+        for (int k = 0; k < LOG_STAGE; ++k) {
+            if (diff & (1 << k)) u = stage_up[k][u];
+        }
+        if (u == v) return u;
+        for (int k = LOG_STAGE - 1; k >= 0; --k) {
+            if (stage_up[k][u] != stage_up[k][v]) {
+                u = stage_up[k][u];
+                v = stage_up[k][v];
+            }
+        }
+        return stage_up[0][u];
+    }
+
+    int stage_dist(int u, int v) {
+        int w = stage_lca(u, v);
+        return stage_depth[u] + stage_depth[v] - 2 * stage_depth[w];
+    }
+
+    void stage2_reveal_edge(int i, int Pi) {
+        stage_up[0][i] = Pi;
+        for (int k = 1; k < LOG_STAGE; ++k) {
+            stage_up[k][i] = stage_up[k - 1][stage_up[k - 1][i]];
+        }
+        stage_depth[i] = stage_depth[Pi] + 1;
+    }
+
+    int stage3_update_diameter_and_decide(int N, int i) {
+        int old_a = stage_diam_a;
+        int old_b = stage_diam_b;
+        int d_to_a = stage_dist(i, old_a);
+        int d_to_b = stage_dist(i, old_b);
+
+        bool changed = false;
+        int carried_endpoint = -1;
+
+        if (d_to_a > stage_diam_len) {
+            stage_diam_a = i;
+            stage_diam_b = old_a;
+            stage_diam_len = d_to_a;
+            changed = true;
+            carried_endpoint = old_a;
+        } else if (d_to_b > stage_diam_len) {
+            stage_diam_a = i;
+            stage_diam_b = old_b;
+            stage_diam_len = d_to_b;
+            changed = true;
+            carried_endpoint = old_b;
+        }
+
+        if (N <= 2) return 0;
+
+        if (i == N - 2) {
+            stage_saved_a = stage_diam_a;
+            return stage_saved_a + 1;
+        }
+
+        if (i == N - 1) {
+            if (changed) return 10001 + carried_endpoint;
+            return stage_diam_b + 1;
+        }
+
+        return 0;
+    }
+
+    int stage4_limit_messages(int value) {
+        return value;
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || stage_N != N || stage_last_i >= i) {
+        stage1_initialize(N);
+    }
+    stage_last_i = i;
+    stage2_reveal_edge(i, Pi);
+    return stage4_limit_messages(stage3_update_diameter_and_decide(N, i));
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    int first = S[N - 2];
+    int second = S[N - 1];
+
+    if (second >= 10001) {
+        return {N - 1, second - 10001};
+    }
+
+    return {first - 1, second - 1};
+}

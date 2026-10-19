@@ -1,0 +1,107 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int MAXT = 20;
+    vector<int> F(MAXT + 1), opt(MAXT + 1);
+    F[0] = 2;
+    opt[0] = 0;
+    for (int t = 1; t <= MAXT; ++t) {
+        int best = -1, bestk = 1;
+        for (int k = 1; k <= t; ++k) {
+            int val = 2 + k * F[t - k];
+            if (val > best) {
+                best = val;
+                bestk = k;
+            }
+        }
+        F[t] = best;
+        opt[t] = bestk;
+    }
+
+    int T = 0;
+    while (F[T] < N) ++T;
+
+    vector<vector<int>> s(T + 1, vector<int>(N + 1, -1));
+    vector<int> dir(T + 1, -1);
+    for (int i = 0; i <= T; ++i) s[i][0] = 0;
+
+    auto current_smaller = [](int bag) {
+        return bag == 0 ? -1 : -2;
+    };
+    auto current_larger = [](int bag) {
+        return bag == 0 ? -2 : -1;
+    };
+
+    auto set_dir = [&](int row, int bag) {
+        if (dir[row] == -1) {
+            dir[row] = bag;
+            s[row][0] = bag;
+        }
+    };
+
+    function<void(int,int,int,int,vector<int>)> build =
+        [&](int row, int bag, int L, int R, vector<int> states) {
+            set_dir(row, bag);
+
+            if (L > R) return;
+
+            if (L == R) {
+                s[row][L] = current_smaller(bag);
+                return;
+            }
+
+            s[row][L] = current_smaller(bag);
+            s[row][R] = current_larger(bag);
+
+            int len = R - L + 1;
+            if (len <= 2) return;
+
+            int t = (int)states.size();
+            int k = opt[t];
+            int rem = t - k;
+            int cap = F[rem];
+
+            vector<int> rest(states.begin() + k, states.end());
+
+            int cur = L + 1;
+            int remaining = len - 2;
+
+            for (int c = 0; c < k; ++c) {
+                int take = min(cap, remaining);
+                if (take <= 0) break;
+
+                int l = cur;
+                int r = cur + take - 1;
+                cur += take;
+                remaining -= take;
+
+                int st = states[c];
+                int nb = 1 - bag;
+                set_dir(st, nb);
+
+                for (int j = l; j <= r; ++j) {
+                    s[row][j] = st;
+                }
+
+                for (int j = L; j < l; ++j) {
+                    s[st][j] = current_smaller(nb);
+                }
+                for (int j = r + 1; j <= R; ++j) {
+                    s[st][j] = current_larger(nb);
+                }
+
+                build(st, nb, l, r, rest);
+            }
+        };
+
+    vector<int> states;
+    for (int i = 1; i <= T; ++i) states.push_back(i);
+    build(0, 0, 1, N, states);
+
+    for (int i = 0; i <= T; ++i) {
+        if (dir[i] == -1) s[i][0] = 0;
+    }
+
+    return s;
+}

@@ -1,0 +1,356 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <queue>
+#include <numeric>
+#include <string>
+#include <limits>
+#include <cstdint>
+#include <functional>
+#include <new>
+
+using u64 = unsigned long long;
+using u128 = unsigned __int128;
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        int d = (int)(x % 10);
+        s.push_back(char('0' + d));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+template <class T>
+static T absdiff(T a, T b) {
+    return a >= b ? a - b : b - a;
+}
+
+template <class T>
+static T kk_heuristic(const std::vector<T>& a) {
+    std::priority_queue<T> pq;
+    for (T x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        T x = pq.top(); pq.pop();
+        T y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    return pq.empty() ? T(0) : pq.top();
+}
+
+template <class T>
+static T lpt_heuristic(const std::vector<T>& a) {
+    T x = 0, y = 0;
+    for (T v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return absdiff(x, y);
+}
+
+static u64 subset_dp_diff(const std::vector<u64>& vals, u64 total) {
+    const u64 target = total / 2;
+    const size_t words = (size_t)(target / 64) + 1;
+    std::vector<u64> bits(words, 0);
+    bits[0] = 1;
+
+    u64 curMax = 0;
+    const size_t targetWord = (size_t)(target >> 6);
+    const unsigned targetBit = (unsigned)(target & 63);
+    const u64 targetMask = 1ULL << targetBit;
+    const unsigned lastOff = (unsigned)(target & 63);
+    const u64 lastMask = (lastOff == 63) ? ~0ULL : ((1ULL << (lastOff + 1)) - 1ULL);
+
+    if (target == 0) return total;
+
+    for (u64 a : vals) {
+        if (a == 0 || a > target) continue;
+
+        u64 oldMax = curMax;
+        curMax += a;
+        if (curMax > target) curMax = target;
+
+        size_t oldHi = (size_t)(oldMax >> 6);
+        size_t newHi = (size_t)(curMax >> 6);
+        size_t ws = (size_t)(a >> 6);
+        unsigned bs = (unsigned)(a & 63);
+
+        if (bs == 0) {
+            for (size_t ii = newHi + 1; ii-- > ws;) {
+                size_t j = ii - ws;
+                if (j <= oldHi) bits[ii] |= bits[j];
+            }
+        } else {
+            for (size_t ii = newHi + 1; ii-- > ws;) {
+                size_t j = ii - ws;
+                u64 v = 0;
+                if (j <= oldHi) v |= bits[j] << bs;
+                if (j > 0 && j - 1 <= oldHi) v |= bits[j - 1] >> (64 - bs);
+                bits[ii] |= v;
+            }
+        }
+
+        bits[targetWord] &= lastMask;
+        if (bits[targetWord] & targetMask) return total - 2 * target;
+    }
+
+    for (size_t i = targetWord + 1; i-- > 0;) {
+        u64 w = bits[i];
+        if (i == targetWord) w &= lastMask;
+        if (w) {
+            unsigned b = 63u - (unsigned)__builtin_clzll(w);
+            u64 best = ((u64)i << 6) + b;
+            return total - 2 * best;
+        }
+    }
+    return total;
+}
+
+template <class T>
+static std::vector<T> gen_sums(const std::vector<T>& vals, size_t l, size_t r, T target) {
+    std::vector<T> sums;
+    size_t m = r - l;
+    if (m <= 23) sums.reserve(size_t(1) << m);
+    sums.push_back(0);
+    for (size_t i = l; i < r; ++i) {
+        T x = vals[i];
+        if (x > target) continue;
+        size_t sz = sums.size();
+        T lim = target - x;
+        for (size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= lim) sums.push_back(sums[j] + x);
+        }
+    }
+    return sums;
+}
+
+template <class T>
+static T mitm_diff(const std::vector<T>& vals, T total) {
+    const T target = total / 2;
+    size_t n = vals.size();
+    size_t n1 = n / 2;
+    size_t n2 = n - n1;
+
+    std::vector<T> right = gen_sums(vals, n1, n, target);
+    std::sort(right.begin(), right.end());
+
+    T best = 0;
+
+    std::function<bool(size_t,T)> dfs = [&](size_t idx, T sum) -> bool {
+        if (idx == n1) {
+            T rem = target - sum;
+            auto it = std::upper_bound(right.begin(), right.end(), rem);
+            if (it != right.begin()) {
+                --it;
+                T cand = sum + *it;
+                if (cand > best) {
+                    best = cand;
+                    if (best == target) return true;
+                }
+            }
+            return false;
+        }
+        if (dfs(idx + 1, sum)) return true;
+        T x = vals[idx];
+        if (x <= target - sum) {
+            if (dfs(idx + 1, sum + x)) return true;
+        }
+        return false;
+    };
+
+    dfs(0, 0);
+    return total - 2 * best;
+}
+
+template <class T>
+struct CKK {
+    T best;
+    T parity;
+
+    bool dfs(const std::vector<T>& v, T sum) {
+        if (best == parity) return true;
+        size_t n = v.size();
+        if (n == 0) {
+            best = 0;
+            return best == parity;
+        }
+        if (n == 1) {
+            if (v[0] < best) best = v[0];
+            return best == parity;
+        }
+
+        T largest = v[0];
+        T rest = sum - largest;
+        if (largest >= rest) {
+            T cand = largest - rest;
+            if (cand < best) best = cand;
+            return best == parity;
+        }
+
+        T x = v[0], y = v[1];
+
+        {
+            T d = x - y;
+            std::vector<T> child;
+            child.reserve(n - 1);
+            if (d == 0) {
+                for (size_t i = 2; i < n; ++i) child.push_back(v[i]);
+            } else {
+                bool inserted = false;
+                for (size_t i = 2; i < n; ++i) {
+                    if (!inserted && d >= v[i]) {
+                        child.push_back(d);
+                        inserted = true;
+                    }
+                    child.push_back(v[i]);
+                }
+                if (!inserted) child.push_back(d);
+            }
+            if (dfs(child, sum - y - y)) return true;
+        }
+
+        if (best == parity) return true;
+
+        {
+            T s = x + y;
+            std::vector<T> child;
+            child.reserve(n - 1);
+            child.push_back(s);
+            for (size_t i = 2; i < n; ++i) child.push_back(v[i]);
+            if (dfs(child, sum)) return true;
+        }
+
+        return best == parity;
+    }
+};
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u64> raw;
+    raw.reserve(N);
+    u64 g = 0;
+    u128 rawTotal = 0;
+
+    for (size_t i = 0; i < N; ++i) {
+        u64 x;
+        std::cin >> x;
+        if (x == 0) continue;
+        raw.push_back(x);
+        g = std::gcd(g, x);
+        rawTotal += (u128)x;
+    }
+
+    if (raw.empty()) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::vector<u64> vals;
+    vals.reserve(raw.size());
+    for (u64 x : raw) vals.push_back(x / g);
+
+    std::sort(vals.begin(), vals.end(), std::greater<u64>());
+
+    u128 total = rawTotal / (u128)g;
+    u128 factor = (u128)g;
+    u128 parity128 = total & 1;
+
+    u128 largest = vals[0];
+    if (largest >= total - largest) {
+        print_u128((largest - (total - largest)) * factor);
+        return 0;
+    }
+
+    const u128 U64MAX128 = (u128)std::numeric_limits<u64>::max();
+
+    if (total <= U64MAX128) {
+        u64 total64 = (u64)total;
+        u64 parity = (u64)(total64 & 1ULL);
+
+        u64 h1 = kk_heuristic<u64>(vals);
+        u64 h2 = lpt_heuristic<u64>(vals);
+        u64 bestH = std::min(h1, h2);
+
+        if (bestH == parity) {
+            print_u128((u128)bestH * factor);
+            return 0;
+        }
+
+        u64 target = total64 / 2;
+        size_t active = 0;
+        for (u64 x : vals) if (x <= target) ++active;
+        long double words = (long double)(target / 64 + 1);
+        long double ops = words * (long double)active;
+
+        if (words <= 8000000.0L && ops <= 300000000.0L) {
+            u64 d = subset_dp_diff(vals, total64);
+            print_u128((u128)d * factor);
+            return 0;
+        }
+
+        if (vals.size() <= 46) {
+            try {
+                u64 d = mitm_diff<u64>(vals, total64);
+                print_u128((u128)d * factor);
+                return 0;
+            } catch (const std::bad_alloc&) {
+            }
+        }
+
+        if (vals.size() <= 3000) {
+            CKK<u64> solver;
+            solver.best = bestH;
+            solver.parity = parity;
+            solver.dfs(vals, total64);
+            print_u128((u128)solver.best * factor);
+            return 0;
+        }
+    } else {
+        std::vector<u128> vals128;
+        vals128.reserve(vals.size());
+        for (u64 x : vals) vals128.push_back((u128)x);
+
+        u128 h1 = kk_heuristic<u128>(vals128);
+        u128 h2 = lpt_heuristic<u128>(vals128);
+        u128 bestH = h1 < h2 ? h1 : h2;
+
+        if (bestH == parity128) {
+            print_u128(bestH * factor);
+            return 0;
+        }
+
+        if (vals128.size() <= 44) {
+            try {
+                u128 d = mitm_diff<u128>(vals128, total);
+                print_u128(d * factor);
+                return 0;
+            } catch (const std::bad_alloc&) {
+            }
+        }
+
+        if (vals128.size() <= 3000) {
+            CKK<u128> solver;
+            solver.best = bestH;
+            solver.parity = parity128;
+            solver.dfs(vals128, total);
+            print_u128(solver.best * factor);
+            return 0;
+        }
+    }
+
+    volatile unsigned long long sink = 0;
+    while (true) {
+        ++sink;
+    }
+}

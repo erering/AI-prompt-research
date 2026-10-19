@@ -1,0 +1,284 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <string>
+#include <utility>
+#include <vector>
+
+using u64 = std::uint64_t;
+using u128 = unsigned __int128;
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        std::cout << "0\n";
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + int(x % 10)));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static u64 solve_bitset(const std::vector<u64>& a, u64 total) {
+    const u64 target = total / 2;
+    const std::size_t words = std::size_t(target / 64 + 1);
+
+    std::vector<u64> bits(words, 0);
+    bits[0] = 1;
+
+    for (u64 w64 : a) {
+        if (w64 > target) continue;
+
+        std::size_t ws = std::size_t(w64 >> 6);
+        unsigned bs = unsigned(w64 & 63);
+
+        for (std::size_t ii = words; ii > ws; --ii) {
+            std::size_t i = ii - 1;
+            u64 v;
+            if (bs == 0) {
+                v = bits[i - ws];
+            } else {
+                v = bits[i - ws] << bs;
+                if (i > ws) {
+                    v |= bits[i - ws - 1] >> (64 - bs);
+                }
+            }
+            bits[i] |= v;
+        }
+    }
+
+    std::size_t idx = std::size_t(target >> 6);
+    unsigned off = unsigned(target & 63);
+
+    for (std::size_t ii = idx + 1; ii > 0; --ii) {
+        std::size_t i = ii - 1;
+        u64 word = bits[i];
+
+        if (i == idx && off != 63) {
+            word &= ((1ULL << (off + 1)) - 1);
+        }
+
+        if (word != 0) {
+            unsigned pos = 63u - unsigned(std::countl_zero(word));
+            u64 best = u64(i) * 64 + pos;
+            return total - 2 * best;
+        }
+    }
+
+    return total;
+}
+
+static std::vector<u64> make_sums64(const std::vector<u64>& a, int l, int r, u64 target) {
+    std::vector<u64> sums;
+    sums.reserve(std::size_t(1) << (r - l));
+    sums.push_back(0);
+
+    for (int i = l; i < r; ++i) {
+        u64 w = a[i];
+        if (w > target) continue;
+
+        u64 lim = target - w;
+        std::size_t sz = sums.size();
+        for (std::size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= lim) {
+                sums.push_back(sums[j] + w);
+            }
+        }
+    }
+
+    std::sort(sums.begin(), sums.end());
+    sums.erase(std::unique(sums.begin(), sums.end()), sums.end());
+    return sums;
+}
+
+static u128 solve_mitm64(const std::vector<u64>& a, u64 total) {
+    int n = int(a.size());
+    int mid = n / 2;
+    u64 target = total / 2;
+
+    std::vector<u64> right = make_sums64(a, mid, n, target);
+    u64 best = 0;
+
+    auto dfs = [&](auto&& self, int idx, u64 sum) -> void {
+        if (best == target || sum > target) return;
+
+        if (idx == mid) {
+            auto it = std::upper_bound(right.begin(), right.end(), target - sum);
+            if (it != right.begin()) {
+                --it;
+                u64 cand = sum + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+
+        self(self, idx + 1, sum);
+        if (a[idx] <= target - sum) {
+            self(self, idx + 1, sum + a[idx]);
+        }
+    };
+
+    dfs(dfs, 0, 0);
+    return u128(total) - 2 * u128(best);
+}
+
+static std::vector<u128> make_sums128(const std::vector<u64>& a, int l, int r, u128 target) {
+    std::vector<u128> sums;
+    sums.reserve(std::size_t(1) << (r - l));
+    sums.push_back(0);
+
+    for (int i = l; i < r; ++i) {
+        u128 w = u128(a[i]);
+        if (w > target) continue;
+
+        u128 lim = target - w;
+        std::size_t sz = sums.size();
+        for (std::size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= lim) {
+                sums.push_back(sums[j] + w);
+            }
+        }
+    }
+
+    std::sort(sums.begin(), sums.end());
+    sums.erase(std::unique(sums.begin(), sums.end()), sums.end());
+    return sums;
+}
+
+static u128 solve_mitm128(const std::vector<u64>& a, u128 total) {
+    int n = int(a.size());
+    int mid = n / 2;
+    u128 target = total / 2;
+
+    std::vector<u128> right = make_sums128(a, mid, n, target);
+    u128 best = 0;
+
+    auto dfs = [&](auto&& self, int idx, u128 sum) -> void {
+        if (best == target || sum > target) return;
+
+        if (idx == mid) {
+            auto it = std::upper_bound(right.begin(), right.end(), target - sum);
+            if (it != right.begin()) {
+                --it;
+                u128 cand = sum + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+
+        self(self, idx + 1, sum);
+        u128 w = u128(a[idx]);
+        if (w <= target - sum) {
+            self(self, idx + 1, sum + w);
+        }
+    };
+
+    dfs(dfs, 0, 0);
+    return total - 2 * best;
+}
+
+static u128 solve_branch_bound128(std::vector<u64> a, u128 total) {
+    u128 target = total / 2;
+
+    std::vector<u64> w;
+    w.reserve(a.size());
+    for (u64 x : a) {
+        if (u128(x) <= target) w.push_back(x);
+    }
+
+    std::sort(w.begin(), w.end(), std::greater<u64>());
+
+    int n = int(w.size());
+    std::vector<u128> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) {
+        suffix[i] = suffix[i + 1] + u128(w[i]);
+    }
+
+    u128 best = 0;
+    for (u64 x : w) {
+        if (u128(x) <= target - best) best += u128(x);
+    }
+
+    std::vector<std::pair<int, u128>> st;
+    st.reserve(n + 1);
+    st.push_back({0, 0});
+
+    while (!st.empty() && best != target) {
+        auto [i, cur] = st.back();
+        st.pop_back();
+
+        if (cur > best) best = cur;
+        if (best == target || i == n) continue;
+        if (cur + suffix[i] <= best) continue;
+
+        st.push_back({i + 1, cur});
+
+        u128 with = cur + u128(w[i]);
+        if (with <= target) {
+            st.push_back({i + 1, with});
+        }
+    }
+
+    return total - 2 * best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u64> a(N);
+    u128 total = 0;
+
+    for (int i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        total += u128(a[i]);
+    }
+
+    constexpr u64 MAX_BITSET_BYTES = 128ULL * 1024ULL * 1024ULL;
+    constexpr u64 MAX_BITSET_WORDS = MAX_BITSET_BYTES / sizeof(u64);
+    constexpr long double FAST_BIT_OPS = 200000000.0L;
+
+    if (total <= u128(std::numeric_limits<u64>::max())) {
+        u64 total64 = u64(total);
+        u64 target = total64 / 2;
+        u64 needed_words64 = target / 64 + 1;
+        bool bitset_ok = needed_words64 <= MAX_BITSET_WORDS;
+
+        if (bitset_ok) {
+            long double ops = (long double)needed_words64 * (long double)N;
+            if (N > 46 || ops <= FAST_BIT_OPS) {
+                print_u128(solve_bitset(a, total64));
+                return 0;
+            }
+        }
+
+        if (N <= 46) {
+            print_u128(solve_mitm64(a, total64));
+            return 0;
+        }
+
+        if (bitset_ok) {
+            print_u128(solve_bitset(a, total64));
+            return 0;
+        }
+
+        print_u128(solve_branch_bound128(a, total));
+        return 0;
+    }
+
+    if (N <= 46) {
+        print_u128(solve_mitm128(a, total));
+    } else {
+        print_u128(solve_branch_bound128(a, total));
+    }
+
+    return 0;
+}

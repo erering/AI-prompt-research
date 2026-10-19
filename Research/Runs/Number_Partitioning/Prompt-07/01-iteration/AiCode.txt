@@ -1,0 +1,333 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <cstdint>
+#include <limits>
+#include <string>
+
+using ull = unsigned long long;
+using i128 = __int128_t;
+
+static void print_i128(i128 x) {
+    if (x == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+    if (x < 0) {
+        std::cout << '-';
+        x = -x;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + int(x % 10)));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static void print_answer(i128 total, i128 best_subset, ull g) {
+    i128 diff = total - 2 * best_subset;
+    if (diff < 0) diff = -diff;
+    print_i128(diff * (i128)g);
+}
+
+static bool bitset_solve(const std::vector<ull>& a, ull target, i128 total, ull g) {
+    const size_t words = (size_t)(target / 64) + 1;
+    std::vector<uint64_t> bits(words, 0);
+    bits[0] = 1;
+
+    const unsigned last_off = (unsigned)(target & 63);
+    const uint64_t last_mask = (last_off == 63) ? ~0ULL : ((1ULL << (last_off + 1)) - 1);
+
+    for (ull x : a) {
+        if (x > target) continue;
+        size_t ws = (size_t)(x >> 6);
+        unsigned bs = (unsigned)(x & 63);
+
+        for (size_t i = words; i-- > ws;) {
+            uint64_t v = bits[i - ws] << bs;
+            if (bs && i > ws) {
+                v |= bits[i - ws - 1] >> (64 - bs);
+            }
+            bits[i] |= v;
+        }
+        bits.back() &= last_mask;
+
+        if ((bits[target >> 6] >> (target & 63)) & 1ULL) {
+            print_answer(total, (i128)target, g);
+            return true;
+        }
+    }
+
+    for (size_t w = (size_t)(target >> 6) + 1; w-- > 0;) {
+        uint64_t cur = bits[w];
+        if (w == (size_t)(target >> 6)) cur &= last_mask;
+        if (cur) {
+            ull bit = 63ULL - (ull)__builtin_clzll(cur);
+            ull best = (ull)w * 64ULL + bit;
+            print_answer(total, (i128)best, g);
+            return true;
+        }
+        if (w == 0) break;
+    }
+
+    print_answer(total, 0, g);
+    return true;
+}
+
+static bool mitm_solve(const std::vector<ull>& a, ull target, i128 total, ull g) {
+    int n = (int)a.size();
+    int mid = n / 2;
+
+    std::vector<ull> right;
+    right.reserve(1ULL << (n - mid));
+    right.push_back(0);
+
+    for (int i = mid; i < n; ++i) {
+        ull x = a[i];
+        size_t sz = right.size();
+        for (size_t j = 0; j < sz; ++j) {
+            if (right[j] <= target - x) right.push_back(right[j] + x);
+        }
+    }
+
+    std::sort(right.begin(), right.end());
+    right.erase(std::unique(right.begin(), right.end()), right.end());
+
+    ull best = 0;
+
+    auto dfs = [&](auto&& self, int idx, ull sum) -> void {
+        if (best == target) return;
+        if (idx == mid) {
+            auto it = std::upper_bound(right.begin(), right.end(), target - sum);
+            if (it != right.begin()) {
+                --it;
+                ull cand = sum + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+
+        if (sum <= target - a[idx]) self(self, idx + 1, sum + a[idx]);
+        self(self, idx + 1, sum);
+    };
+
+    dfs(dfs, 0, 0);
+    print_answer(total, (i128)best, g);
+    return true;
+}
+
+static bool sparse_solve(const std::vector<ull>& a, ull target, i128 total, ull g) {
+    constexpr size_t LIMIT = 1000000;
+
+    std::vector<ull> sums;
+    sums.push_back(0);
+
+    for (ull x : a) {
+        if (x > target) continue;
+
+        size_t upto = std::upper_bound(sums.begin(), sums.end(), target - x) - sums.begin();
+        if (sums.size() + upto > LIMIT * 2) return false;
+
+        std::vector<ull> merged;
+        merged.reserve(std::min(LIMIT + 1, sums.size() + upto));
+
+        size_t i = 0, j = 0;
+        bool has_last = false;
+        ull last = 0;
+
+        while (i < sums.size() || j < upto) {
+            ull v;
+            if (j >= upto || (i < sums.size() && sums[i] < sums[j] + x)) {
+                v = sums[i++];
+            } else if (i >= sums.size() || sums[j] + x < sums[i]) {
+                v = sums[j++] + x;
+            } else {
+                v = sums[i];
+                ++i;
+                ++j;
+            }
+
+            if (!has_last || v != last) {
+                merged.push_back(v);
+                last = v;
+                has_last = true;
+                if (merged.size() > LIMIT) return false;
+            }
+        }
+
+        sums.swap(merged);
+        if (!sums.empty() && sums.back() == target) {
+            print_answer(total, (i128)target, g);
+            return true;
+        }
+    }
+
+    print_answer(total, (i128)sums.back(), g);
+    return true;
+}
+
+static void grouped_dfs_solve(std::vector<ull> a, i128 target, i128 total, ull g) {
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    i128 greedy = 0;
+    for (ull x : a) {
+        if (greedy + (i128)x <= target) greedy += (i128)x;
+    }
+    if (greedy == target) {
+        print_answer(total, target, g);
+        return;
+    }
+
+    struct Group {
+        ull v;
+        long long c;
+    };
+
+    std::vector<Group> groups;
+    for (ull x : a) {
+        if (groups.empty() || groups.back().v != x) groups.push_back({x, 1});
+        else ++groups.back().c;
+    }
+
+    int m = (int)groups.size();
+    std::vector<i128> suffix(m + 1, 0);
+    for (int i = m - 1; i >= 0; --i) {
+        suffix[i] = suffix[i + 1] + (i128)groups[i].v * groups[i].c;
+    }
+
+    i128 best = greedy;
+
+    struct Frame {
+        int i;
+        i128 sum;
+        long long next_k;
+        bool ready;
+    };
+
+    std::vector<Frame> st;
+    st.reserve((size_t)m + 1);
+    st.push_back({0, 0, 0, false});
+
+    while (!st.empty() && best != target) {
+        Frame& f = st.back();
+
+        if (!f.ready) {
+            f.ready = true;
+
+            if (f.sum > best) {
+                best = f.sum;
+                if (best == target) break;
+            }
+
+            if (f.i >= m || f.sum + suffix[f.i] <= best) {
+                st.pop_back();
+                continue;
+            }
+
+            i128 can = (target - f.sum) / (i128)groups[f.i].v;
+            f.next_k = groups[f.i].c;
+            if (can < (i128)f.next_k) f.next_k = (long long)can;
+        } else {
+            if (f.next_k < 0) {
+                st.pop_back();
+                continue;
+            }
+
+            long long k = f.next_k--;
+            int ni = f.i + 1;
+            i128 ns = f.sum + (i128)k * (i128)groups[f.i].v;
+
+            if (ns + suffix[ni] <= best) continue;
+            st.push_back({ni, ns, 0, false});
+        }
+    }
+
+    print_answer(total, best, g);
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> input;
+    input.reserve(std::max(0, N));
+
+    ull g = 0;
+    i128 original_total = 0;
+
+    for (int i = 0; i < N; ++i) {
+        ull x;
+        std::cin >> x;
+        input.push_back(x);
+        g = std::gcd(g, x);
+        original_total += (i128)x;
+    }
+
+    if (N == 0 || original_total == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::vector<ull> a;
+    a.reserve(input.size());
+
+    i128 total = 0;
+    for (ull x : input) {
+        ull y = x / g;
+        a.push_back(y);
+        total += (i128)y;
+    }
+
+    i128 target128 = total / 2;
+
+    std::vector<ull> usable;
+    usable.reserve(a.size());
+    i128 usable_sum = 0;
+
+    for (ull x : a) {
+        if ((i128)x <= target128) {
+            usable.push_back(x);
+            usable_sum += (i128)x;
+        }
+    }
+
+    if (usable.empty()) {
+        print_answer(total, 0, g);
+        return 0;
+    }
+
+    if (usable_sum <= target128) {
+        print_answer(total, usable_sum, g);
+        return 0;
+    }
+
+    std::sort(usable.begin(), usable.end(), std::greater<ull>());
+
+    constexpr ull BITSET_LIMIT = 200000000ULL;
+    if (target128 <= (i128)BITSET_LIMIT) {
+        bitset_solve(usable, (ull)target128, total, g);
+        return 0;
+    }
+
+    if (target128 <= (i128)std::numeric_limits<ull>::max()) {
+        ull target = (ull)target128;
+
+        if ((int)usable.size() <= 46) {
+            mitm_solve(usable, target, total, g);
+            return 0;
+        }
+
+        if (sparse_solve(usable, target, total, g)) {
+            return 0;
+        }
+    }
+
+    grouped_dfs_solve(std::move(usable), target128, total, g);
+    return 0;
+}

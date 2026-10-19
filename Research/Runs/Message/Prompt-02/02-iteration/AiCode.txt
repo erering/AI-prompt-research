@@ -1,0 +1,165 @@
+#include <vector>
+#include <cstdint>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    bool initialized = false;
+    std::uint64_t comb_table[31][16];
+
+    void init_comb() {
+        if (initialized) return;
+        for (int n = 0; n <= 30; ++n) {
+            for (int k = 0; k <= 15; ++k) comb_table[n][k] = 0;
+        }
+        for (int n = 0; n <= 30; ++n) {
+            comb_table[n][0] = 1;
+            for (int k = 1; k <= 15 && k <= n; ++k) {
+                if (k == n) comb_table[n][k] = 1;
+                else comb_table[n][k] = comb_table[n - 1][k - 1] + comb_table[n - 1][k];
+            }
+        }
+        initialized = true;
+    }
+
+    std::uint64_t rank_for_column(const std::vector<int>& protected_indices, int column) {
+        init_comb();
+        std::uint64_t rank = 0;
+        int t = 1;
+        for (int x : protected_indices) {
+            if (x == column) continue;
+            int compressed = x < column ? x : x - 1;
+            rank += comb_table[compressed][t];
+            ++t;
+        }
+        return rank;
+    }
+
+    std::uint32_t unrank_for_column(std::uint64_t rank, int column) {
+        init_comb();
+        int selected[15];
+        int limit = 29;
+        for (int t = 15; t >= 1; --t) {
+            int chosen = t - 1;
+            for (int v = limit; v >= t - 1; --v) {
+                if (comb_table[v][t] <= rank) {
+                    chosen = v;
+                    break;
+                }
+            }
+            selected[t - 1] = chosen;
+            rank -= comb_table[chosen][t];
+            limit = chosen - 1;
+        }
+
+        std::uint32_t mask = 0;
+        mask |= (std::uint32_t(1) << column);
+        for (int i = 0; i < 15; ++i) {
+            int x = selected[i];
+            int original = x < column ? x : x + 1;
+            mask |= (std::uint32_t(1) << original);
+        }
+        return mask;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    init_comb();
+
+    std::vector<int> protected_indices;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) protected_indices.push_back(i);
+    }
+
+    std::uint64_t ranks[31];
+    for (int i = 0; i < 31; ++i) ranks[i] = 0;
+    for (int x : protected_indices) {
+        ranks[x] = rank_for_column(protected_indices, x);
+    }
+
+    for (int bit = 0; bit < 28; ++bit) {
+        std::vector<bool> packet(31, false);
+        for (int x : protected_indices) {
+            packet[x] = ((ranks[x] >> bit) & 1ULL) != 0;
+        }
+        send_packet(packet);
+    }
+
+    std::vector<bool> data;
+    int s = (int)M.size();
+    int len_value = s - 1;
+    for (int i = 0; i < 10; ++i) {
+        data.push_back(((len_value >> i) & 1) != 0);
+    }
+    for (bool b : M) data.push_back(b);
+
+    int pos = 0;
+    while (pos < (int)data.size()) {
+        std::vector<bool> packet(31, false);
+        for (int x : protected_indices) {
+            if (pos < (int)data.size()) {
+                packet[x] = data[pos++];
+            }
+        }
+        send_packet(packet);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    init_comb();
+
+    std::vector<std::pair<std::uint32_t, int>> counts;
+
+    for (int col = 0; col < 31; ++col) {
+        std::uint64_t value = 0;
+        for (int bit = 0; bit < 28; ++bit) {
+            if (R[bit][col]) value |= (1ULL << bit);
+        }
+
+        if (value >= comb_table[30][15]) continue;
+
+        std::uint32_t mask = unrank_for_column(value, col);
+        bool found = false;
+        for (auto& p : counts) {
+            if (p.first == mask) {
+                ++p.second;
+                found = true;
+                break;
+            }
+        }
+        if (!found) counts.push_back({mask, 1});
+    }
+
+    std::uint32_t protected_mask = counts.empty() ? 0 : counts[0].first;
+    for (auto& p : counts) {
+        if (p.second >= 16) {
+            protected_mask = p.first;
+            break;
+        }
+    }
+
+    std::vector<int> protected_indices;
+    for (int i = 0; i < 31; ++i) {
+        if ((protected_mask >> i) & 1U) protected_indices.push_back(i);
+    }
+
+    std::vector<bool> data;
+    for (int row = 28; row < (int)R.size(); ++row) {
+        for (int x : protected_indices) {
+            data.push_back(R[row][x]);
+        }
+    }
+
+    int s = 1;
+    int len_value = 0;
+    for (int i = 0; i < 10; ++i) {
+        if (data[i]) len_value |= (1 << i);
+    }
+    s = len_value + 1;
+
+    std::vector<bool> message;
+    for (int i = 0; i < s; ++i) {
+        message.push_back(data[10 + i]);
+    }
+    return message;
+}

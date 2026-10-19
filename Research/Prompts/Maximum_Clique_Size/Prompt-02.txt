@@ -1,0 +1,19 @@
+You must provide only valid C++20 source code.
+
+1. Problem
+Given one undirected simple graph, determine the cardinality of its largest clique. A clique is a set of vertices such that every two distinct vertices in the set are connected by an edge.
+
+2. Input
+The first line contains an integer N, the number of vertices.
+The next N lines describe the adjacency matrix A of the graph. The entry A[i][j] is 1 if there is an edge between vertices i and j, and 0 otherwise. Rows may appear as contiguous 0/1 characters; write parsing that is robust to whitespace-separated digits as well.
+
+3. Graph distribution
+The graph instance is random: each undirected edge is independently present with probability e^(-ln(N)/N).
+
+4. Output
+Print a single integer: the exact size of the largest clique.
+
+5. Evaluation
+Time limit: 1 second. Test cases are evaluated in increasing graph size, and evaluation stops at the first unsuccessful execution. Any incorrect answer, runtime error, crash, or invalid output on any test case results in zero score.
+
+Return no explanation, no markdown, and no code fences; output source code only.

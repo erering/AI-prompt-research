@@ -1,0 +1,153 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int INF = 1e9;
+    int MAXP = N;
+
+    vector<int> dist(MAXP + 1, INF), parP(MAXP + 1, -1), parR(MAXP + 1, -1);
+    dist[1] = 0;
+
+    for (int p = 1; p <= MAXP; ++p) {
+        if (dist[p] == INF) continue;
+        for (int r = 2; p * r <= MAXP; ++r) {
+            int np = p * r;
+            if (dist[p] + r < dist[np]) {
+                dist[np] = dist[p] + r;
+                parP[np] = p;
+                parR[np] = r;
+            }
+        }
+    }
+
+    vector<int> bestDist(MAXP + 2, INF), bestProd(MAXP + 2, -1);
+    int curBest = INF, curProd = -1;
+    for (int p = MAXP; p >= 1; --p) {
+        if (dist[p] <= curBest) {
+            curBest = dist[p];
+            curProd = p;
+        }
+        bestDist[p] = curBest;
+        bestProd[p] = curProd;
+    }
+
+    int bestK = 2, bestCost = INF;
+    for (int K = 2; K <= N; ++K) {
+        int M = (N + K - 1) / K;
+        int maxLen = min(K, N);
+        int groups = (maxLen - 1) / 2;
+        int radixCost = (M == 1 ? 1 : bestDist[M]);
+        int total = radixCost + groups;
+        if (total < bestCost) {
+            bestCost = total;
+            bestK = K;
+        }
+    }
+
+    int K = bestK;
+    int M = (N + K - 1) / K;
+
+    vector<int> R;
+    if (M == 1) {
+        R.push_back(1);
+    } else {
+        int p = bestProd[M];
+        while (p > 1) {
+            R.push_back(parR[p]);
+            p = parP[p];
+        }
+        reverse(R.begin(), R.end());
+    }
+
+    int L = (int)R.size();
+    vector<int> place(L, 1);
+    for (int i = L - 2; i >= 0; --i) place[i] = place[i + 1] * R[i + 1];
+
+    vector<int> offset(L);
+    int totalStates = 0;
+    for (int i = 0; i < L; ++i) {
+        offset[i] = totalStates + 1;
+        totalStates += R[i];
+    }
+
+    int maxLen = min(K, N);
+    int groups = (maxLen - 1) / 2;
+    int extraStart = totalStates + 1;
+    totalStates += groups;
+
+    vector<vector<int>> s(totalStates + 1, vector<int>(N + 1, -1));
+
+    auto declare_current_fewer = [](int bag) {
+        return bag == 0 ? -1 : -2;
+    };
+
+    auto declare_other_fewer = [](int bag) {
+        return bag == 0 ? -2 : -1;
+    };
+
+    auto digit = [&](int value, int pos) {
+        int cell = (value - 1) / K;
+        return (cell / place[pos]) % R[pos];
+    };
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = offset[0] + digit(j, 0);
+    }
+
+    for (int pos = 0; pos < L; ++pos) {
+        int inspectBag = (pos % 2 == 0 ? 1 : 0);
+
+        for (int d = 0; d < R[pos]; ++d) {
+            int id = offset[pos] + d;
+            s[id][0] = inspectBag;
+
+            for (int j = 1; j <= N; ++j) {
+                int e = digit(j, pos);
+
+                if (e < d) {
+                    s[id][j] = declare_current_fewer(inspectBag);
+                } else if (e > d) {
+                    s[id][j] = declare_other_fewer(inspectBag);
+                } else {
+                    if (pos + 1 < L) {
+                        s[id][j] = offset[pos + 1] + digit(j, pos + 1);
+                    } else {
+                        int cell = (j - 1) / K;
+                        int t = (j - 1) % K;
+                        int len = min(K, N - cell * K);
+
+                        if (t == 0) {
+                            s[id][j] = declare_current_fewer(inspectBag);
+                        } else if (t == len - 1) {
+                            s[id][j] = declare_other_fewer(inspectBag);
+                        } else {
+                            int g = (t - 1) / 2;
+                            s[id][j] = extraStart + g;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    int finalInspectBag = ((L - 1) % 2 == 0 ? 1 : 0);
+    int extraInspectBag = 1 - finalInspectBag;
+
+    for (int g = 0; g < groups; ++g) {
+        int id = extraStart + g;
+        int low = 2 * g + 1;
+        s[id][0] = extraInspectBag;
+
+        for (int j = 1; j <= N; ++j) {
+            int q = (j - 1) % K;
+            if (q <= low) {
+                s[id][j] = declare_current_fewer(extraInspectBag);
+            } else {
+                s[id][j] = declare_other_fewer(extraInspectBag);
+            }
+        }
+    }
+
+    return s;
+}

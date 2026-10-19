@@ -1,0 +1,268 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <string>
+#include <cstdint>
+#include <limits>
+#include <cstddef>
+
+using u64 = std::uint64_t;
+using u128 = unsigned __int128;
+using i128 = __int128_t;
+
+static u128 parse_u128(const std::string& s) {
+    u128 x = 0;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') x = x * 10 + (c - '0');
+    }
+    return x;
+}
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        std::cout << '0' << '\n';
+        return;
+    }
+    char buf[64];
+    int n = 0;
+    while (x > 0) {
+        buf[n++] = char('0' + x % 10);
+        x /= 10;
+    }
+    while (n--) std::cout << buf[n];
+    std::cout << '\n';
+}
+
+static u128 abs_i128(i128 x) {
+    return x < 0 ? (u128)(-x) : (u128)x;
+}
+
+static u128 solve_bitset(const std::vector<u128>& a, u128 total) {
+    u64 H = (u64)(total / 2);
+    std::size_t words = (std::size_t)(H / 64) + 1;
+    std::vector<u64> dp(words, 0);
+    dp[0] = 1;
+
+    unsigned lastBit = (unsigned)(H & 63);
+    u64 lastMask = (lastBit == 63) ? ~0ULL : ((1ULL << (lastBit + 1)) - 1ULL);
+
+    for (u128 av : a) {
+        if (av > H) continue;
+        u64 sh = (u64)av;
+        std::size_t wordShift = (std::size_t)(sh / 64);
+        unsigned bitShift = (unsigned)(sh & 63);
+        if (wordShift >= words) continue;
+
+        for (std::size_t i = words - wordShift; i-- > 0;) {
+            u64 val = dp[i];
+            if (!val) continue;
+            std::size_t dest = i + wordShift;
+            if (bitShift == 0) {
+                dp[dest] |= val;
+            } else {
+                dp[dest] |= val << bitShift;
+                if (dest + 1 < words) dp[dest + 1] |= val >> (64 - bitShift);
+            }
+        }
+        dp.back() &= lastMask;
+    }
+
+    u64 best = 0;
+    for (std::size_t wi = words; wi-- > 0;) {
+        u64 w = dp[wi];
+        if (w) {
+            best = (u64)wi * 64 + (u64)(63 - __builtin_clzll(w));
+            break;
+        }
+    }
+
+    return total - (u128)2 * best;
+}
+
+template <class T>
+static u128 solve_mitm_t(const std::vector<u128>& vals, u128 total) {
+    int n = (int)vals.size();
+    int m = n / 2;
+    int r = n - m;
+
+    std::vector<T> left;
+    left.reserve((std::size_t)1 << m);
+    left.push_back(0);
+
+    for (int i = 0; i < m; ++i) {
+        T x = (T)vals[i];
+        std::size_t sz = left.size();
+        for (std::size_t j = 0; j < sz; ++j) {
+            left.push_back(left[j] + x);
+        }
+    }
+
+    std::sort(left.begin(), left.end());
+
+    std::vector<T> right(r);
+    for (int i = 0; i < r; ++i) right[i] = (T)vals[m + i];
+
+    T target = (T)(total / 2);
+    T best = 0;
+    T cur = 0;
+    u64 prevGray = 0;
+    u64 limit = 1ULL << r;
+
+    for (u64 k = 0; k < limit; ++k) {
+        if (cur <= target) {
+            T rem = target - cur;
+            auto it = std::upper_bound(left.begin(), left.end(), rem);
+            if (it != left.begin()) {
+                --it;
+                T cand = cur + *it;
+                if (cand > best) {
+                    best = cand;
+                    if (best == target) break;
+                }
+            }
+        }
+
+        if (k + 1 < limit) {
+            u64 gray = (k + 1) ^ ((k + 1) >> 1);
+            u64 diff = gray ^ prevGray;
+            int idx = __builtin_ctzll(diff);
+            if (gray & diff) cur += right[idx];
+            else cur -= right[idx];
+            prevGray = gray;
+        }
+    }
+
+    return total - (u128)2 * (u128)best;
+}
+
+static u128 solve_branch_bound(std::vector<u128> a, u128 total) {
+    int n = (int)a.size();
+    if (n == 0) return 0;
+
+    std::sort(a.begin(), a.end(), [](u128 x, u128 y) { return x > y; });
+
+    u128 g1 = 0, g2 = 0;
+    for (u128 x : a) {
+        if (g1 <= g2) g1 += x;
+        else g2 += x;
+    }
+    u128 best = (g1 >= g2) ? (g1 - g2) : (g2 - g1);
+
+    std::vector<u128> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) suffix[i] = suffix[i + 1] + a[i];
+
+    struct State {
+        int idx;
+        i128 diff;
+    };
+
+    auto worth = [&](int idx, i128 diff) -> bool {
+        u128 ad = abs_i128(diff);
+        u128 rem = suffix[idx];
+        u128 lb = (ad > rem) ? (ad - rem) : 0;
+        return lb < best;
+    };
+
+    std::vector<State> st;
+    st.reserve((std::size_t)n + 1);
+    st.push_back({1, (i128)a[0]});
+
+    while (!st.empty()) {
+        State s = st.back();
+        st.pop_back();
+
+        if (!worth(s.idx, s.diff)) continue;
+
+        if (s.idx == n) {
+            u128 ad = abs_i128(s.diff);
+            if (ad < best) {
+                best = ad;
+                if (best == 0) break;
+            }
+            continue;
+        }
+
+        i128 x = (i128)a[s.idx];
+        i128 first, second;
+        if (s.diff >= 0) {
+            first = s.diff - x;
+            second = s.diff + x;
+        } else {
+            first = s.diff + x;
+            second = s.diff - x;
+        }
+
+        int ni = s.idx + 1;
+        if (worth(ni, second)) st.push_back({ni, second});
+        if (worth(ni, first)) st.push_back({ni, first});
+    }
+
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u128> a;
+    a.reserve(N);
+
+    u128 total = 0;
+    bool all64 = true;
+    const u128 U64MAX = (u128)std::numeric_limits<u64>::max();
+
+    for (int i = 0; i < N; ++i) {
+        std::string s;
+        std::cin >> s;
+        u128 x = parse_u128(s);
+        a.push_back(x);
+        total += x;
+        if (x > U64MAX) all64 = false;
+    }
+
+    if (N == 0) {
+        print_u128(0);
+        return 0;
+    }
+
+    u128 half = total / 2;
+    u128 answer = 0;
+    bool solved = false;
+
+    const u128 FAST_HALF_LIMIT = (u128)200000000;
+    const u128 SLOW_HALF_LIMIT = (u128)500000000;
+    const u128 FAST_OP_LIMIT = (u128)250000000;
+
+    if (half <= FAST_HALF_LIMIT) {
+        u128 words = half / 64 + 1;
+        u128 ops = words * (u128)N;
+        if (N > 49 || ops <= FAST_OP_LIMIT) {
+            answer = solve_bitset(a, total);
+            solved = true;
+        }
+    }
+
+    if (!solved) {
+        if (N <= 49 && all64 && total <= U64MAX) {
+            answer = solve_mitm_t<u64>(a, total);
+            solved = true;
+        } else if (N <= 47) {
+            answer = solve_mitm_t<u128>(a, total);
+            solved = true;
+        }
+    }
+
+    if (!solved) {
+        if (half <= SLOW_HALF_LIMIT) {
+            answer = solve_bitset(a, total);
+        } else {
+            answer = solve_branch_bound(a, total);
+        }
+    }
+
+    print_u128(answer);
+    return 0;
+}

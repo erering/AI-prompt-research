@@ -1,0 +1,17 @@
+Output only valid C++20 code, nothing else. Provide the grader-callable function vector<vector<int>> devise_strategy(int N); omit main and all I/O.
+
+Represent the solution internally as computational stages before implementing:
+Stage 1: choose a finite set of whiteboard states 0..x for N up to 5000, keeping x very small.
+Stage 2: assign each state a bag-inspection rule, 0 for A or 1 for B.
+Stage 3: for each state and each possible observed count j in 1..N, compute a transition or final decision.
+Stage 4: ensure the induced deterministic process compares any unequal hidden pair (a,b) correctly and stops within 500 visits.
+Stage 5: return the complete table.
+
+Exact table contract:
+The returned vector s has x+1 rows, each of length N+1. s[i][0] selects the inspected bag in state i: 0 means A, 1 means B. For j≥1, s[i][j] is -1 to declare A has fewer coins, -2 to declare B has fewer coins, or a next state k where 0≤k≤x. The initial state is 0.
+
+Exact correctness contract:
+For every 1≤a,b≤N with a≠b, run the process from state 0. If the current row inspects A, the observed j is a; if it inspects B, j is b. Apply s[state][j]. The first negative action must appear within 500 steps and must be -1 iff a<b, otherwise -2 iff b<a. Invalid states, wrong declarations, and failure to terminate are incorrect.
+
+Performance and scoring goal:
+Generate the strategy efficiently for all N≤5000. Minimize x=s.size()-1. x≤60 is the main cap; x≤20 is the best goal. Weaker N≤500 caps are x≤500 and x≤70. For all N, maximum x=m scores: 20 for 40≤m≤60, 25+1.5*(40-m) for 26≤m≤39, 50 for m=25, 55 for m=24, 62 for m=23, 70 for m=22, 80 for m=21, and 90 for m≤20.

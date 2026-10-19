@@ -1,0 +1,170 @@
+#include <vector>
+#include <utility>
+#include <algorithm>
+#include <cstdint>
+
+static int __lp_N = -1;
+static int __lp_start = 0;
+static std::vector<int> __lp_parent, __lp_depth;
+static int __lp_dia_a = 0, __lp_dia_b = 0, __lp_dia_d = 0;
+static int __lp_proto_a = 0, __lp_proto_b = 0, __lp_proto_d = 0;
+static unsigned long long __lp_code = 0;
+static bool __lp_proto_ready = false;
+
+static int __lp_dist(int u, int v) {
+    int du = __lp_depth[u], dv = __lp_depth[v];
+    int r = 0;
+    while (du > dv) {
+        u = __lp_parent[u];
+        --du;
+        ++r;
+    }
+    while (dv > du) {
+        v = __lp_parent[v];
+        --dv;
+        ++r;
+    }
+    while (u != v) {
+        u = __lp_parent[u];
+        v = __lp_parent[v];
+        r += 2;
+    }
+    return r;
+}
+
+static unsigned long long __lp_encode_pair(int n, int a, int b) {
+    if (a > b) std::swap(a, b);
+    return (unsigned long long)a * (unsigned long long)(2 * n - a - 1) / 2ULL
+         + (unsigned long long)(b - a - 1);
+}
+
+static std::pair<int,int> __lp_decode_pair(int n, unsigned long long code) {
+    for (int a = 0; a < n; ++a) {
+        unsigned long long cnt = (unsigned long long)(n - a - 1);
+        if (code < cnt) return {a, a + 1 + (int)code};
+        code -= cnt;
+    }
+    return {0, std::max(0, n - 1)};
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || N != __lp_N) {
+        __lp_N = N;
+        __lp_start = std::max(1, N - 50);
+        __lp_parent.assign(N, 0);
+        __lp_depth.assign(N, 0);
+        __lp_dia_a = __lp_dia_b = 0;
+        __lp_dia_d = 0;
+        __lp_proto_a = __lp_proto_b = 0;
+        __lp_proto_d = 0;
+        __lp_code = 0;
+        __lp_proto_ready = false;
+    }
+
+    if (i <= 0 || i >= N) return 0;
+
+    __lp_parent[i] = Pi;
+    __lp_depth[i] = __lp_depth[Pi] + 1;
+
+    if (i < __lp_start) {
+        int da = __lp_dist(i, __lp_dia_a);
+        int db = __lp_dist(i, __lp_dia_b);
+        if (da > __lp_dia_d) {
+            __lp_dia_b = i;
+            __lp_dia_d = da;
+        } else if (db > __lp_dia_d) {
+            __lp_dia_a = i;
+            __lp_dia_d = db;
+        }
+        return 0;
+    }
+
+    int k = i - __lp_start;
+
+    if (i == __lp_start) {
+        int da = __lp_dist(i, __lp_dia_a);
+        int db = __lp_dist(i, __lp_dia_b);
+        if (da > __lp_dia_d) {
+            __lp_dia_b = i;
+            __lp_dia_d = da;
+        } else if (db > __lp_dia_d) {
+            __lp_dia_a = i;
+            __lp_dia_d = db;
+        }
+
+        __lp_proto_a = __lp_dia_a;
+        __lp_proto_b = __lp_dia_b;
+        if (__lp_proto_a > __lp_proto_b) std::swap(__lp_proto_a, __lp_proto_b);
+        __lp_proto_d = __lp_dia_d;
+        __lp_code = __lp_encode_pair(__lp_start + 1, __lp_proto_a, __lp_proto_b);
+        __lp_proto_ready = true;
+
+        int bit = (int)((__lp_code >> k) & 1ULL);
+        return bit + 1;
+    }
+
+    int case_id = 0;
+    if (__lp_proto_ready) {
+        int da = __lp_dist(i, __lp_proto_a);
+        int db = __lp_dist(i, __lp_proto_b);
+        if (da > __lp_proto_d || db > __lp_proto_d) {
+            if (da >= db) {
+                case_id = 1;
+                __lp_proto_b = i;
+                __lp_proto_d = da;
+            } else {
+                case_id = 2;
+                __lp_proto_a = i;
+                __lp_proto_d = db;
+            }
+            if (__lp_proto_a > __lp_proto_b) std::swap(__lp_proto_a, __lp_proto_b);
+        }
+    }
+
+    int bit = (k < 63) ? (int)((__lp_code >> k) & 1ULL) : 0;
+    return bit * 3 + case_id + 1;
+}
+
+std::pair<int,int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+
+    int W = std::min(50, N - 1);
+    int start = N - W;
+
+    unsigned long long code = 0;
+    std::vector<int> cases(W, 0);
+
+    for (int k = 0; k < W; ++k) {
+        int v = S[start + k];
+        if (k == 0) {
+            int bit = v - 1;
+            if (bit < 0) bit = 0;
+            if (bit > 1) bit &= 1;
+            if (bit && k < 63) code |= (1ULL << k);
+        } else {
+            int x = v - 1;
+            if (x < 0) x = 0;
+            int bit = x / 3;
+            int c = x % 3;
+            if (bit && k < 63) code |= (1ULL << k);
+            cases[k] = c;
+        }
+    }
+
+    auto p = __lp_decode_pair(start + 1, code);
+    int a = p.first, b = p.second;
+    if (a > b) std::swap(a, b);
+
+    for (int k = 1; k < W; ++k) {
+        int v = start + k;
+        if (cases[k] == 1) {
+            b = v;
+        } else if (cases[k] == 2) {
+            a = v;
+        }
+        if (a > b) std::swap(a, b);
+    }
+
+    return {a, b};
+}

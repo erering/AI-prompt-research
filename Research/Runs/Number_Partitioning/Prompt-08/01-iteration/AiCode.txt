@@ -1,0 +1,235 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <numeric>
+#include <vector>
+
+using namespace std;
+
+static uint64_t solve_bitset(const vector<uint64_t>& a, uint64_t total) {
+    uint64_t target64 = total / 2;
+    size_t target = static_cast<size_t>(target64);
+    size_t words = target / 64 + 1;
+
+    vector<uint64_t> bits(words, 0);
+    bits[0] = 1ULL;
+
+    for (uint64_t x64 : a) {
+        if (x64 > target64) continue;
+        size_t x = static_cast<size_t>(x64);
+        size_t ws = x / 64;
+        unsigned bs = static_cast<unsigned>(x % 64);
+
+        for (size_t i = words; i-- > 0;) {
+            uint64_t v = 0;
+            if (i >= ws) {
+                v = bits[i - ws] << bs;
+                if (bs && i > ws) {
+                    v |= bits[i - ws - 1] >> (64 - bs);
+                }
+            }
+            bits[i] |= v;
+        }
+    }
+
+    size_t idx = target / 64;
+    unsigned off = static_cast<unsigned>(target % 64);
+    uint64_t firstMask = (off == 63) ? ~0ULL : ((1ULL << (off + 1)) - 1ULL);
+
+    for (size_t t = idx + 1; t > 0; --t) {
+        size_t i = t - 1;
+        uint64_t w = bits[i];
+        if (i == idx) w &= firstMask;
+        if (w) {
+            int b = std::bit_width(w) - 1;
+            uint64_t best = static_cast<uint64_t>(i) * 64ULL + static_cast<uint64_t>(b);
+            return total - 2ULL * best;
+        }
+    }
+
+    return total;
+}
+
+static uint64_t solve_mitm(vector<uint64_t> a, uint64_t total) {
+    sort(a.begin(), a.end(), greater<uint64_t>());
+
+    int n = static_cast<int>(a.size());
+    int m = n / 2;
+    uint64_t target = total / 2;
+
+    vector<uint64_t> sums;
+    if (m <= 22) sums.reserve(size_t{1} << m);
+    else sums.reserve(size_t{1} << 20);
+    sums.push_back(0);
+
+    for (int i = 0; i < m; ++i) {
+        uint64_t x = a[i];
+        if (x > target) continue;
+        size_t sz = sums.size();
+        for (size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= target - x) {
+                sums.push_back(sums[j] + x);
+            }
+        }
+    }
+
+    sort(sums.begin(), sums.end());
+    sums.erase(unique(sums.begin(), sums.end()), sums.end());
+
+    uint64_t best = 0;
+    bool done = false;
+
+    auto check = [&](uint64_t cur) {
+        uint64_t need = target - cur;
+        auto it = upper_bound(sums.begin(), sums.end(), need);
+        if (it != sums.begin()) {
+            --it;
+            uint64_t s = cur + *it;
+            if (s > best) {
+                best = s;
+                if (best == target) done = true;
+            }
+        }
+    };
+
+    auto dfs = [&](auto&& self, int idx, uint64_t cur) -> void {
+        if (done) return;
+        if (idx == n) {
+            check(cur);
+            return;
+        }
+
+        self(self, idx + 1, cur);
+        if (done) return;
+
+        uint64_t x = a[idx];
+        if (x <= target - cur) {
+            self(self, idx + 1, cur + x);
+        }
+    };
+
+    dfs(dfs, m, 0);
+
+    return total - 2ULL * best;
+}
+
+static uint64_t absll(long long x) {
+    return x >= 0 ? static_cast<uint64_t>(x) : static_cast<uint64_t>(-x);
+}
+
+static uint64_t solve_branch_bound(vector<uint64_t> a, uint64_t total) {
+    sort(a.begin(), a.end(), greater<uint64_t>());
+
+    int n = static_cast<int>(a.size());
+
+    long long greedy = 0;
+    for (uint64_t x : a) {
+        long long y = static_cast<long long>(x);
+        if (greedy >= 0) greedy -= y;
+        else greedy += y;
+    }
+
+    uint64_t best = absll(greedy);
+    if (best == 0) return 0;
+
+    vector<uint64_t> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) {
+        suffix[i] = suffix[i + 1] + a[i];
+    }
+
+    struct Node {
+        int pos;
+        long long diff;
+    };
+
+    vector<Node> st;
+    st.reserve(static_cast<size_t>(min(n + 1, 1000000)));
+    st.push_back({0, 0});
+
+    auto can_improve = [&](long long diff, uint64_t rem) -> bool {
+        uint64_t ad = absll(diff);
+        uint64_t lower = (ad > rem) ? (ad - rem) : 0;
+        return lower < best;
+    };
+
+    while (!st.empty() && best != 0) {
+        Node cur = st.back();
+        st.pop_back();
+
+        if (!can_improve(cur.diff, suffix[cur.pos])) continue;
+
+        if (cur.pos == n) {
+            uint64_t ad = absll(cur.diff);
+            if (ad < best) best = ad;
+            continue;
+        }
+
+        long long x = static_cast<long long>(a[cur.pos]);
+        uint64_t rem = suffix[cur.pos + 1];
+
+        long long d1 = cur.diff + x;
+        long long d2 = cur.diff - x;
+
+        uint64_t a1 = absll(d1);
+        uint64_t a2 = absll(d2);
+
+        if (a1 < a2) {
+            if (can_improve(d2, rem)) st.push_back({cur.pos + 1, d2});
+            if (can_improve(d1, rem)) st.push_back({cur.pos + 1, d1});
+        } else {
+            if (can_improve(d1, rem)) st.push_back({cur.pos + 1, d1});
+            if (can_improve(d2, rem)) st.push_back({cur.pos + 1, d2});
+        }
+    }
+
+    return best;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    cin >> N;
+
+    vector<uint64_t> a(N);
+    uint64_t g = 0;
+
+    for (int i = 0; i < N; ++i) {
+        cin >> a[i];
+        g = std::gcd(g, a[i]);
+    }
+
+    uint64_t total = 0;
+    for (uint64_t& x : a) {
+        x /= g;
+        total += x;
+    }
+
+    uint64_t target = total / 2;
+    uint64_t answer_norm;
+
+    constexpr uint64_t MAX_TARGET_BITS = 400000000ULL;
+
+    bool bitset_feasible = target <= MAX_TARGET_BITS;
+
+    if (bitset_feasible) {
+        long double words = static_cast<long double>(target / 64 + 1);
+        long double bit_ops = words * static_cast<long double>(N);
+        long double mitm_ops = (N <= 46) ? static_cast<long double>(1ULL << ((N + 1) / 2)) : 1e100L;
+
+        if (N <= 46 && bit_ops > mitm_ops * 30.0L) {
+            answer_norm = solve_mitm(a, total);
+        } else {
+            answer_norm = solve_bitset(a, total);
+        }
+    } else if (N <= 48) {
+        answer_norm = solve_mitm(a, total);
+    } else {
+        answer_norm = solve_branch_bound(a, total);
+    }
+
+    cout << answer_norm * g << '\n';
+    return 0;
+}

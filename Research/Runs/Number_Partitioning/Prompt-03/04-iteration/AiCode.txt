@@ -1,0 +1,361 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <queue>
+#include <string>
+#include <vector>
+
+using u128 = __uint128_t;
+using u64 = std::uint64_t;
+
+u128 parse_u128(const std::string& s) {
+    u128 x = 0;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') x = x * 10 + static_cast<unsigned>(c - '0');
+    }
+    return x;
+}
+
+u128 gcd_u128(u128 a, u128 b) {
+    while (b != 0) {
+        u128 r = a % b;
+        a = b;
+        b = r;
+    }
+    return a;
+}
+
+void print_u128(u128 x) {
+    if (x == 0) {
+        std::cout << "0\n";
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + x % 10));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+template <class T>
+T kk_heuristic(const std::vector<T>& a) {
+    std::priority_queue<T> pq;
+    for (T x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        T x = pq.top(); pq.pop();
+        T y = pq.top(); pq.pop();
+        T d = x >= y ? x - y : y - x;
+        if (d) pq.push(d);
+    }
+    return pq.empty() ? T(0) : pq.top();
+}
+
+template <class T>
+T greedy_heuristic(std::vector<T> a) {
+    std::sort(a.begin(), a.end(), std::greater<T>());
+    T s0 = 0, s1 = 0;
+    for (T x : a) {
+        if (s0 <= s1) s0 += x;
+        else s1 += x;
+    }
+    return s0 >= s1 ? s0 - s1 : s1 - s0;
+}
+
+u64 solve_dp_u64(const std::vector<u64>& a, u64 total) {
+    u64 target = total / 2;
+    if (target == 0) return total;
+
+    std::size_t words = static_cast<std::size_t>(target / 64 + 1);
+    std::vector<u64> bits(words, 0);
+    bits[0] = 1;
+
+    u64 maxReach = 0;
+
+    for (u64 x : a) {
+        if (x == 0 || x > target) continue;
+
+        std::size_t ws = static_cast<std::size_t>(x / 64);
+        unsigned bs = static_cast<unsigned>(x & 63);
+
+        u64 newReach = maxReach + x;
+        if (newReach > target || newReach < maxReach) newReach = target;
+
+        std::size_t oldMaxWord = static_cast<std::size_t>(maxReach / 64);
+        std::size_t newMaxWord = static_cast<std::size_t>(newReach / 64);
+
+        for (std::size_t i = newMaxWord;; --i) {
+            u64 v = 0;
+            std::size_t src = i - ws;
+
+            if (src <= oldMaxWord) {
+                v |= bits[src] << bs;
+            }
+            if (bs && src > 0 && src - 1 <= oldMaxWord) {
+                v |= bits[src - 1] >> (64 - bs);
+            }
+            bits[i] |= v;
+
+            if (i == ws) break;
+        }
+
+        maxReach = newReach;
+
+        if ((bits[target / 64] >> (target & 63)) & 1ULL) {
+            return total - 2 * target;
+        }
+    }
+
+    std::size_t last = static_cast<std::size_t>(target / 64);
+    unsigned lastBit = static_cast<unsigned>(target & 63);
+    u64 mask = (lastBit == 63) ? ~0ULL : ((1ULL << (lastBit + 1)) - 1);
+    bits[last] &= mask;
+
+    for (std::size_t w = last + 1; w-- > 0;) {
+        if (bits[w]) {
+            unsigned b = 63u - std::countl_zero(bits[w]);
+            u64 best = static_cast<u64>(w) * 64 + b;
+            return total - 2 * best;
+        }
+    }
+    return total;
+}
+
+template <class T>
+T solve_mitm(const std::vector<T>& a, T total) {
+    std::size_t n = a.size();
+    std::size_t m = n / 2;
+    std::size_t l = n - m;
+
+    std::vector<T> right;
+    right.reserve(std::size_t(1) << m);
+    right.push_back(0);
+
+    for (std::size_t i = 0; i < m; ++i) {
+        T x = a[i];
+        std::size_t sz = right.size();
+        for (std::size_t j = 0; j < sz; ++j) {
+            right.push_back(right[j] + x);
+        }
+    }
+
+    std::sort(right.begin(), right.end());
+    right.erase(std::unique(right.begin(), right.end()), right.end());
+
+    std::vector<T> leftVals;
+    leftVals.reserve(l);
+    for (std::size_t i = m; i < n; ++i) leftVals.push_back(a[i]);
+
+    T target = total / 2;
+    T best = 0;
+
+    std::size_t limit = std::size_t(1) << l;
+    std::size_t prevGray = 0;
+    T sum = 0;
+
+    for (std::size_t mask = 0; mask < limit; ++mask) {
+        if (mask != 0) {
+            std::size_t gray = mask ^ (mask >> 1);
+            std::size_t diff = gray ^ prevGray;
+            unsigned idx = std::countr_zero(diff);
+            if ((gray >> idx) & 1U) sum += leftVals[idx];
+            else sum -= leftVals[idx];
+            prevGray = gray;
+        }
+
+        if (sum <= target) {
+            T rem = target - sum;
+            auto it = std::upper_bound(right.begin(), right.end(), rem);
+            if (it != right.begin()) {
+                --it;
+                T candidate = sum + *it;
+                if (candidate > best) {
+                    best = candidate;
+                    if (best == target) return total - 2 * best;
+                }
+            }
+        }
+    }
+
+    return total - 2 * best;
+}
+
+template <class T>
+struct CKK {
+    T best;
+    T parity;
+
+    CKK(T initialBest, T p) : best(initialBest), parity(p) {}
+
+    std::vector<T> child_with_insert(const std::vector<T>& v, T x) {
+        std::vector<T> c;
+        c.reserve(v.size() - (x == 0 ? 2 : 1));
+        bool inserted = (x == 0);
+
+        for (std::size_t i = 2; i < v.size(); ++i) {
+            if (!inserted && x >= v[i]) {
+                c.push_back(x);
+                inserted = true;
+            }
+            c.push_back(v[i]);
+        }
+        if (!inserted) c.push_back(x);
+        return c;
+    }
+
+    void dfs(const std::vector<T>& v, T sum) {
+        if (best == parity) return;
+        if (v.empty()) {
+            best = 0;
+            return;
+        }
+
+        T largest = v[0];
+        T rest = sum - largest;
+
+        if (largest >= rest) {
+            T exact = largest - rest;
+            if (exact < best) best = exact;
+            return;
+        }
+
+        if (v.size() == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+
+        T a = v[0], b = v[1];
+
+        T diff = a - b;
+        std::vector<T> c1 = child_with_insert(v, diff);
+        dfs(c1, sum - b - b);
+        if (best == parity) return;
+
+        T add = a + b;
+        std::vector<T> c2;
+        c2.reserve(v.size() - 1);
+        c2.push_back(add);
+        for (std::size_t i = 2; i < v.size(); ++i) c2.push_back(v[i]);
+        dfs(c2, sum);
+    }
+};
+
+template <class T>
+T solve_ckk(std::vector<T> a, T total, T initialBest) {
+    std::sort(a.begin(), a.end(), std::greater<T>());
+    a.erase(std::remove(a.begin(), a.end(), T(0)), a.end());
+    CKK<T> solver(initialBest, total & 1);
+    solver.dfs(a, total);
+    return solver.best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u128> raw;
+    raw.reserve(N);
+
+    u128 g = 0;
+    for (std::size_t i = 0; i < N; ++i) {
+        std::string s;
+        std::cin >> s;
+        u128 x = parse_u128(s);
+        raw.push_back(x);
+        g = gcd_u128(g, x);
+    }
+
+    if (N == 0 || g == 0) {
+        std::cout << "0\n";
+        return 0;
+    }
+
+    std::vector<u128> a128;
+    a128.reserve(N);
+    u128 total128 = 0;
+    bool fit64 = true;
+    const u128 U64MAX = std::numeric_limits<u64>::max();
+
+    for (u128 x : raw) {
+        u128 y = x / g;
+        if (y != 0) {
+            a128.push_back(y);
+            total128 += y;
+            if (y > U64MAX || total128 > U64MAX) fit64 = false;
+        }
+    }
+
+    if (a128.empty()) {
+        std::cout << "0\n";
+        return 0;
+    }
+
+    std::sort(a128.begin(), a128.end(), std::greater<u128>());
+
+    u128 largest = a128[0];
+    if (largest >= total128 - largest) {
+        print_u128((largest - (total128 - largest)) * g);
+        return 0;
+    }
+
+    u128 best128 = kk_heuristic(a128);
+    u128 gh128 = greedy_heuristic(a128);
+    if (gh128 < best128) best128 = gh128;
+
+    if (best128 == (total128 & 1)) {
+        print_u128(best128 * g);
+        return 0;
+    }
+
+    if (fit64) {
+        std::vector<u64> a64;
+        a64.reserve(a128.size());
+        for (u128 x : a128) a64.push_back(static_cast<u64>(x));
+
+        u64 total64 = static_cast<u64>(total128);
+        u64 target64 = total64 / 2;
+
+        const u64 DP_TARGET_LIMIT = 200000000ULL;
+        if (target64 <= DP_TARGET_LIMIT) {
+            try {
+                u64 ans = solve_dp_u64(a64, total64);
+                print_u128(u128(ans) * g);
+                return 0;
+            } catch (const std::bad_alloc&) {
+            }
+        }
+
+        if (a64.size() <= 46) {
+            try {
+                u64 ans = solve_mitm<u64>(a64, total64);
+                print_u128(u128(ans) * g);
+                return 0;
+            } catch (const std::bad_alloc&) {
+            }
+        }
+
+        u64 initial = static_cast<u64>(best128);
+        u64 ans = solve_ckk<u64>(a64, total64, initial);
+        print_u128(u128(ans) * g);
+        return 0;
+    } else {
+        if (a128.size() <= 42) {
+            try {
+                u128 ans = solve_mitm<u128>(a128, total128);
+                print_u128(ans * g);
+                return 0;
+            } catch (const std::bad_alloc&) {
+            }
+        }
+
+        u128 ans = solve_ckk<u128>(a128, total128, best128);
+        print_u128(ans * g);
+        return 0;
+    }
+}

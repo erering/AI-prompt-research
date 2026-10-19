@@ -1,0 +1,119 @@
+#include <vector>
+#include <utility>
+#include <algorithm>
+
+namespace {
+    constexpr int MAXN = 10000;
+    int parent_arr[MAXN + 5];
+    int depth_arr[MAXN + 5];
+    int diam_a = 0, diam_b = 0, diam_d = 0;
+
+    int tree_dist(int u, int v) {
+        int res = 0;
+        while (depth_arr[u] > depth_arr[v]) {
+            u = parent_arr[u];
+            ++res;
+        }
+        while (depth_arr[v] > depth_arr[u]) {
+            v = parent_arr[v];
+            ++res;
+        }
+        while (u != v) {
+            u = parent_arr[u];
+            v = parent_arr[v];
+            res += 2;
+        }
+        return res;
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        for (int j = 0; j <= N; ++j) {
+            parent_arr[j] = 0;
+            depth_arr[j] = 0;
+        }
+        diam_a = 0;
+        diam_b = 0;
+        diam_d = 0;
+    }
+
+    int start = std::max(1, N - 50);
+
+    int old_a = diam_a;
+    int old_b = diam_b;
+    int old_d = diam_d;
+
+    parent_arr[i] = Pi;
+    depth_arr[i] = depth_arr[Pi] + 1;
+
+    int change = 1;
+    int kept = -1;
+
+    int da = tree_dist(i, old_a);
+    int db = tree_dist(i, old_b);
+
+    if (da > old_d) {
+        diam_a = old_a;
+        diam_b = i;
+        diam_d = da;
+        change = 2;
+        kept = old_a;
+    } else if (db > old_d) {
+        diam_a = old_b;
+        diam_b = i;
+        diam_d = db;
+        change = 3;
+        kept = old_b;
+    }
+
+    if (diam_a > diam_b) std::swap(diam_a, diam_b);
+
+    if (i < start) return 0;
+
+    if (i == start) {
+        return diam_a + 1;
+    }
+
+    if (i == start + 1) {
+        if (change == 1) {
+            return diam_b + 1;
+        } else {
+            return 10000 + kept + 1;
+        }
+    }
+
+    return change;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+
+    int start = std::max(1, N - 50);
+
+    int a = S[start] - 1;
+    int b;
+
+    int v = S[start + 1];
+    if (v <= 10000) {
+        b = v - 1;
+    } else {
+        a = v - 10001;
+        b = start + 1;
+    }
+
+    if (a > b) std::swap(a, b);
+
+    for (int i = start + 2; i < N; ++i) {
+        int code = S[i];
+        if (code == 2) {
+            b = i;
+        } else if (code == 3) {
+            a = b;
+            b = i;
+        }
+    }
+
+    return {a, b};
+}

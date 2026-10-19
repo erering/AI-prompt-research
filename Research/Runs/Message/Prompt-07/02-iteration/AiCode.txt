@@ -1,0 +1,174 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static unsigned long long COMB_[32][32];
+static bool COMB_INIT_ = false;
+
+static void init_comb_() {
+    if (COMB_INIT_) return;
+    COMB_INIT_ = true;
+    memset(COMB_, 0, sizeof(COMB_));
+    for (int n = 0; n <= 31; ++n) {
+        COMB_[n][0] = COMB_[n][n] = 1;
+        for (int k = 1; k < n; ++k) {
+            COMB_[n][k] = COMB_[n - 1][k - 1] + COMB_[n - 1][k];
+        }
+    }
+}
+
+static unsigned long long rank_comb_(const vector<int>& sel, int n, int k) {
+    unsigned long long r = 0;
+    int prev = -1;
+    for (int pos = 0; pos < k; ++pos) {
+        for (int x = prev + 1; x < sel[pos]; ++x) {
+            int rem_n = n - 1 - x;
+            int rem_k = k - 1 - pos;
+            if (rem_n >= 0 && rem_k >= 0 && rem_k <= rem_n) r += COMB_[rem_n][rem_k];
+        }
+        prev = sel[pos];
+    }
+    return r;
+}
+
+static vector<int> unrank_comb_(unsigned long long r, int n, int k) {
+    vector<int> sel;
+    int start = 0;
+    for (int pos = 0; pos < k; ++pos) {
+        for (int x = start; x < n; ++x) {
+            int rem_n = n - 1 - x;
+            int rem_k = k - 1 - pos;
+            unsigned long long cnt = 0;
+            if (rem_n >= 0 && rem_k >= 0 && rem_k <= rem_n) cnt = COMB_[rem_n][rem_k];
+            if (r >= cnt) {
+                r -= cnt;
+            } else {
+                sel.push_back(x);
+                start = x + 1;
+                break;
+            }
+        }
+    }
+    return sel;
+}
+
+static unsigned long long rank_for_index_(int idx, const vector<bool>& good) {
+    vector<int> sel;
+    for (int p = 0; p < 31; ++p) {
+        if (p != idx && good[p]) {
+            sel.push_back(p < idx ? p : p - 1);
+        }
+    }
+    return rank_comb_(sel, 30, 15);
+}
+
+static vector<bool> set_from_rank_(int idx, unsigned long long r) {
+    vector<bool> good(31, false);
+    good[idx] = true;
+    vector<int> sel = unrank_comb_(r, 30, 15);
+    for (int x : sel) {
+        int p = (x < idx ? x : x + 1);
+        good[p] = true;
+    }
+    return good;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    init_comb_();
+
+    vector<bool> good(31, false);
+    vector<int> good_pos;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) {
+            good[i] = true;
+            good_pos.push_back(i);
+        }
+    }
+
+    vector<unsigned long long> code(31, 0);
+    for (int i : good_pos) code[i] = rank_for_index_(i, good);
+
+    for (int b = 0; b < 28; ++b) {
+        vector<bool> A(31, false);
+        for (int i : good_pos) A[i] = ((code[i] >> b) & 1ULL);
+        send_packet(A);
+    }
+
+    vector<bool> bits;
+    int L = (int)M.size();
+    int len_code = L - 1;
+    for (int b = 0; b < 10; ++b) bits.push_back((len_code >> b) & 1);
+    for (bool x : M) bits.push_back(x);
+
+    int packets = ((int)bits.size() + 15) / 16;
+    int ptr = 0;
+    for (int q = 0; q < packets; ++q) {
+        vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            if (ptr < (int)bits.size()) A[good_pos[j]] = bits[ptr++];
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    init_comb_();
+
+    vector<unsigned long long> val(31, 0);
+    for (int b = 0; b < 28 && b < (int)R.size(); ++b) {
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) val[i] |= (1ULL << b);
+        }
+    }
+
+    vector<bool> good(31, false);
+    bool found = false;
+    unsigned long long limit = COMB_[30][15];
+
+    for (int i = 0; i < 31 && !found; ++i) {
+        if (val[i] >= limit) continue;
+
+        vector<bool> cand = set_from_rank_(i, val[i]);
+
+        int cnt = 0;
+        for (bool x : cand) if (x) ++cnt;
+        if (cnt != 16) continue;
+
+        bool ok = true;
+        for (int j = 0; j < 31 && ok; ++j) {
+            if (cand[j]) {
+                if (rank_for_index_(j, cand) != val[j]) ok = false;
+            }
+        }
+
+        if (ok) {
+            good = cand;
+            found = true;
+        }
+    }
+
+    vector<int> good_pos;
+    for (int i = 0; i < 31; ++i) if (good[i]) good_pos.push_back(i);
+
+    vector<bool> bits;
+    for (int q = 28; q < (int)R.size(); ++q) {
+        for (int p : good_pos) bits.push_back(R[q][p]);
+    }
+
+    if ((int)bits.size() < 10) return vector<bool>();
+
+    int len_code = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (bits[b]) len_code |= (1 << b);
+    }
+
+    int L = len_code + 1;
+    vector<bool> M;
+    for (int i = 0; i < L; ++i) {
+        int pos = 10 + i;
+        M.push_back(pos < (int)bits.size() ? bits[pos] : false);
+    }
+
+    return M;
+}

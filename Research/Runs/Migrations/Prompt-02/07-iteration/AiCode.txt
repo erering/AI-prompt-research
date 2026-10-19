@@ -1,0 +1,90 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static const int MAXN = 10005;
+static const int LOG = 15;
+
+static int up_tbl[LOG][MAXN];
+static int depth_tbl[MAXN];
+static int dia_a = 0, dia_b = 0, dia_d = 0;
+static int saved_a = 0, saved_b = 0, saved_d = 0;
+
+static int lca_node(int a, int b) {
+    if (depth_tbl[a] < depth_tbl[b]) swap(a, b);
+    int diff = depth_tbl[a] - depth_tbl[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = up_tbl[k][a];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_tbl[k][a] != up_tbl[k][b]) {
+            a = up_tbl[k][a];
+            b = up_tbl[k][b];
+        }
+    }
+    return up_tbl[0][a];
+}
+
+static int dist_node(int a, int b) {
+    int c = lca_node(a, b);
+    return depth_tbl[a] + depth_tbl[b] - 2 * depth_tbl[c];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        dia_a = dia_b = 0;
+        dia_d = 0;
+        saved_a = saved_b = saved_d = 0;
+        depth_tbl[0] = 0;
+        for (int k = 0; k < LOG; ++k) up_tbl[k][0] = 0;
+    }
+
+    depth_tbl[i] = depth_tbl[Pi] + 1;
+    up_tbl[0][i] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[k][i] = up_tbl[k - 1][up_tbl[k - 1][i]];
+    }
+
+    int da = dist_node(i, dia_a);
+    if (da > dia_d) {
+        dia_b = dia_a;
+        dia_a = i;
+        dia_d = da;
+    } else {
+        int db = dist_node(i, dia_b);
+        if (db > dia_d) {
+            dia_a = i;
+            dia_d = db;
+        }
+    }
+
+    if (i == N - 2) {
+        saved_a = dia_a;
+        saved_b = dia_b;
+        saved_d = dia_d;
+        return saved_a + 1;
+    }
+
+    if (i == N - 1) {
+        if (dia_d > saved_d) {
+            int other = (dia_a == i ? dia_b : dia_a);
+            return 10001 + other;
+        } else {
+            return saved_b + 1;
+        }
+    }
+
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+    int x = S[N - 2] - 1;
+    int y = S[N - 1];
+
+    if (y >= 10001) {
+        return {N - 1, y - 10001};
+    } else {
+        return {x, y - 1};
+    }
+}

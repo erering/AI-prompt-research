@@ -1,0 +1,169 @@
+#include <vector>
+#include <cstdint>
+#include <unordered_map>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+static long long comb_tbl[32][18];
+static bool comb_ready = false;
+
+static void init_comb() {
+    if (comb_ready) return;
+    for (int n = 0; n < 32; ++n) {
+        comb_tbl[n][0] = 1;
+        for (int k = 1; k < 18; ++k) {
+            if (k > n) comb_tbl[n][k] = 0;
+            else if (k == n) comb_tbl[n][k] = 1;
+            else comb_tbl[n][k] = comb_tbl[n - 1][k - 1] + comb_tbl[n - 1][k];
+        }
+    }
+    comb_ready = true;
+}
+
+static long long rank_comb_lex(const std::vector<int>& sel, int n, int k) {
+    init_comb();
+    long long rank = 0;
+    int prev = -1;
+    for (int a = 0; a < k; ++a) {
+        for (int x = prev + 1; x < sel[a]; ++x) {
+            rank += comb_tbl[n - 1 - x][k - 1 - a];
+        }
+        prev = sel[a];
+    }
+    return rank;
+}
+
+static bool unrank_comb_lex(long long rank, int n, int k, std::vector<int>& sel) {
+    init_comb();
+    if (rank < 0 || rank >= comb_tbl[n][k]) return false;
+    sel.clear();
+    int prev = -1;
+    for (int a = 0; a < k; ++a) {
+        for (int x = prev + 1; x < n; ++x) {
+            long long cnt = comb_tbl[n - 1 - x][k - 1 - a];
+            if (rank >= cnt) {
+                rank -= cnt;
+            } else {
+                sel.push_back(x);
+                prev = x;
+                break;
+            }
+        }
+    }
+    return (int)sel.size() == k;
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    init_comb();
+
+    std::vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    std::vector<long long> labels(31, 0);
+    for (int j : good) {
+        std::vector<int> sel;
+        int idx = 0;
+        for (int p = 0; p < 31; ++p) {
+            if (p == j) continue;
+            if (!C[p]) sel.push_back(idx);
+            ++idx;
+        }
+        labels[j] = rank_comb_lex(sel, 30, 15);
+    }
+
+    for (int b = 0; b < 28; ++b) {
+        std::vector<bool> A(31, false);
+        for (int j : good) {
+            A[j] = ((labels[j] >> b) & 1LL);
+        }
+        send_packet(A);
+    }
+
+    std::vector<bool> bits;
+    int rem = ((int)M.size() - 1) & 15;
+    for (int b = 0; b < 4; ++b) bits.push_back((rem >> b) & 1);
+    for (bool x : M) bits.push_back(x);
+
+    int ptr = 0;
+    while (ptr < (int)bits.size()) {
+        std::vector<bool> A(31, false);
+        for (int j : good) {
+            if (ptr < (int)bits.size()) A[j] = bits[ptr++];
+            else A[j] = false;
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    init_comb();
+
+    std::unordered_map<uint32_t, int> cnt;
+    cnt.reserve(64);
+
+    for (int j = 0; j < 31; ++j) {
+        long long val = 0;
+        for (int b = 0; b < 28; ++b) {
+            if (R[b][j]) val |= (1LL << b);
+        }
+
+        std::vector<int> sel;
+        if (!unrank_comb_lex(val, 30, 15, sel)) continue;
+
+        uint32_t mask = (1u << j);
+        int idx = 0;
+        int sp = 0;
+        for (int p = 0; p < 31; ++p) {
+            if (p == j) continue;
+            if (sp < 15 && sel[sp] == idx) {
+                mask |= (1u << p);
+                ++sp;
+            }
+            ++idx;
+        }
+        cnt[mask]++;
+    }
+
+    uint32_t good_mask = 0;
+    int best = -1;
+    for (auto &kv : cnt) {
+        if (kv.second > best) {
+            best = kv.second;
+            good_mask = kv.first;
+        }
+    }
+
+    std::vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if ((good_mask >> i) & 1u) good.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    for (int p = 28; p < (int)R.size(); ++p) {
+        for (int j : good) bits.push_back(R[p][j]);
+    }
+
+    int rem = 0;
+    for (int b = 0; b < 4; ++b) {
+        if (bits[b]) rem |= (1 << b);
+    }
+
+    int qdata = (int)R.size() - 28;
+    int S = 1;
+    for (int s = 1; s <= 1024; ++s) {
+        if (((s - 1) & 15) == rem && (s + 4 + 15) / 16 == qdata) {
+            S = s;
+            break;
+        }
+    }
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[4 + i]);
+    }
+    return M;
+}

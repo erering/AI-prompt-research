@@ -1,0 +1,252 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class MaxCliqueSolver {
+    int N, W;
+    vector<vector<unsigned long long>> adj;
+    vector<vector<int>> compAdj;
+    vector<int> origDeg;
+    int best = 0;
+
+    inline bool adjacent(int u, int v) const {
+        return (adj[u][v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    vector<int> greedyIndependentComplement() {
+        vector<int> deg(N);
+        set<pair<int,int>> s;
+        vector<char> active(N, 1);
+
+        for (int i = 0; i < N; ++i) {
+            deg[i] = (int)compAdj[i].size();
+            s.insert({deg[i], i});
+        }
+
+        auto removeVertex = [&](int x) {
+            if (!active[x]) return;
+            s.erase({deg[x], x});
+            active[x] = 0;
+            for (int y : compAdj[x]) {
+                if (active[y]) {
+                    s.erase({deg[y], y});
+                    --deg[y];
+                    s.insert({deg[y], y});
+                }
+            }
+        };
+
+        vector<int> indep;
+        while (!s.empty()) {
+            int v = s.begin()->second;
+            indep.push_back(v);
+            vector<int> rem = compAdj[v];
+            rem.push_back(v);
+            for (int x : rem) removeVertex(x);
+        }
+        return indep;
+    }
+
+    vector<int> improveIndependent(vector<int> indep) {
+        vector<char> inI(N, 0);
+        for (int v : indep) inI[v] = 1;
+
+        int iterations = 0;
+        while (++iterations <= 3000) {
+            bool changed = false;
+
+            for (int v = 0; v < N && !changed; ++v) {
+                if (inI[v]) continue;
+                int cnt = 0;
+                for (int u : compAdj[v]) {
+                    if (inI[u] && ++cnt > 0) break;
+                }
+                if (cnt == 0) {
+                    inI[v] = 1;
+                    changed = true;
+                }
+            }
+
+            if (changed) continue;
+
+            vector<vector<int>> bucket(N);
+            for (int v = 0; v < N; ++v) {
+                if (inI[v]) continue;
+                int cnt = 0, sole = -1;
+                for (int u : compAdj[v]) {
+                    if (inI[u]) {
+                        ++cnt;
+                        sole = u;
+                        if (cnt > 1) break;
+                    }
+                }
+                if (cnt == 1) bucket[sole].push_back(v);
+            }
+
+            for (int u = 0; u < N && !changed; ++u) {
+                if (!inI[u]) continue;
+                auto &b = bucket[u];
+                int sz = (int)b.size();
+                for (int i = 0; i < sz && !changed; ++i) {
+                    for (int j = i + 1; j < sz; ++j) {
+                        if (adjacent(b[i], b[j])) {
+                            inI[u] = 0;
+                            inI[b[i]] = 1;
+                            inI[b[j]] = 1;
+                            changed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!changed) break;
+        }
+
+        vector<int> res;
+        for (int i = 0; i < N; ++i) {
+            if (inI[i]) res.push_back(i);
+        }
+        return res;
+    }
+
+    void colorSort(const vector<int>& P, vector<int>& order, vector<int>& colors) const {
+        order.clear();
+        colors.clear();
+
+        vector<int> rest = P, nextRest, selected;
+        int color = 0;
+
+        while (!rest.empty()) {
+            ++color;
+            nextRest.clear();
+            selected.clear();
+
+            for (int v : rest) {
+                bool ok = true;
+                for (int u : selected) {
+                    if (adjacent(v, u)) {
+                        ok = false;
+                        break;
+                    }
+                }
+
+                if (ok) {
+                    selected.push_back(v);
+                    order.push_back(v);
+                    colors.push_back(color);
+                } else {
+                    nextRest.push_back(v);
+                }
+            }
+
+            rest.swap(nextRest);
+        }
+    }
+
+    void expand(const vector<int>& P, int depth) {
+        if (P.empty()) {
+            if (depth > best) best = depth;
+            return;
+        }
+
+        if (depth + (int)P.size() <= best) return;
+
+        vector<int> order, colors;
+        colorSort(P, order, colors);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (depth + colors[i] <= best) return;
+
+            int v = order[i];
+            vector<int> newP;
+            newP.reserve(i);
+
+            for (int j = 0; j < i; ++j) {
+                int u = order[j];
+                if (adjacent(v, u)) newP.push_back(u);
+            }
+
+            if (newP.empty()) {
+                if (depth + 1 > best) best = depth + 1;
+            } else {
+                expand(newP, depth + 1);
+            }
+        }
+    }
+
+public:
+    MaxCliqueSolver(int n, vector<vector<unsigned long long>> a)
+        : N(n), W((n + 63) >> 6), adj(std::move(a)), compAdj(n), origDeg(n, 0) {
+        for (int i = 0; i < N; ++i) {
+            for (int j = i + 1; j < N; ++j) {
+                if (adjacent(i, j)) {
+                    ++origDeg[i];
+                    ++origDeg[j];
+                } else {
+                    compAdj[i].push_back(j);
+                    compAdj[j].push_back(i);
+                }
+            }
+        }
+    }
+
+    int solve() {
+        if (N == 0) return 0;
+
+        vector<int> initial = greedyIndependentComplement();
+        initial = improveIndependent(initial);
+        best = (int)initial.size();
+
+        vector<int> P(N);
+        iota(P.begin(), P.end(), 0);
+
+        sort(P.begin(), P.end(), [&](int a, int b) {
+            if (origDeg[a] != origDeg[b]) return origDeg[a] > origDeg[b];
+            return a < b;
+        });
+
+        expand(P, 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    size_t total = (size_t)N * (size_t)N;
+    vector<unsigned char> vals;
+    vals.reserve(total);
+
+    string tok;
+    while (vals.size() < total && (cin >> tok)) {
+        for (char c : tok) {
+            if (c == '0' || c == '1') {
+                vals.push_back((unsigned char)(c - '0'));
+                if (vals.size() == total) break;
+            }
+        }
+    }
+
+    vals.resize(total, 0);
+
+    int W = (N + 63) >> 6;
+    vector<vector<unsigned long long>> adj(N, vector<unsigned long long>(W, 0ULL));
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            unsigned char e = vals[(size_t)i * N + j] | vals[(size_t)j * N + i];
+            if (e) {
+                adj[i][j >> 6] |= 1ULL << (j & 63);
+                adj[j][i >> 6] |= 1ULL << (i & 63);
+            }
+        }
+    }
+
+    MaxCliqueSolver solver(N, std::move(adj));
+    cout << solver.solve() << '\n';
+    return 0;
+}

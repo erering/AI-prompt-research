@@ -1,0 +1,417 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <queue>
+#include <unordered_set>
+#include <cstdint>
+#include <limits>
+#include <bit>
+
+using ull = unsigned long long;
+
+static ull gcd_all(const std::vector<ull>& a) {
+    ull g = 0;
+    for (ull x : a) g = std::gcd(g, x);
+    return g;
+}
+
+static ull kk_heuristic(const std::vector<ull>& a) {
+    std::priority_queue<ull> pq;
+    for (ull x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        ull x = pq.top(); pq.pop();
+        ull y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static ull greedy_heuristic(std::vector<ull> a) {
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+    ull s0 = 0, s1 = 0;
+    for (ull x : a) {
+        if (s0 <= s1) s0 += x;
+        else s1 += x;
+    }
+    return s0 >= s1 ? s0 - s1 : s1 - s0;
+}
+
+static ull bitset_dp(const std::vector<ull>& a, ull sum) {
+    ull target = sum / 2;
+    size_t words = static_cast<size_t>(target / 64 + 1);
+    std::vector<ull> bits(words, 0);
+    bits[0] = 1;
+
+    ull reach = 0;
+    for (ull x : a) {
+        if (x > target) continue;
+        ull max_src = std::min(reach, target - x);
+        size_t sw = static_cast<size_t>(x / 64);
+        unsigned sb = static_cast<unsigned>(x % 64);
+        size_t max_word = static_cast<size_t>(max_src / 64);
+
+        for (size_t ii = max_word + 1; ii-- > 0;) {
+            ull v = bits[ii];
+            if (!v) continue;
+            size_t j = ii + sw;
+            bits[j] |= (sb == 0 ? v : (v << sb));
+            if (sb && j + 1 < words) bits[j + 1] |= (v >> (64 - sb));
+        }
+
+        reach = std::min(target, reach + x);
+        unsigned used = static_cast<unsigned>(target % 64);
+        if (used != 63) bits.back() &= ((1ULL << (used + 1)) - 1ULL);
+    }
+
+    size_t wi = static_cast<size_t>(target / 64);
+    unsigned off = static_cast<unsigned>(target % 64);
+    ull mask = (off == 63 ? ~0ULL : ((1ULL << (off + 1)) - 1ULL));
+
+    for (size_t k = wi + 1; k-- > 0;) {
+        ull w = bits[k];
+        if (k == wi) w &= mask;
+        if (w) {
+            unsigned p = 63U - static_cast<unsigned>(std::countl_zero(w));
+            ull best_sum = static_cast<ull>(k) * 64ULL + p;
+            return sum - 2ULL * best_sum;
+        }
+    }
+    return sum;
+}
+
+static bool sparse_dp(const std::vector<ull>& a, ull sum, ull lower, ull& ans) {
+    const size_t STATE_LIMIT = 2000000;
+    const unsigned long long OP_LIMIT = 30000000ULL;
+
+    ull target = sum / 2;
+    std::vector<ull> cur;
+    cur.push_back(0);
+
+    unsigned long long ops = 0;
+    for (ull x : a) {
+        if (x > target) continue;
+
+        ops += static_cast<unsigned long long>(cur.size());
+        if (ops > OP_LIMIT) return false;
+
+        ull cutoff = target - x;
+        size_t k = static_cast<size_t>(std::upper_bound(cur.begin(), cur.end(), cutoff) - cur.begin());
+        if (k == 0) continue;
+
+        std::vector<ull> nxt;
+        size_t reserve_size = cur.size() + k;
+        if (reserve_size > STATE_LIMIT + 1) reserve_size = STATE_LIMIT + 1;
+        nxt.reserve(reserve_size);
+
+        size_t i = 0, j = 0;
+        bool has_last = false;
+        ull last = 0;
+
+        while (i < cur.size() || j < k) {
+            ull v;
+            if (j >= k || (i < cur.size() && cur[i] <= cur[j] + x)) {
+                v = cur[i++];
+            } else {
+                v = cur[j++] + x;
+            }
+
+            if (!has_last || v != last) {
+                nxt.push_back(v);
+                last = v;
+                has_last = true;
+                if (nxt.size() > STATE_LIMIT) return false;
+            }
+        }
+
+        cur.swap(nxt);
+        ans = sum - 2ULL * cur.back();
+        if (ans == lower) return true;
+    }
+
+    ans = sum - 2ULL * cur.back();
+    return true;
+}
+
+static std::vector<ull> gen_half(const std::vector<ull>& a, size_t l, size_t r, ull target) {
+    std::vector<ull> sums;
+    sums.reserve(1ULL << std::min<size_t>(r - l, 23));
+    sums.push_back(0);
+
+    for (size_t i = l; i < r; ++i) {
+        ull x = a[i];
+        size_t old = sums.size();
+        for (size_t j = 0; j < old; ++j) {
+            if (sums[j] <= target - std::min(x, target + 1)) {
+                ull y = sums[j] + x;
+                if (y <= target) sums.push_back(y);
+            }
+        }
+    }
+    return sums;
+}
+
+static ull meet_in_middle(const std::vector<ull>& a, ull sum, ull lower) {
+    ull target = sum / 2;
+    size_t n = a.size();
+    size_t m = n / 2;
+
+    std::vector<ull> left = gen_half(a, 0, m, target);
+    std::vector<ull> right = gen_half(a, m, n, target);
+
+    std::sort(right.begin(), right.end());
+    right.erase(std::unique(right.begin(), right.end()), right.end());
+
+    ull best_subset = 0;
+    ull best = sum;
+
+    for (ull x : left) {
+        if (x > target) continue;
+        ull need = target - x;
+        auto it = std::upper_bound(right.begin(), right.end(), need);
+        if (it != right.begin()) {
+            --it;
+            ull s = x + *it;
+            ull d = sum - 2ULL * s;
+            if (d < best) {
+                best = d;
+                best_subset = s;
+                (void)best_subset;
+                if (best == lower) break;
+            }
+        }
+    }
+    return best;
+}
+
+struct VecHash {
+    static ull mix(ull x) {
+        x += 0x9e3779b97f4a7c15ULL;
+        x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+        x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+        return x ^ (x >> 31);
+    }
+
+    size_t operator()(const std::vector<ull>& v) const {
+        ull h = mix(static_cast<ull>(v.size()));
+        for (ull x : v) {
+            h ^= mix(x + h + 0x9e3779b97f4a7c15ULL);
+        }
+        return static_cast<size_t>(h);
+    }
+};
+
+class CKK {
+public:
+    ull best;
+    ull lower;
+    unsigned long long nodes = 0;
+    std::unordered_set<std::vector<ull>, VecHash> memo;
+
+    CKK(ull b, ull l) : best(b), lower(l) {
+        memo.reserve(200000);
+    }
+
+    static std::vector<ull> child_insert_diff(const std::vector<ull>& v, ull val) {
+        std::vector<ull> r;
+        r.reserve(v.size() - 1);
+        bool inserted = (val == 0);
+
+        for (size_t i = 2; i < v.size(); ++i) {
+            if (!inserted && val >= v[i]) {
+                r.push_back(val);
+                inserted = true;
+            }
+            r.push_back(v[i]);
+        }
+        if (!inserted) r.push_back(val);
+        return r;
+    }
+
+    static std::vector<ull> child_sum(const std::vector<ull>& v, ull val) {
+        std::vector<ull> r;
+        r.reserve(v.size() - 1);
+        r.push_back(val);
+        for (size_t i = 2; i < v.size(); ++i) r.push_back(v[i]);
+        return r;
+    }
+
+    void search(std::vector<ull> v, ull sum) {
+        if (best == lower) return;
+
+        while (!v.empty() && v.back() == 0) v.pop_back();
+
+        if (v.empty()) {
+            best = 0;
+            return;
+        }
+
+        if (v.size() == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+
+        ull rest = sum - v[0];
+        if (v[0] >= rest) {
+            ull d = v[0] - rest;
+            if (d < best) best = d;
+            return;
+        }
+
+        ++nodes;
+
+        if ((v.size() <= 80 || nodes < 1000) && v.size() > 1) {
+            ull h = kk_heuristic(v);
+            if (h < best) best = h;
+            if (best == lower) return;
+        }
+
+        if (v.size() <= 55 && memo.size() < 200000) {
+            auto res = memo.insert(v);
+            if (!res.second) return;
+        }
+
+        ull x = v[0], y = v[1];
+        ull rem = sum - x - y;
+
+        ull dval = x - y;
+        ull dsum = rem + dval;
+        if (dval >= rem) {
+            ull d = dval - rem;
+            if (d < best) best = d;
+        } else {
+            search(child_insert_diff(v, dval), dsum);
+        }
+
+        if (best == lower) return;
+
+        ull sval = x + y;
+        if (sval >= rem) {
+            ull d = sval - rem;
+            if (d < best) best = d;
+        } else {
+            search(child_sum(v, sval), sum);
+        }
+    }
+};
+
+static ull signed_dfs_iter(const std::vector<ull>& a, ull sum, ull best, ull lower) {
+    size_t n = a.size();
+    std::vector<ull> suffix(n + 1, 0);
+    for (size_t i = n; i-- > 0;) suffix[i] = suffix[i + 1] + a[i];
+
+    struct State {
+        size_t idx;
+        ull diff;
+    };
+
+    std::vector<State> st;
+    st.reserve(n + 1);
+    st.push_back({0, 0});
+
+    while (!st.empty()) {
+        State s = st.back();
+        st.pop_back();
+
+        if (best == lower) break;
+
+        ull rem = suffix[s.idx];
+        if (s.diff > rem && s.diff - rem >= best) continue;
+
+        if (s.idx == n) {
+            if (s.diff < best) best = s.diff;
+            continue;
+        }
+
+        ull x = a[s.idx];
+        ull d1 = (s.diff >= x ? s.diff - x : x - s.diff);
+        ull d2 = s.diff + x;
+        ull rem2 = suffix[s.idx + 1];
+
+        if (!(d2 > rem2 && d2 - rem2 >= best)) st.push_back({s.idx + 1, d2});
+        if (!(d1 > rem2 && d1 - rem2 >= best)) st.push_back({s.idx + 1, d1});
+    }
+
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a;
+    a.reserve(N);
+    ull sum = 0;
+
+    for (size_t i = 0; i < N; ++i) {
+        ull x;
+        std::cin >> x;
+        if (x) {
+            a.push_back(x);
+            sum += x;
+        }
+    }
+
+    if (a.empty()) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    ull g = gcd_all(a);
+    if (g == 0) g = 1;
+    if (g > 1) {
+        for (ull& x : a) x /= g;
+        sum /= g;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    ull lower = sum & 1ULL;
+    ull best = std::min(kk_heuristic(a), greedy_heuristic(a));
+
+    if (best == lower) {
+        std::cout << best * g << '\n';
+        return 0;
+    }
+
+    if (a[0] >= sum - a[0]) {
+        std::cout << (a[0] - (sum - a[0])) * g << '\n';
+        return 0;
+    }
+
+    ull target = sum / 2;
+    ull words_ull = target / 64 + 1;
+    long double dp_work = static_cast<long double>(words_ull) * static_cast<long double>(a.size());
+
+    if (target <= 300000000ULL && dp_work <= 160000000.0L) {
+        ull ans = bitset_dp(a, sum);
+        std::cout << ans * g << '\n';
+        return 0;
+    }
+
+    ull sparse_ans = best;
+    if (sparse_dp(a, sum, lower, sparse_ans)) {
+        std::cout << sparse_ans * g << '\n';
+        return 0;
+    }
+
+    if (a.size() <= 46) {
+        ull ans = meet_in_middle(a, sum, lower);
+        std::cout << ans * g << '\n';
+        return 0;
+    }
+
+    if (a.size() <= 1000) {
+        CKK solver(best, lower);
+        solver.search(a, sum);
+        std::cout << solver.best * g << '\n';
+        return 0;
+    }
+
+    best = signed_dfs_iter(a, sum, best, lower);
+    std::cout << best * g << '\n';
+    return 0;
+}

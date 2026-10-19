@@ -1,0 +1,89 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static const int MAXN = 10005;
+static const int LOG = 15;
+
+static int up_tbl[MAXN][LOG];
+static int dep_tbl[MAXN];
+static int dia_a = 0, dia_b = 0, dia_len = 0;
+
+static int lca_node(int a, int b) {
+    if (dep_tbl[a] < dep_tbl[b]) swap(a, b);
+    int diff = dep_tbl[a] - dep_tbl[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = up_tbl[a][k];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_tbl[a][k] != up_tbl[b][k]) {
+            a = up_tbl[a][k];
+            b = up_tbl[b][k];
+        }
+    }
+    return up_tbl[a][0];
+}
+
+static int dist_node(int a, int b) {
+    int c = lca_node(a, b);
+    return dep_tbl[a] + dep_tbl[b] - 2 * dep_tbl[c];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        dia_a = dia_b = 0;
+        dia_len = 0;
+        dep_tbl[0] = 0;
+        for (int k = 0; k < LOG; ++k) up_tbl[0][k] = 0;
+    }
+
+    up_tbl[i][0] = Pi;
+    dep_tbl[i] = dep_tbl[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[i][k] = up_tbl[up_tbl[i][k - 1]][k - 1];
+    }
+
+    bool changed = false;
+    int other = -1;
+
+    int da = dist_node(i, dia_a);
+    int db = dist_node(i, dia_b);
+
+    if (da > dia_len) {
+        changed = true;
+        other = dia_a;
+        dia_len = da;
+        dia_b = dia_a;
+        dia_a = i;
+    } else if (db > dia_len) {
+        changed = true;
+        other = dia_b;
+        dia_len = db;
+        dia_a = i;
+    }
+
+    int W = N - 50;
+
+    if (i < W) return 0;
+    if (i == W) return dia_a + 1;
+    if (i == W + 1) {
+        if (changed) return 10001 + other;
+        return dia_b + 1;
+    }
+
+    if (changed) return 10001 + other;
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+    int W = N - 50;
+
+    for (int i = N - 1; i >= W + 1; --i) {
+        if (S[i] > 10000) {
+            return {i, S[i] - 10001};
+        }
+    }
+
+    return {S[W] - 1, S[W + 1] - 1};
+}

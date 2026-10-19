@@ -1,0 +1,148 @@
+#include <vector>
+#include <array>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    std::array<std::array<uint32_t, 17>, 32> comb{};
+    bool comb_ready = false;
+
+    void init_comb() {
+        if (comb_ready) return;
+        for (int n = 0; n <= 31; ++n) {
+            comb[n][0] = 1;
+            for (int k = 1; k <= 16; ++k) {
+                if (k > n) comb[n][k] = 0;
+                else if (k == n) comb[n][k] = 1;
+                else comb[n][k] = comb[n - 1][k - 1] + comb[n - 1][k];
+            }
+        }
+        comb_ready = true;
+    }
+
+    uint32_t rank_subset(const std::vector<int>& p) {
+        init_comb();
+        uint32_t rank = 0;
+        int prev = -1;
+        int rem = 16;
+        for (int x : p) {
+            for (int y = prev + 1; y < x; ++y) {
+                rank += comb[31 - y - 1][rem - 1];
+            }
+            prev = x;
+            --rem;
+        }
+        return rank;
+    }
+
+    std::vector<int> unrank_subset(uint32_t rank) {
+        init_comb();
+        std::vector<int> p;
+        p.reserve(16);
+        int prev = -1;
+        int rem = 16;
+        while (rem > 0) {
+            for (int y = prev + 1; y < 31; ++y) {
+                uint32_t cnt = comb[31 - y - 1][rem - 1];
+                if (rank >= cnt) {
+                    rank -= cnt;
+                } else {
+                    p.push_back(y);
+                    prev = y;
+                    --rem;
+                    break;
+                }
+            }
+        }
+        return p;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> P;
+    P.reserve(16);
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) P.push_back(i);
+    }
+
+    uint32_t r = rank_subset(P);
+
+    for (int t = 0; t < 29; ++t) {
+        std::vector<bool> A(31, false);
+        bool bit = ((r >> t) & 1u) != 0;
+        for (int x : P) A[x] = bit;
+        send_packet(A);
+    }
+
+    std::vector<bool> payload;
+    payload.reserve(10 + M.size());
+
+    uint32_t len = static_cast<uint32_t>(M.size() - 1);
+    for (int b = 0; b < 10; ++b) {
+        payload.push_back(((len >> b) & 1u) != 0);
+    }
+    for (bool b : M) payload.push_back(b);
+
+    int ptr = 0;
+    while (ptr < static_cast<int>(payload.size())) {
+        std::vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            if (ptr < static_cast<int>(payload.size())) {
+                A[P[j]] = payload[ptr++];
+            } else {
+                A[P[j]] = false;
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    std::array<uint32_t, 31> sig{};
+
+    for (int i = 0; i < 31; ++i) {
+        uint32_t v = 0;
+        for (int t = 0; t < 29; ++t) {
+            if (R[t][i]) v |= (1u << t);
+        }
+        sig[i] = v;
+    }
+
+    uint32_t chosen = sig[0];
+    int best_count = 0;
+
+    for (int i = 0; i < 31; ++i) {
+        int cnt = 0;
+        for (int j = 0; j < 31; ++j) {
+            if (sig[j] == sig[i]) ++cnt;
+        }
+        if (cnt > best_count) {
+            best_count = cnt;
+            chosen = sig[i];
+        }
+    }
+
+    std::vector<int> P = unrank_subset(chosen);
+
+    std::vector<bool> bits;
+    for (int t = 29; t < static_cast<int>(R.size()); ++t) {
+        for (int x : P) {
+            bits.push_back(R[t][x]);
+        }
+    }
+
+    uint32_t len_minus_one = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (bits[b]) len_minus_one |= (1u << b);
+    }
+    int S = static_cast<int>(len_minus_one) + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[10 + i]);
+    }
+    return M;
+}

@@ -1,0 +1,7 @@
+You need to write a C++20 program for a graph question. Think of the input as describing which pairs of vertices are friends: a 1 in the adjacency matrix means the pair is connected, and a 0 means it is not. A clique is a group where every two members of the group are connected. The goal is to find how large the biggest such group can be.
+
+Input begins with N, the number of vertices. Then come N rows of an N x N adjacency matrix for a simple undirected graph. The rows may be written as strings like 01101 or as digits separated by spaces, so parse robustly. The diagonal does not matter. The graph was generated randomly: each possible undirected edge was independently included with probability e^(-ln(N)/N).
+
+Your program must compute the exact size of the largest clique and print that size as a single integer. The time limit is 1 second. Test cases are tried from smaller N to larger N, stopping at the first failure; any wrong answer, crash, runtime error, timeout, or invalid output gives zero score.
+
+Answer with only valid C++20 source code. Do not include explanations, markdown, or code fences.

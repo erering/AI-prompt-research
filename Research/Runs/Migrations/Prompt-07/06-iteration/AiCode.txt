@@ -1,0 +1,120 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int MAXN = 10000;
+    constexpr int LOG = 15;
+    constexpr int T = 9950;
+
+    int up_[LOG][MAXN];
+    int depth_[MAXN];
+    int diaA, diaB, diaD;
+    bool t1Updated;
+
+    int lca_node(int a, int b) {
+        if (depth_[a] < depth_[b]) swap(a, b);
+        int diff = depth_[a] - depth_[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up_[k][a];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up_[k][a] != up_[k][b]) {
+                a = up_[k][a];
+                b = up_[k][b];
+            }
+        }
+        return up_[0][a];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return depth_[a] + depth_[b] - 2 * depth_[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 0) {
+        depth_[0] = 0;
+        for (int k = 0; k < LOG; ++k) up_[k][0] = 0;
+        diaA = diaB = 0;
+        diaD = 0;
+        t1Updated = false;
+        return 0;
+    }
+
+    up_[0][i] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up_[k][i] = up_[k - 1][up_[k - 1][i]];
+    }
+    depth_[i] = depth_[Pi] + 1;
+
+    int oldA = diaA;
+    int oldB = diaB;
+    int oldD = diaD;
+
+    int da = dist_node(i, oldA);
+    int db = dist_node(i, oldB);
+
+    bool updated = false;
+    int which = 0;
+
+    if (da > oldD) {
+        updated = true;
+        which = 1;
+        diaA = i;
+        diaB = oldA;
+        diaD = da;
+    } else if (db > oldD) {
+        updated = true;
+        which = 2;
+        diaA = i;
+        diaB = oldB;
+        diaD = db;
+    }
+
+    if (i < T) return 0;
+
+    if (i == T) {
+        return diaA + 1;
+    }
+
+    if (i == T + 1) {
+        t1Updated = updated;
+        return diaB + 1;
+    }
+
+    if (i == T + 2) {
+        if (updated) return diaB + 3;
+        return t1Updated ? 2 : 1;
+    }
+
+    if (updated) return which;
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int a, b;
+
+    if (S[T + 2] >= 3) {
+        a = T + 2;
+        b = S[T + 2] - 3;
+    } else if (S[T + 2] == 2) {
+        a = T + 1;
+        b = S[T + 1] - 1;
+    } else {
+        a = S[T] - 1;
+        b = S[T + 1] - 1;
+    }
+
+    for (int i = T + 3; i < (int)S.size(); ++i) {
+        if (S[i] == 1) {
+            b = a;
+            a = i;
+        } else if (S[i] == 2) {
+            a = i;
+        }
+    }
+
+    return {a, b};
+}

@@ -1,0 +1,188 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+int N, Wd;
+vector<unsigned long long> Adj;
+int bestSize = 0;
+
+inline bool adjacent(int u, int v) {
+    return (Adj[(size_t)u * Wd + (v >> 6)] >> (v & 63)) & 1ULL;
+}
+
+inline void setEdge(int u, int v) {
+    Adj[(size_t)u * Wd + (v >> 6)] |= 1ULL << (v & 63);
+}
+
+inline void clearEdge(int u, int v) {
+    Adj[(size_t)u * Wd + (v >> 6)] &= ~(1ULL << (v & 63));
+}
+
+int greedyMatchingComplementBound(const vector<int>& P) {
+    int k = (int)P.size();
+    vector<unsigned char> used(k, 0);
+    int m = 0;
+    for (int i = 0; i < k; ++i) {
+        if (used[i]) continue;
+        int u = P[i];
+        for (int j = i + 1; j < k; ++j) {
+            if (!used[j] && !adjacent(u, P[j])) {
+                used[i] = used[j] = 1;
+                ++m;
+                break;
+            }
+        }
+    }
+    return m;
+}
+
+void colorSort(const vector<int>& P, vector<int>& order, vector<int>& colors) {
+    order.clear();
+    colors.clear();
+    order.reserve(P.size());
+    colors.reserve(P.size());
+
+    vector<int> rem = P, next;
+    next.reserve(P.size());
+    vector<int> cls;
+    cls.reserve(16);
+
+    int c = 0;
+    while (!rem.empty()) {
+        ++c;
+        next.clear();
+        cls.clear();
+
+        for (int v : rem) {
+            bool ok = true;
+            for (int u : cls) {
+                if (adjacent(v, u)) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                cls.push_back(v);
+                order.push_back(v);
+                colors.push_back(c);
+            } else {
+                next.push_back(v);
+            }
+        }
+        rem.swap(next);
+    }
+}
+
+void expand(const vector<int>& P, int cur) {
+    int k = (int)P.size();
+    if (cur + k <= bestSize) return;
+
+    int m = greedyMatchingComplementBound(P);
+    if (m == 0) {
+        if (cur + k > bestSize) bestSize = cur + k;
+        return;
+    }
+    if (cur + k - m <= bestSize) return;
+
+    vector<int> order, colors;
+    colorSort(P, order, colors);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (cur + colors[i] <= bestSize) return;
+
+        int v = order[i];
+        vector<int> np;
+        np.reserve(i);
+
+        for (int j = 0; j < i; ++j) {
+            int u = order[j];
+            if (adjacent(v, u)) np.push_back(u);
+        }
+
+        if (np.empty()) {
+            if (cur + 1 > bestSize) bestSize = cur + 1;
+        } else {
+            expand(np, cur + 1);
+        }
+    }
+}
+
+int greedyClique(const vector<int>& ord, int start = -1) {
+    int cnt = 0;
+    vector<int> cand;
+    cand.reserve(ord.size());
+
+    if (start >= 0) {
+        cnt = 1;
+        for (int v : ord) {
+            if (v != start && adjacent(start, v)) cand.push_back(v);
+        }
+    } else {
+        cand = ord;
+    }
+
+    while (!cand.empty()) {
+        int v = cand.front();
+        ++cnt;
+        vector<int> nxt;
+        nxt.reserve(cand.size());
+        for (size_t i = 1; i < cand.size(); ++i) {
+            if (adjacent(v, cand[i])) nxt.push_back(cand[i]);
+        }
+        cand.swap(nxt);
+    }
+
+    return cnt;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    Wd = (N + 63) >> 6;
+    Adj.assign((size_t)N * Wd, 0);
+
+    int cnt = 0;
+    char ch;
+    while (cnt < N * N && cin.get(ch)) {
+        if (ch == '0' || ch == '1') {
+            int i = cnt / N;
+            int j = cnt % N;
+            if (ch == '1' && i != j) setEdge(i, j);
+            ++cnt;
+        }
+    }
+
+    for (int i = 0; i < N; ++i) clearEdge(i, i);
+
+    vector<int> deg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        int s = 0;
+        size_t base = (size_t)i * Wd;
+        for (int w = 0; w < Wd; ++w) s += __builtin_popcountll(Adj[base + w]);
+        deg[i] = s;
+    }
+
+    vector<int> ord(N);
+    iota(ord.begin(), ord.end(), 0);
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    bestSize = greedyClique(ord, -1);
+    int tries = min(N, 80);
+    for (int i = 0; i < tries; ++i) {
+        bestSize = max(bestSize, greedyClique(ord, ord[i]));
+    }
+
+    expand(ord, 0);
+
+    cout << bestSize << '\n';
+    return 0;
+}

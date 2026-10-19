@@ -1,0 +1,227 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ULL = unsigned long long;
+
+struct MaxCliqueSolver {
+    int n, W;
+    vector<vector<ULL>> adj;
+    int best = 0;
+
+    MaxCliqueSolver(int n_, vector<vector<ULL>> a) : n(n_), W((n_ + 63) >> 6), adj(std::move(a)) {}
+
+    inline void clearBit(vector<ULL>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline bool emptyBits(const vector<ULL>& b) const {
+        for (ULL x : b) if (x) return false;
+        return true;
+    }
+
+    inline int countBits(const vector<ULL>& b) const {
+        int s = 0;
+        for (ULL x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline int firstSet(const vector<ULL>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    inline int lastSet(const vector<ULL>& b) const {
+        for (int i = W - 1; i >= 0; --i) {
+            if (b[i]) return (i << 6) + 63 - __builtin_clzll(b[i]);
+        }
+        return -1;
+    }
+
+    inline int countIntersection(const vector<ULL>& a, const vector<ULL>& b) const {
+        int s = 0;
+        for (int i = 0; i < W; ++i) s += __builtin_popcountll(a[i] & b[i]);
+        return s;
+    }
+
+    int greedyStatic(vector<ULL> p) const {
+        int res = 0;
+        while (!emptyBits(p)) {
+            int v = firstSet(p);
+            ++res;
+            for (int i = 0; i < W; ++i) p[i] &= adj[v][i];
+        }
+        return res;
+    }
+
+    int greedyDynamic(vector<ULL> p) const {
+        int res = 0;
+        while (!emptyBits(p)) {
+            int bestv = -1, bestd = -1;
+            for (int wi = 0; wi < W; ++wi) {
+                ULL x = p[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (wi << 6) + b;
+                    int d = countIntersection(p, adj[v]);
+                    if (d > bestd) {
+                        bestd = d;
+                        bestv = v;
+                    }
+                    x &= x - 1;
+                }
+            }
+            ++res;
+            for (int i = 0; i < W; ++i) p[i] &= adj[bestv][i];
+        }
+        return res;
+    }
+
+    void colorSort(const vector<ULL>& p, vector<int>& order, vector<int>& bound) const {
+        order.clear();
+        bound.clear();
+        vector<ULL> uncolored = p;
+        vector<ULL> avail(W);
+
+        int color = 0;
+        while (!emptyBits(uncolored)) {
+            ++color;
+            avail = uncolored;
+
+            while (!emptyBits(avail)) {
+                int v = lastSet(avail);
+                order.push_back(v);
+                bound.push_back(color);
+
+                clearBit(uncolored, v);
+                clearBit(avail, v);
+                for (int i = 0; i < W; ++i) avail[i] &= ~adj[v][i];
+            }
+        }
+    }
+
+    void expand(const vector<ULL>& p, int sz) {
+        int pc = countBits(p);
+        if (sz + pc <= best) return;
+
+        int g = greedyStatic(p);
+        if (sz + g > best) best = sz + g;
+
+        vector<int> order, bound;
+        order.reserve(pc);
+        bound.reserve(pc);
+        colorSort(p, order, bound);
+
+        if (order.empty()) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        if (sz + bound.back() <= best) return;
+
+        vector<ULL> cur = p;
+        vector<ULL> np(W);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (sz + bound[i] <= best) return;
+
+            int v = order[i];
+            for (int j = 0; j < W; ++j) np[j] = cur[j] & adj[v][j];
+
+            if (emptyBits(np)) {
+                if (sz + 1 > best) best = sz + 1;
+            } else {
+                expand(np, sz + 1);
+            }
+
+            clearBit(cur, v);
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+
+        vector<ULL> all(W, ~0ULL);
+        if (n & 63) all[W - 1] = (1ULL << (n & 63)) - 1;
+
+        best = greedyStatic(all);
+
+        int starts = min(n, 16);
+        for (int s = 0; s < starts; ++s) {
+            vector<ULL> p = adj[s];
+            best = max(best, 1 + greedyStatic(p));
+        }
+
+        if (n <= 2000) {
+            best = max(best, greedyDynamic(all));
+            int ds = min(n, 8);
+            for (int s = 0; s < ds; ++s) {
+                vector<ULL> p = adj[s];
+                best = max(best, 1 + greedyDynamic(p));
+            }
+        }
+
+        expand(all, 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    int W = (N + 63) >> 6;
+    vector<vector<ULL>> orig(N, vector<ULL>(W, 0));
+    vector<int> deg(N, 0);
+
+    char c;
+    long long need = 1LL * N * N, got = 0;
+    while (got < need && cin.get(c)) {
+        if (c != '0' && c != '1') continue;
+        int i = got / N;
+        int j = got % N;
+        if (c == '1' && i != j) {
+            orig[i][j >> 6] |= 1ULL << (j & 63);
+            ++deg[i];
+        }
+        ++got;
+    }
+
+    vector<int> perm(N), inv(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+    for (int i = 0; i < N; ++i) inv[perm[i]] = i;
+
+    vector<vector<ULL>> adj(N, vector<ULL>(W, 0));
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        for (int wi = 0; wi < W; ++wi) {
+            ULL x = orig[oi][wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (wi << 6) + b;
+                if (oj < N) {
+                    int nj = inv[oj];
+                    if (nj != ni) adj[ni][nj >> 6] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        adj[i][i >> 6] &= ~(1ULL << (i & 63));
+        if (N & 63) adj[i][W - 1] &= (1ULL << (N & 63)) - 1;
+    }
+
+    MaxCliqueSolver solver(N, std::move(adj));
+    cout << solver.solve() << '\n';
+    return 0;
+}

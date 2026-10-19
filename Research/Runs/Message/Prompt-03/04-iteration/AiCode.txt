@@ -1,0 +1,70 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+void send_message(vector<bool> M, vector<bool> C) {
+    const int n = 31;
+    const int S = (int)M.size();
+
+    for (int j = 0; j < n; ++j) {
+        vector<bool> A(n, C[j]);
+        send_packet(A);
+    }
+
+    vector<bool> payload;
+    payload.reserve(10 + S);
+
+    int x = S - 1;
+    for (int b = 0; b < 10; ++b) {
+        payload.push_back((x >> b) & 1);
+    }
+    for (bool bit : M) payload.push_back(bit);
+
+    int ptr = 0;
+    while (ptr < (int)payload.size()) {
+        vector<bool> A(n, false);
+        for (int i = 0; i < n; ++i) {
+            if (!C[i]) {
+                if (ptr < (int)payload.size()) A[i] = payload[ptr++];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    const int n = 31;
+
+    vector<bool> C(n, false);
+    for (int j = 0; j < n; ++j) {
+        int ones = 0;
+        for (int i = 0; i < n; ++i) {
+            if (R[j][i]) ++ones;
+        }
+        C[j] = (ones >= 16);
+    }
+
+    vector<bool> payload;
+    for (int t = n; t < (int)R.size(); ++t) {
+        for (int i = 0; i < n; ++i) {
+            if (!C[i]) payload.push_back(R[t][i]);
+        }
+    }
+
+    int S = 1;
+    if ((int)payload.size() >= 10) {
+        int x = 0;
+        for (int b = 0; b < 10; ++b) {
+            if (payload[b]) x |= (1 << b);
+        }
+        S = x + 1;
+    }
+
+    vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(payload[10 + i]);
+    }
+    return M;
+}

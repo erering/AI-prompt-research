@@ -1,0 +1,37 @@
+Output only valid C++20 code implementing the specified functions; do not output explanations, markdown, code fences, or input/output code.
+
+1. Objects
+1.1. N=10000 for every test case.
+1.2. Sites are numbered 0,1,...,N-1.
+1.3. For every i with 1<=i<=N-1, there is exactly one P[i] satisfying 0<=P[i]<i.
+1.4. Add an undirected edge between i and P[i]. These edges define a connected tree.
+1.5. The distance between two sites is the minimum number of edges on a path between them.
+1.6. A valid answer is any pair (U,V) whose distance is maximum over all pairs.
+
+2. Required interface
+2.1. Define int send_message(int N, int i, int Pi).
+2.2. Define std::pair<int,int> longest_path(std::vector<int> S).
+2.3. You may define global variables and helper functions.
+
+3. First program execution: sender
+3.1. The grader calls send_message exactly N-1 times, with i=1,2,...,N-1 in increasing order.
+3.2. In the call, Pi is the true value P[i].
+3.3. Your code may store and reuse information across these calls during this execution.
+3.4. The return value is S[i]. If S[i]=0, no message is sent from i. If 1<=S[i]<=20000, that integer is the message sent from i.
+3.5. Over the whole first execution, at most 50 values S[i] may be nonzero.
+3.6. The sender must decide online, using only current arguments and information from earlier calls.
+3.7. The grader may be adaptive: P[i] in later calls may depend on earlier sender actions, subject only to 0<=P[i]<i.
+
+4. Second program execution: receiver
+4.1. The program is run again independently.
+4.2. The grader calls longest_path exactly once.
+4.3. The argument S has length N, S[0]=0, and S[i] for i>=1 is exactly the value returned by send_message in the first execution.
+4.4. No saved state from the first execution is available except this vector S. The receiver knows message locations from the nonzero indices of S.
+4.5. longest_path must return any diameter endpoint pair of the hidden tree that produced S.
+
+5. Validity
+5.1. Score is 0 if any S[i] is invalid, any message is not in 1..20000, Z=max_i S[i] is greater than 20000, M=|{i:S[i]!=0}| is greater than 50, or the returned pair is not a diameter pair.
+
+6. Scoring information
+6.1. Subtask 1 is worth 30 points and additionally guarantees that for some v!=0, (0,v) is a diameter. With a valid solution, score is 10 for 9998<=Z<=20000, 16 for 102<=Z<=9997, 23 for 5<=Z<=101, and 30 for Z<=4.
+6.2. Subtask 2 is worth 70 points and has no additional constraints. With a valid solution, score is 35-25*log_{4000}(Z/5) for 5<=Z<=20000 and M<=50; 40 for Z<=4 and 32<=M<=50; 70-30*log_4(M/8) for Z<=4 and 9<=M<=31; 70 for Z<=4 and M<=8.

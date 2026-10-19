@@ -1,0 +1,105 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static unsigned long long comb_val(int n, int k) {
+    static bool inited = false;
+    static unsigned long long C[32][32];
+    if (!inited) {
+        for (int i = 0; i < 32; ++i) {
+            C[i][0] = C[i][i] = 1;
+            for (int j = 1; j < i; ++j) C[i][j] = C[i - 1][j - 1] + C[i - 1][j];
+        }
+        inited = true;
+    }
+    if (n < 0 || k < 0 || k > n) return 0;
+    return C[n][k];
+}
+
+static unsigned long long rank_mask(const vector<bool>& C) {
+    unsigned long long r = 0;
+    int rem = 15;
+    for (int i = 0; i < 31; ++i) {
+        if (C[i]) {
+            r += comb_val(30 - i, rem);
+            --rem;
+        }
+    }
+    return r;
+}
+
+static vector<bool> unrank_mask(unsigned long long r) {
+    vector<bool> C(31, false);
+    int rem = 15;
+    for (int i = 0; i < 31; ++i) {
+        if (rem == 0) break;
+        unsigned long long cnt0 = comb_val(30 - i, rem);
+        if (r >= cnt0) {
+            C[i] = true;
+            r -= cnt0;
+            --rem;
+        }
+    }
+    return C;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    unsigned long long idx = rank_mask(C);
+
+    for (int b = 28; b >= 0; --b) {
+        bool bit = (idx >> b) & 1ULL;
+        vector<bool> A(31, bit);
+        send_packet(A);
+    }
+
+    vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    vector<bool> payload;
+    int S = (int)M.size();
+    int len = S - 1;
+    for (int b = 9; b >= 0; --b) payload.push_back((len >> b) & 1);
+    for (bool x : M) payload.push_back(x);
+
+    int ptr = 0;
+    while (ptr < (int)payload.size()) {
+        vector<bool> A(31, false);
+        for (int k = 0; k < 16; ++k) {
+            if (ptr < (int)payload.size()) A[good[k]] = payload[ptr++];
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    unsigned long long idx = 0;
+    for (int t = 0; t < 29; ++t) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) if (R[t][i]) ++ones;
+        idx = (idx << 1) | (ones >= 16 ? 1ULL : 0ULL);
+    }
+
+    vector<bool> C = unrank_mask(idx);
+
+    vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    vector<bool> bits;
+    for (int t = 29; t < (int)R.size(); ++t) {
+        for (int k = 0; k < 16; ++k) bits.push_back(R[t][good[k]]);
+    }
+
+    int len = 0;
+    for (int i = 0; i < 10; ++i) len = (len << 1) | (bits[i] ? 1 : 0);
+    int S = len + 1;
+
+    vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) M.push_back(bits[10 + i]);
+    return M;
+}

@@ -1,0 +1,57 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    int D = 0;
+    int prod = 1;
+    while (prod < N) {
+        prod *= 3;
+        D++;
+    }
+
+    auto digit = [&](int j, int pos) {
+        int v = j - 1;
+        while (pos--) v /= 3;
+        return v % 3;
+    };
+
+    auto id = [&](int pos, int d) {
+        return 1 + pos * 3 + d;
+    };
+
+    int x = 3 * D;
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; j++) {
+        s[0][j] = id(D - 1, digit(j, D - 1));
+    }
+
+    for (int pos = 0; pos < D; pos++) {
+        for (int d = 0; d < 3; d++) {
+            int st = id(pos, d);
+            bool inspectB = ((D - 1 - pos) % 2 == 0);
+            s[st][0] = inspectB ? 1 : 0;
+
+            for (int j = 1; j <= N; j++) {
+                int cur = digit(j, pos);
+
+                if (cur != d) {
+                    if (inspectB) {
+                        s[st][j] = (d < cur) ? -1 : -2;
+                    } else {
+                        s[st][j] = (cur < d) ? -1 : -2;
+                    }
+                } else {
+                    if (pos == 0) {
+                        s[st][j] = -1;
+                    } else {
+                        s[st][j] = id(pos - 1, digit(j, pos - 1));
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

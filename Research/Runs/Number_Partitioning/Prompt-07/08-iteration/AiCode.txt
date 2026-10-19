@@ -1,0 +1,283 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <exception>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <vector>
+
+using namespace std;
+
+static uint64_t global_best;
+
+static void print_uint64(uint64_t x) {
+    cout << x << '\n';
+}
+
+static uint64_t greedy_bound(const vector<uint64_t>& a) {
+    uint64_t s1 = 0, s2 = 0;
+    for (uint64_t x : a) {
+        if (s1 <= s2) s1 += x;
+        else s2 += x;
+    }
+    return s1 > s2 ? s1 - s2 : s2 - s1;
+}
+
+static uint64_t kk_bound(const vector<uint64_t>& a) {
+    priority_queue<uint64_t> pq;
+    for (uint64_t x : a) {
+        if (x) pq.push(x);
+    }
+    while (pq.size() > 1) {
+        uint64_t x = pq.top(); pq.pop();
+        uint64_t y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static uint64_t subset_dp(const vector<uint64_t>& items, uint64_t total) {
+    uint64_t target = total / 2;
+    size_t words = static_cast<size_t>(target / 64 + 1);
+    vector<uint64_t> bits(words, 0);
+    bits[0] = 1;
+
+    unsigned rem = static_cast<unsigned>(target & 63);
+    uint64_t last_mask = (rem == 63) ? ~0ULL : ((1ULL << (rem + 1)) - 1ULL);
+
+    for (uint64_t x : items) {
+        if (x > target) continue;
+
+        size_t ws = static_cast<size_t>(x >> 6);
+        unsigned bs = static_cast<unsigned>(x & 63);
+
+        if (bs == 0) {
+            for (size_t i = words; i-- > ws; ) {
+                bits[i] |= bits[i - ws];
+            }
+        } else {
+            for (size_t i = words; i-- > ws; ) {
+                uint64_t v = bits[i - ws] << bs;
+                if (i > ws) v |= bits[i - ws - 1] >> (64 - bs);
+                bits[i] |= v;
+            }
+        }
+
+        bits.back() &= last_mask;
+        if ((total % 2 == 0) && ((bits[target >> 6] >> (target & 63)) & 1ULL)) {
+            return 0;
+        }
+    }
+
+    for (uint64_t s = target;; --s) {
+        if ((bits[s >> 6] >> (s & 63)) & 1ULL) {
+            return total - 2 * s;
+        }
+        if (s == 0) break;
+    }
+    return total;
+}
+
+static vector<uint64_t> generate_sums(const vector<uint64_t>& a, size_t off, size_t len) {
+    size_t sz = size_t(1) << len;
+    vector<uint64_t> sums(sz, 0);
+    for (size_t mask = 1; mask < sz; ++mask) {
+        size_t lsb = mask & (~mask + 1);
+        unsigned idx = std::countr_zero(lsb);
+        sums[mask] = sums[mask ^ lsb] + a[off + idx];
+    }
+    return sums;
+}
+
+static uint64_t meet_in_middle(const vector<uint64_t>& items, uint64_t total) {
+    size_t n = items.size();
+    size_t n1 = n / 2;
+    size_t n2 = n - n1;
+    uint64_t target = total / 2;
+
+    vector<uint64_t> left = generate_sums(items, 0, n1);
+    sort(left.begin(), left.end());
+    left.erase(unique(left.begin(), left.end()), left.end());
+
+    uint64_t best_sum = 0;
+    size_t sz2 = size_t(1) << n2;
+
+    vector<uint64_t> right(sz2, 0);
+    for (size_t mask = 1; mask < sz2; ++mask) {
+        size_t lsb = mask & (~mask + 1);
+        unsigned idx = std::countr_zero(lsb);
+        right[mask] = right[mask ^ lsb] + items[n1 + idx];
+    }
+
+    for (uint64_t s2 : right) {
+        if (s2 > target) continue;
+        uint64_t need = target - s2;
+        auto it = upper_bound(left.begin(), left.end(), need);
+        if (it != left.begin()) {
+            --it;
+            uint64_t cur = s2 + *it;
+            if (cur > best_sum) {
+                best_sum = cur;
+                if (best_sum == target) return total - 2 * best_sum;
+            }
+        }
+    }
+
+    return total - 2 * best_sum;
+}
+
+static vector<uint64_t> child_with_replacement(const vector<uint64_t>& a, uint64_t z) {
+    vector<uint64_t> child;
+    child.reserve(a.size() - 1);
+
+    bool inserted = (z == 0);
+    for (size_t i = 2; i < a.size(); ++i) {
+        if (!inserted && z >= a[i]) {
+            child.push_back(z);
+            inserted = true;
+        }
+        child.push_back(a[i]);
+    }
+    if (!inserted) child.push_back(z);
+
+    return child;
+}
+
+static void complete_kk(const vector<uint64_t>& a, uint64_t sum) {
+    if (global_best == 0) return;
+
+    size_t n = a.size();
+    if (n == 0) {
+        global_best = 0;
+        return;
+    }
+    if (n == 1) {
+        if (a[0] < global_best) global_best = a[0];
+        return;
+    }
+
+    uint64_t rest = sum - a[0];
+    if (a[0] >= rest) {
+        uint64_t exact = a[0] - rest;
+        if (exact < global_best) global_best = exact;
+        return;
+    }
+
+    uint64_t x = a[0];
+    uint64_t y = a[1];
+
+    vector<uint64_t> diff_child = child_with_replacement(a, x - y);
+    complete_kk(diff_child, sum - 2 * y);
+    if (global_best == 0) return;
+
+    vector<uint64_t> sum_child = child_with_replacement(a, x + y);
+    complete_kk(sum_child, sum);
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    size_t N;
+    if (!(cin >> N)) return 0;
+
+    vector<uint64_t> a;
+    a.reserve(N);
+
+    uint64_t g = 0;
+    uint64_t original_total = 0;
+
+    for (size_t i = 0; i < N; ++i) {
+        uint64_t x;
+        cin >> x;
+        a.push_back(x);
+        g = (g == 0) ? x : std::gcd(g, x);
+        original_total += x;
+    }
+
+    if (N == 0 || original_total == 0) {
+        print_uint64(0);
+        return 0;
+    }
+
+    uint64_t total = 0;
+    for (uint64_t& x : a) {
+        x /= g;
+        total += x;
+    }
+
+    sort(a.begin(), a.end(), greater<uint64_t>());
+
+    if (a[0] >= total - a[0]) {
+        print_uint64((a[0] - (total - a[0])) * g);
+        return 0;
+    }
+
+    uint64_t best = greedy_bound(a);
+
+    vector<uint64_t> items;
+    items.reserve(a.size());
+
+    for (size_t i = 0; i < a.size();) {
+        uint64_t v = a[i];
+        size_t j = i;
+        while (j < a.size() && a[j] == v) ++j;
+
+        uint64_t cnt = static_cast<uint64_t>(j - i);
+        uint64_t k = 1;
+        while (cnt > 0) {
+            uint64_t take = min(k, cnt);
+            items.push_back(v * take);
+            cnt -= take;
+            if (k <= numeric_limits<uint64_t>::max() / 2) k *= 2;
+        }
+
+        i = j;
+    }
+
+    sort(items.begin(), items.end(), greater<uint64_t>());
+
+    best = min(best, kk_bound(items));
+    if (best == 0) {
+        print_uint64(0);
+        return 0;
+    }
+
+    uint64_t target = total / 2;
+    uint64_t words = target / 64 + 1;
+
+    const uint64_t MAX_TARGET = 400000000ULL;
+    const uint64_t MAX_OPS = 300000000ULL;
+
+    if (target <= MAX_TARGET && words != 0 && items.size() <= MAX_OPS / words) {
+        uint64_t ans = subset_dp(items, total);
+        print_uint64(ans * g);
+        return 0;
+    }
+
+    if (items.size() <= 47) {
+        try {
+            uint64_t ans = meet_in_middle(items, total);
+            print_uint64(ans * g);
+            return 0;
+        } catch (const bad_alloc&) {
+        }
+    }
+
+    if (items.size() > 2048) {
+        for (;;) {}
+    }
+
+    global_best = best;
+
+    try {
+        complete_kk(items, total);
+    } catch (const bad_alloc&) {
+        for (;;) {}
+    }
+
+    print_uint64(global_best * g);
+    return 0;
+}

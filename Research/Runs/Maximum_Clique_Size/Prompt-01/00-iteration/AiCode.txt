@@ -1,0 +1,288 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static const int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        char c;
+        int x = 0;
+        do {
+            c = getChar();
+        } while (c && (c < '0' || c > '9'));
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do {
+            c = getChar();
+        } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+vector<unsigned long long> adjm;
+vector<vector<unsigned long long>> poolBits, tmpU, tmpQ;
+int bestAns = 0;
+
+static inline uint64_t splitmix64(uint64_t x) {
+    x += 0x9e3779b97f4a7c15ULL;
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+}
+
+inline unsigned long long* rowPtr(int v) {
+    return &adjm[(size_t)v * W];
+}
+
+inline bool isSet(const vector<unsigned long long>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void clearBit(vector<unsigned long long>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline int bitCount(const vector<unsigned long long>& b) {
+    int s = 0;
+    for (unsigned long long x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline bool emptyBits(const vector<unsigned long long>& b) {
+    for (unsigned long long x : b) if (x) return false;
+    return true;
+}
+
+inline int firstBit(const vector<unsigned long long>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+int greedyScan(const vector<int>& order) {
+    vector<unsigned long long> p(W, 0);
+    for (int i = 0; i < N; ++i) p[i >> 6] |= 1ULL << (i & 63);
+
+    int cnt = 0;
+    for (int v : order) {
+        if (isSet(p, v)) {
+            ++cnt;
+            unsigned long long* r = rowPtr(v);
+            for (int j = 0; j < W; ++j) p[j] &= r[j];
+        }
+    }
+    return cnt;
+}
+
+int greedyDynamic() {
+    vector<unsigned long long> p(W, 0);
+    for (int i = 0; i < N; ++i) p[i >> 6] |= 1ULL << (i & 63);
+
+    int cnt = 0;
+    while (!emptyBits(p)) {
+        int bv = -1, bd = -1;
+        for (int v = 0; v < N; ++v) {
+            if (!isSet(p, v)) continue;
+            unsigned long long* r = rowPtr(v);
+            int d = 0;
+            for (int j = 0; j < W; ++j) d += __builtin_popcountll(p[j] & r[j]);
+            if (d > bd) {
+                bd = d;
+                bv = v;
+            }
+        }
+        ++cnt;
+        unsigned long long* r = rowPtr(bv);
+        for (int j = 0; j < W; ++j) p[j] &= r[j];
+    }
+    return cnt;
+}
+
+void colorSort(const vector<unsigned long long>& P, vector<int>& verts, vector<int>& cols, int depth) {
+    verts.clear();
+    cols.clear();
+
+    vector<unsigned long long>& U = tmpU[depth];
+    vector<unsigned long long>& Q = tmpQ[depth];
+    U = P;
+
+    int color = 0;
+    while (!emptyBits(U)) {
+        ++color;
+        Q = U;
+
+        while (!emptyBits(Q)) {
+            int v = firstBit(Q);
+            verts.push_back(v);
+            cols.push_back(color);
+
+            clearBit(U, v);
+            clearBit(Q, v);
+
+            unsigned long long* r = rowPtr(v);
+            for (int j = 0; j < W; ++j) Q[j] &= ~r[j];
+        }
+    }
+}
+
+void expand(int depth, int curSize) {
+    vector<unsigned long long>& P = poolBits[depth];
+
+    if (curSize + bitCount(P) <= bestAns) return;
+
+    vector<int> verts;
+    vector<int> cols;
+    verts.reserve(N);
+    cols.reserve(N);
+
+    colorSort(P, verts, cols, depth);
+
+    for (int i = (int)verts.size() - 1; i >= 0; --i) {
+        if (curSize + cols[i] <= bestAns) return;
+
+        int v = verts[i];
+        if (!isSet(P, v)) continue;
+
+        vector<unsigned long long>& child = poolBits[depth + 1];
+        unsigned long long* r = rowPtr(v);
+
+        int cnt = 0;
+        for (int j = 0; j < W; ++j) {
+            child[j] = P[j] & r[j];
+            cnt += __builtin_popcountll(child[j]);
+        }
+
+        if (curSize + 1 + cnt > bestAns) {
+            if (cnt == 0) {
+                bestAns = curSize + 1;
+            } else {
+                expand(depth + 1, curSize + 1);
+            }
+        }
+
+        clearBit(P, v);
+    }
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+
+    vector<unsigned long long> oldAdj((size_t)N * W, 0);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = in.nextBit();
+            if (b && i != j) oldAdj[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+        }
+    }
+
+    vector<int> deg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        int d = 0;
+        for (int j = 0; j < W; ++j) d += __builtin_popcountll(oldAdj[(size_t)i * W + j]);
+        deg[i] = d;
+    }
+
+    vector<int> perm(N), inv(N);
+    iota(perm.begin(), perm.end(), 0);
+
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] < deg[b];
+        return splitmix64(a) < splitmix64(b);
+    });
+
+    for (int i = 0; i < N; ++i) inv[perm[i]] = i;
+
+    adjm.assign((size_t)N * W, 0);
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        for (int oj = 0; oj < N; ++oj) {
+            if ((oldAdj[(size_t)oi * W + (oj >> 6)] >> (oj & 63)) & 1ULL) {
+                int nj = inv[oj];
+                if (ni != nj) adjm[(size_t)ni * W + (nj >> 6)] |= 1ULL << (nj & 63);
+            }
+        }
+    }
+
+    vector<int> newDeg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        int d = 0;
+        for (int j = 0; j < W; ++j) d += __builtin_popcountll(adjm[(size_t)i * W + j]);
+        newDeg[i] = d;
+    }
+
+    vector<int> order(N);
+    iota(order.begin(), order.end(), 0);
+
+    sort(order.begin(), order.end(), [&](int a, int b) {
+        if (newDeg[a] != newDeg[b]) return newDeg[a] > newDeg[b];
+        return a < b;
+    });
+
+    bestAns = max(bestAns, greedyScan(order));
+
+    vector<int> revOrder = order;
+    reverse(revOrder.begin(), revOrder.end());
+    bestAns = max(bestAns, greedyScan(revOrder));
+
+    int tries = (N <= 2500 ? 10 : 5);
+    for (int t = 0; t < tries; ++t) {
+        vector<int> ord(N);
+        iota(ord.begin(), ord.end(), 0);
+        uint64_t seed = 1234567ULL + 1000003ULL * t;
+        sort(ord.begin(), ord.end(), [&](int a, int b) {
+            long long sa = (long long)newDeg[a] * 512LL + (long long)(splitmix64(seed + a) & 1023ULL);
+            long long sb = (long long)newDeg[b] * 512LL + (long long)(splitmix64(seed + b) & 1023ULL);
+            if (sa != sb) return sa > sb;
+            return a < b;
+        });
+        bestAns = max(bestAns, greedyScan(ord));
+    }
+
+    if (N <= 2200) bestAns = max(bestAns, greedyDynamic());
+
+    if (bestAns == N) {
+        printf("%d\n", bestAns);
+        return 0;
+    }
+
+    poolBits.assign(N + 2, vector<unsigned long long>(W, 0));
+    tmpU.assign(N + 2, vector<unsigned long long>(W, 0));
+    tmpQ.assign(N + 2, vector<unsigned long long>(W, 0));
+
+    for (int i = 0; i < N; ++i) poolBits[0][i >> 6] |= 1ULL << (i & 63);
+
+    expand(0, 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

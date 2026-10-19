@@ -1,0 +1,407 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using u128 = unsigned __int128;
+using u64 = unsigned long long;
+
+static u128 parse_u128(const string& s) {
+    u128 x = 0;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') x = x * 10 + (c - '0');
+    }
+    return x;
+}
+
+static string to_string_u128(u128 x) {
+    if (x == 0) return "0";
+    string s;
+    while (x) {
+        int d = (int)(x % 10);
+        s.push_back(char('0' + d));
+        x /= 10;
+    }
+    reverse(s.begin(), s.end());
+    return s;
+}
+
+static u128 gcd128(u128 a, u128 b) {
+    while (b) {
+        u128 r = a % b;
+        a = b;
+        b = r;
+    }
+    return a;
+}
+
+static bool fits_u64(u128 x) {
+    return x <= (u128)numeric_limits<u64>::max();
+}
+
+static u128 bitset_solve(const vector<u64>& chunks, u64 target, u128 sum) {
+    size_t words = (size_t)(target / 64 + 1);
+    vector<u64> bits(words, 0);
+    bits[0] = 1;
+    u64 maxReach = 0;
+
+    for (u64 a : chunks) {
+        if (a == 0 || a > target) continue;
+        u64 oldReach = maxReach;
+        maxReach = min<u64>(target, maxReach + a);
+        size_t oldHigh = (size_t)(oldReach / 64);
+        size_t newHigh = (size_t)(maxReach / 64);
+        size_t sw = (size_t)(a / 64);
+        unsigned off = (unsigned)(a & 63);
+
+        if (newHigh >= sw) {
+            for (size_t dest = newHigh;; --dest) {
+                size_t src = dest - sw;
+                u64 val = 0;
+                if (src <= oldHigh) val |= bits[src] << off;
+                if (off && src > 0 && src - 1 <= oldHigh) val |= bits[src - 1] >> (64 - off);
+                bits[dest] |= val;
+                if (dest == sw) break;
+            }
+        }
+    }
+
+    size_t last = (size_t)(target / 64);
+    unsigned rem = (unsigned)(target & 63);
+    u64 mask = (rem == 63) ? ~0ULL : ((1ULL << (rem + 1)) - 1);
+    bits[last] &= mask;
+
+    for (size_t i = last + 1; i-- > 0;) {
+        if (bits[i]) {
+            int b = 63 - __builtin_clzll(bits[i]);
+            u128 best = (u128)i * 64 + (unsigned)b;
+            return sum - 2 * best;
+        }
+    }
+    return sum;
+}
+
+static vector<u64> gen_sums_u64(const vector<u64>& a, u64 target) {
+    vector<u64> sums;
+    if (a.size() < 63) sums.reserve((size_t)1 << a.size());
+    sums.push_back(0);
+    for (u64 x : a) {
+        size_t sz = sums.size();
+        for (size_t i = 0; i < sz; ++i) {
+            if (sums[i] <= target - x) sums.push_back(sums[i] + x);
+        }
+    }
+    return sums;
+}
+
+static vector<u128> gen_sums_u128(const vector<u128>& a, u128 target) {
+    vector<u128> sums;
+    if (a.size() < 63) sums.reserve((size_t)1 << a.size());
+    sums.push_back(0);
+    for (u128 x : a) {
+        size_t sz = sums.size();
+        for (size_t i = 0; i < sz; ++i) {
+            if (sums[i] <= target - x) sums.push_back(sums[i] + x);
+        }
+    }
+    return sums;
+}
+
+static u128 mitm_solve_u64(const vector<u128>& items, u64 target, u128 sum) {
+    vector<u64> v;
+    v.reserve(items.size());
+    for (u128 x : items) if (x <= target) v.push_back((u64)x);
+
+    size_t n = v.size();
+    size_t n1 = n / 2;
+    vector<u64> a(v.begin(), v.begin() + n1), b(v.begin() + n1, v.end());
+
+    vector<u64> sb = gen_sums_u64(b, target);
+    sort(sb.begin(), sb.end());
+    sb.erase(unique(sb.begin(), sb.end()), sb.end());
+
+    vector<u64> sa = gen_sums_u64(a, target);
+    u64 best = 0;
+    for (u64 x : sa) {
+        u64 rem = target - x;
+        auto it = upper_bound(sb.begin(), sb.end(), rem);
+        if (it != sb.begin()) {
+            --it;
+            u64 cur = x + *it;
+            if (cur > best) {
+                best = cur;
+                if (best == target) break;
+            }
+        }
+    }
+    return sum - 2 * (u128)best;
+}
+
+static u128 mitm_solve_u128(const vector<u128>& items, u128 target, u128 sum) {
+    vector<u128> v;
+    v.reserve(items.size());
+    for (u128 x : items) if (x <= target) v.push_back(x);
+
+    size_t n = v.size();
+    size_t n1 = n / 2;
+    vector<u128> a(v.begin(), v.begin() + n1), b(v.begin() + n1, v.end());
+
+    vector<u128> sb = gen_sums_u128(b, target);
+    sort(sb.begin(), sb.end());
+    sb.erase(unique(sb.begin(), sb.end()), sb.end());
+
+    vector<u128> sa = gen_sums_u128(a, target);
+    u128 best = 0;
+    for (u128 x : sa) {
+        u128 rem = target - x;
+        auto it = upper_bound(sb.begin(), sb.end(), rem);
+        if (it != sb.begin()) {
+            --it;
+            u128 cur = x + *it;
+            if (cur > best) {
+                best = cur;
+                if (best == target) break;
+            }
+        }
+    }
+    return sum - 2 * best;
+}
+
+struct CKK {
+    u128 best;
+    u128 lower;
+
+    void upd(u128 x) {
+        if (x < best) best = x;
+    }
+
+    void search(const vector<u128>& v, u128 sum) {
+        if (best == lower) return;
+        size_t m = v.size();
+        if (m == 0) {
+            upd(0);
+            return;
+        }
+        if (m == 1) {
+            upd(v[0]);
+            return;
+        }
+
+        u128 a = v[0];
+        u128 rest = sum - a;
+        if (a >= rest) {
+            upd(a - rest);
+            return;
+        }
+
+        u128 b = v[1];
+        if (m == 2) {
+            upd(a - b);
+            return;
+        }
+
+        u128 tailSum = sum - a - b;
+
+        child(v, a - b, tailSum);
+        if (best == lower) return;
+        child(v, a + b, tailSum);
+    }
+
+    void child(const vector<u128>& v, u128 val, u128 tailSum) {
+        if (best == lower) return;
+
+        u128 newSum = tailSum + val;
+        if (newSum == 0) {
+            upd(0);
+            return;
+        }
+
+        u128 tail0 = (v.size() > 2 ? v[2] : 0);
+        u128 largest = val > tail0 ? val : tail0;
+        u128 rest = newSum - largest;
+        if (largest >= rest) {
+            upd(largest - rest);
+            return;
+        }
+
+        vector<u128> c;
+        c.reserve(v.size() - 1);
+        bool inserted = (val == 0);
+        for (size_t i = 2; i < v.size(); ++i) {
+            if (v[i] == 0) break;
+            if (!inserted && val >= v[i]) {
+                c.push_back(val);
+                inserted = true;
+            }
+            c.push_back(v[i]);
+        }
+        if (!inserted) c.push_back(val);
+
+        search(c, newSum);
+    }
+};
+
+static u128 kk_heuristic(vector<u128> v) {
+    priority_queue<u128> pq;
+    for (u128 x : v) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        u128 a = pq.top(); pq.pop();
+        u128 b = pq.top(); pq.pop();
+        if (a > b) pq.push(a - b);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static u128 greedy_heuristic(const vector<u128>& v) {
+    u128 d = 0;
+    for (u128 x : v) d = (d >= x) ? (d - x) : (x - d);
+    return d;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    string tok;
+    if (!(cin >> tok)) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    size_t N = (size_t)stoull(tok);
+    vector<u128> a;
+    a.reserve(N);
+    u128 g = 0, sumOrig = 0;
+
+    for (size_t i = 0; i < N && (cin >> tok); ++i) {
+        u128 x = parse_u128(tok);
+        if (x == 0) continue;
+        a.push_back(x);
+        sumOrig += x;
+        g = gcd128(g, x);
+    }
+
+    if (a.empty()) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    for (u128& x : a) x /= g;
+
+    sort(a.begin(), a.end());
+
+    vector<u128> comp;
+    comp.reserve(a.size());
+    u128 sum = 0;
+
+    for (size_t i = 0; i < a.size();) {
+        size_t j = i + 1;
+        while (j < a.size() && a[j] == a[i]) ++j;
+        size_t cnt = j - i;
+        size_t p = 1;
+        while (cnt) {
+            size_t take = min(p, cnt);
+            u128 x = a[i] * (u128)take;
+            comp.push_back(x);
+            sum += x;
+            cnt -= take;
+            if (p <= (SIZE_MAX >> 1)) p <<= 1;
+            else p = cnt;
+        }
+        i = j;
+    }
+
+    if (sum == 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    u128 target128 = sum / 2;
+    u128 parityLower = sum & 1;
+
+    if (fits_u64(target128)) {
+        u64 target = (u64)target128;
+
+        vector<u64> bitChunks;
+        for (size_t i = 0; i < a.size();) {
+            size_t j = i + 1;
+            while (j < a.size() && a[j] == a[i]) ++j;
+
+            if (a[i] <= target128) {
+                u64 val = (u64)a[i];
+                u64 lim = (u64)min<u128>((u128)(j - i), target128 / a[i]);
+                u64 p = 1;
+                while (lim) {
+                    u64 take = min(p, lim);
+                    u128 chunk = (u128)val * take;
+                    if (chunk <= target128) bitChunks.push_back((u64)chunk);
+                    lim -= take;
+                    if (p <= (numeric_limits<u64>::max() >> 1)) p <<= 1;
+                    else p = lim;
+                }
+            }
+            i = j;
+        }
+
+        size_t words = (size_t)(target / 64 + 1);
+        const size_t MAX_BYTES = 128ull * 1024ull * 1024ull;
+        const long double MAX_OPS = 180000000.0L;
+
+        if (words <= SIZE_MAX / 8 && words * 8 <= MAX_BYTES) {
+            long double ops = (long double)words * (long double)bitChunks.size();
+            if (ops <= MAX_OPS) {
+                u128 d = bitset_solve(bitChunks, target, sum);
+                cout << to_string_u128(d * g) << '\n';
+                return 0;
+            }
+        }
+    }
+
+    vector<u128> subsetItems;
+    subsetItems.reserve(comp.size());
+    for (u128 x : comp) if (x <= target128) subsetItems.push_back(x);
+
+    if (subsetItems.size() <= 44 && fits_u64(target128)) {
+        u128 d = mitm_solve_u64(subsetItems, (u64)target128, sum);
+        cout << to_string_u128(d * g) << '\n';
+        return 0;
+    }
+
+    if (subsetItems.size() <= 42) {
+        u128 d = mitm_solve_u128(subsetItems, target128, sum);
+        cout << to_string_u128(d * g) << '\n';
+        return 0;
+    }
+
+    sort(comp.begin(), comp.end(), greater<u128>());
+    while (!comp.empty() && comp.back() == 0) comp.pop_back();
+
+    u128 best = sum;
+    best = min(best, greedy_heuristic(comp));
+    best = min(best, kk_heuristic(comp));
+
+    if (best == parityLower) {
+        cout << to_string_u128(best * g) << '\n';
+        return 0;
+    }
+
+    if (!comp.empty()) {
+        u128 rest = sum - comp[0];
+        if (comp[0] >= rest) {
+            u128 d = comp[0] - rest;
+            cout << to_string_u128(d * g) << '\n';
+            return 0;
+        }
+    }
+
+    if (comp.size() > 2000) {
+        volatile u64 z = 0;
+        while (true) ++z;
+    }
+
+    CKK ckk;
+    ckk.best = best;
+    ckk.lower = parityLower;
+    ckk.search(comp, sum);
+
+    cout << to_string_u128(ckk.best * g) << '\n';
+    return 0;
+}

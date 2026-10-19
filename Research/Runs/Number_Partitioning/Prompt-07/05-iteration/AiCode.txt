@@ -1,0 +1,302 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <queue>
+#include <limits>
+#include <cstdint>
+#include <string>
+#include <functional>
+#include <new>
+
+using i128 = __int128_t;
+using u64 = unsigned long long;
+
+static i128 best_answer = 0;
+static i128 global_lower_bound = 0;
+
+void print_i128(i128 x) {
+    if (x == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+    if (x < 0) {
+        std::cout << '-';
+        x = -x;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + int(x % 10)));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+i128 abs128(i128 x) {
+    return x < 0 ? -x : x;
+}
+
+i128 gcd128(i128 a, i128 b) {
+    if (a < 0) a = -a;
+    if (b < 0) b = -b;
+    while (b != 0) {
+        i128 r = a % b;
+        a = b;
+        b = r;
+    }
+    return a;
+}
+
+i128 greedy_bound(const std::vector<u64>& a) {
+    i128 x = 0, y = 0;
+    for (u64 v : a) {
+        if (x <= y) x += (i128)v;
+        else y += (i128)v;
+    }
+    return abs128(x - y);
+}
+
+i128 kk_bound(const std::vector<u64>& a) {
+    std::priority_queue<i128> pq;
+    for (u64 v : a) pq.push((i128)v);
+    while (pq.size() > 1) {
+        i128 x = pq.top(); pq.pop();
+        i128 y = pq.top(); pq.pop();
+        pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+i128 bitset_dp(const std::vector<u64>& a, i128 total, u64 target) {
+    size_t words = (size_t)(target / 64) + 1;
+    std::vector<uint64_t> bits(words, 0);
+    bits[0] = 1;
+
+    for (u64 val : a) {
+        if (val > target) continue;
+        size_t sw = (size_t)(val / 64);
+        unsigned sb = (unsigned)(val & 63);
+
+        if (sw >= words) continue;
+
+        if (sb == 0) {
+            for (size_t i = words; i-- > sw;) {
+                bits[i] |= bits[i - sw];
+            }
+        } else {
+            for (size_t i = words; i-- > sw;) {
+                uint64_t x = bits[i - sw] << sb;
+                if (i > sw) x |= bits[i - sw - 1] >> (64 - sb);
+                bits[i] |= x;
+            }
+        }
+    }
+
+    size_t last = (size_t)(target / 64);
+    unsigned last_bits = (unsigned)(target & 63) + 1;
+
+    for (size_t wi = last + 1; wi-- > 0;) {
+        uint64_t x = bits[wi];
+        if (wi == last && last_bits < 64) {
+            x &= ((1ULL << last_bits) - 1);
+        }
+        if (x) {
+            int bit = 63 - __builtin_clzll(x);
+            u64 s = (u64)wi * 64ULL + (u64)bit;
+            return total - 2 * (i128)s;
+        }
+    }
+
+    return total;
+}
+
+void generate_sums(const std::vector<u64>& a, int l, int r, u64 target, std::vector<u64>& sums) {
+    sums.clear();
+    sums.push_back(0);
+
+    int m = r - l;
+    if (m < 63) sums.reserve((size_t)1 << m);
+
+    for (int i = l; i < r; ++i) {
+        u64 v = a[i];
+        if (v > target) continue;
+        size_t sz = sums.size();
+        for (size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= target - v) sums.push_back(sums[j] + v);
+        }
+    }
+}
+
+i128 meet_in_middle(const std::vector<u64>& a, i128 total, u64 target, i128 initial_best) {
+    int n = (int)a.size();
+    int m = std::min(n / 2, 24);
+    std::vector<u64> left;
+    generate_sums(a, 0, m, target, left);
+    std::sort(left.begin(), left.end());
+    left.erase(std::unique(left.begin(), left.end()), left.end());
+
+    i128 ans = initial_best;
+
+    std::function<void(int, u64)> dfs = [&](int idx, u64 cur) {
+        if (ans == global_lower_bound) return;
+        if (idx == n) {
+            u64 rem = target - cur;
+            auto it = std::upper_bound(left.begin(), left.end(), rem);
+            if (it != left.begin()) {
+                --it;
+                u64 s = cur + *it;
+                i128 diff = total - 2 * (i128)s;
+                if (diff < ans) ans = diff;
+            }
+            return;
+        }
+
+        dfs(idx + 1, cur);
+        u64 v = a[idx];
+        if (v <= target - cur) dfs(idx + 1, cur + v);
+    };
+
+    dfs(m, 0);
+    return ans;
+}
+
+void insert_desc(std::vector<i128>& dst, const std::vector<i128>& src, i128 val) {
+    bool inserted = false;
+    if (val <= 0) inserted = true;
+
+    for (size_t i = 2; i < src.size(); ++i) {
+        if (!inserted && val >= src[i]) {
+            dst.push_back(val);
+            inserted = true;
+        }
+        dst.push_back(src[i]);
+    }
+    if (!inserted) dst.push_back(val);
+}
+
+void ckk_search(const std::vector<i128>& v, i128 sum) {
+    if (best_answer == global_lower_bound) return;
+
+    size_t n = v.size();
+    if (n == 0) {
+        best_answer = 0;
+        return;
+    }
+    if (n == 1) {
+        if (v[0] < best_answer) best_answer = v[0];
+        return;
+    }
+
+    i128 rest = sum - v[0];
+    if (v[0] >= rest) {
+        i128 exact = v[0] - rest;
+        if (exact < best_answer) best_answer = exact;
+        return;
+    }
+
+    if (global_lower_bound >= best_answer) return;
+
+    i128 g = 0;
+    for (i128 x : v) g = gcd128(g, x);
+    if (g > 0) {
+        i128 lb = ((sum / g) & 1) ? g : 0;
+        if (lb >= best_answer) return;
+    }
+
+    i128 a = v[0], b = v[1];
+
+    {
+        i128 c = a - b;
+        std::vector<i128> next;
+        next.reserve(n - 1);
+        insert_desc(next, v, c);
+        ckk_search(next, sum - 2 * b);
+    }
+
+    if (best_answer == global_lower_bound) return;
+
+    {
+        i128 c = a + b;
+        std::vector<i128> next;
+        next.reserve(n - 1);
+        next.push_back(c);
+        for (size_t i = 2; i < n; ++i) next.push_back(v[i]);
+        ckk_search(next, sum);
+    }
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u64> a;
+    a.reserve(N);
+
+    i128 total = 0;
+    u64 g = 0;
+
+    for (int i = 0; i < N; ++i) {
+        u64 x;
+        std::cin >> x;
+        a.push_back(x);
+        total += (i128)x;
+        g = std::gcd(g, x);
+    }
+
+    if (N == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<u64>());
+
+    global_lower_bound = (g != 0 && ((total / (i128)g) & 1)) ? (i128)g : 0;
+
+    best_answer = greedy_bound(a);
+    i128 kb = kk_bound(a);
+    if (kb < best_answer) best_answer = kb;
+
+    if (best_answer == global_lower_bound) {
+        print_i128(best_answer);
+        return 0;
+    }
+
+    i128 target128 = total / 2;
+
+    if (target128 >= 0 && target128 <= (i128)std::numeric_limits<u64>::max()) {
+        u64 target = (u64)target128;
+        u64 words = target / 64 + 1;
+
+        const i128 MAX_DP_TARGET = 200000000;
+        const i128 MAX_DP_OPS = 120000000;
+
+        if ((i128)target <= MAX_DP_TARGET && (i128)words * (i128)N <= MAX_DP_OPS) {
+            try {
+                print_i128(bitset_dp(a, total, target));
+                return 0;
+            } catch (const std::bad_alloc&) {
+            }
+        }
+
+        if (N <= 50) {
+            try {
+                print_i128(meet_in_middle(a, total, target, best_answer));
+                return 0;
+            } catch (const std::bad_alloc&) {
+            }
+        }
+    }
+
+    std::vector<i128> v;
+    v.reserve(a.size());
+    for (u64 x : a) if (x != 0) v.push_back((i128)x);
+
+    ckk_search(v, total);
+    print_i128(best_answer);
+
+    return 0;
+}

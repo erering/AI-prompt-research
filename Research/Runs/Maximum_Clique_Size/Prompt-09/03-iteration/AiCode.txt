@@ -1,0 +1,336 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static const int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        char c;
+        do c = getChar(); while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    char nextBit() {
+        char c;
+        do c = getChar(); while (c != '0' && c != '1');
+        return c;
+    }
+};
+
+int N, W;
+vector<vector<unsigned long long>> adjBits;
+vector<vector<int>> adjList;
+
+inline bool testBit(const vector<unsigned long long>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void setBit(vector<unsigned long long>& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+inline void clearBit(vector<unsigned long long>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline int popBits(const vector<unsigned long long>& b) {
+    int s = 0;
+    for (auto x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline int firstBit(const vector<unsigned long long>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+inline int degreeInActive(int v, const vector<unsigned long long>& active) {
+    int d = 0;
+    const auto& a = adjBits[v];
+    for (int i = 0; i < W; ++i) d += __builtin_popcountll(a[i] & active[i]);
+    return d;
+}
+
+int collectUpTo(int v, const vector<unsigned long long>& active, int limit, int out[4]) {
+    int c = 0;
+    const auto& a = adjBits[v];
+    for (int i = 0; i < W; ++i) {
+        unsigned long long x = a[i] & active[i];
+        while (x) {
+            int u = (i << 6) + __builtin_ctzll(x);
+            if (u < N) out[c] = u;
+            ++c;
+            if (c > limit) return c;
+            x &= x - 1;
+        }
+    }
+    return c;
+}
+
+inline bool adjacentH(int u, int v) {
+    return (adjBits[u][v >> 6] >> (v & 63)) & 1ULL;
+}
+
+int reduceGraph(vector<unsigned long long>& active) {
+    int forced = 0;
+    bool changed = true;
+    int neigh[4];
+
+    while (changed) {
+        changed = false;
+        for (int wi = 0; wi < W && !changed; ++wi) {
+            unsigned long long x = active[wi];
+            while (x && !changed) {
+                int v = (wi << 6) + __builtin_ctzll(x);
+                x &= x - 1;
+                if (v >= N || !testBit(active, v)) continue;
+
+                int d = collectUpTo(v, active, 3, neigh);
+
+                if (d == 0) {
+                    clearBit(active, v);
+                    ++forced;
+                    changed = true;
+                } else if (d == 1) {
+                    clearBit(active, v);
+                    clearBit(active, neigh[0]);
+                    ++forced;
+                    changed = true;
+                } else if (d == 2 && adjacentH(neigh[0], neigh[1])) {
+                    clearBit(active, v);
+                    clearBit(active, neigh[0]);
+                    clearBit(active, neigh[1]);
+                    ++forced;
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    return forced;
+}
+
+vector<vector<unsigned long long>> componentsOf(const vector<unsigned long long>& active) {
+    vector<vector<unsigned long long>> comps;
+    int total = popBits(active);
+    if (total == 0) return comps;
+
+    vector<unsigned long long> unseen = active;
+    vector<int> q;
+    q.reserve(total);
+
+    while (true) {
+        int s = firstBit(unseen);
+        if (s < 0 || s >= N) break;
+
+        vector<unsigned long long> comp(W, 0);
+        q.clear();
+        q.push_back(s);
+        clearBit(unseen, s);
+        setBit(comp, s);
+
+        for (size_t head = 0; head < q.size(); ++head) {
+            int v = q[head];
+            for (int u : adjList[v]) {
+                if (testBit(unseen, u)) {
+                    clearBit(unseen, u);
+                    setBit(comp, u);
+                    q.push_back(u);
+                }
+            }
+        }
+
+        comps.push_back(move(comp));
+        if ((int)q.size() == total) {
+            if (comps.size() == 1) return comps;
+        }
+    }
+
+    return comps;
+}
+
+int greedyLower(const vector<unsigned long long>& active) {
+    vector<pair<int, int>> ord;
+    int cnt = popBits(active);
+    ord.reserve(cnt);
+
+    for (int wi = 0; wi < W; ++wi) {
+        unsigned long long x = active[wi];
+        while (x) {
+            int v = (wi << 6) + __builtin_ctzll(x);
+            x &= x - 1;
+            if (v < N) ord.emplace_back(degreeInActive(v, active), v);
+        }
+    }
+
+    sort(ord.begin(), ord.end());
+
+    vector<unsigned long long> avail = active;
+    int res = 0;
+
+    for (auto [d, v] : ord) {
+        if (!testBit(avail, v)) continue;
+        ++res;
+        for (int i = 0; i < W; ++i) avail[i] &= ~adjBits[v][i];
+        clearBit(avail, v);
+    }
+
+    return res;
+}
+
+int matchingBoundSize(const vector<unsigned long long>& active) {
+    vector<pair<int, int>> ord;
+    int cnt = popBits(active);
+    ord.reserve(cnt);
+
+    for (int wi = 0; wi < W; ++wi) {
+        unsigned long long x = active[wi];
+        while (x) {
+            int v = (wi << 6) + __builtin_ctzll(x);
+            x &= x - 1;
+            if (v < N) ord.emplace_back(degreeInActive(v, active), v);
+        }
+    }
+
+    sort(ord.begin(), ord.end());
+
+    vector<unsigned long long> unmatched = active;
+    int m = 0;
+
+    for (auto [d, v] : ord) {
+        if (!testBit(unmatched, v)) continue;
+
+        int u = -1;
+        for (int z : adjList[v]) {
+            if (testBit(unmatched, z)) {
+                u = z;
+                break;
+            }
+        }
+
+        if (u != -1) {
+            clearBit(unmatched, v);
+            clearBit(unmatched, u);
+            ++m;
+        }
+    }
+
+    return m;
+}
+
+inline int upperBoundMIS(const vector<unsigned long long>& active) {
+    int cnt = popBits(active);
+    if (cnt == 0) return 0;
+    int m = matchingBoundSize(active);
+    return cnt - m;
+}
+
+int chooseBranchVertex(const vector<unsigned long long>& active) {
+    int bestV = -1, bestD = -1;
+
+    for (int wi = 0; wi < W; ++wi) {
+        unsigned long long x = active[wi];
+        while (x) {
+            int v = (wi << 6) + __builtin_ctzll(x);
+            x &= x - 1;
+            if (v >= N) continue;
+            int d = degreeInActive(v, active);
+            if (d > bestD) {
+                bestD = d;
+                bestV = v;
+            }
+        }
+    }
+
+    return bestV;
+}
+
+int solveMIS(vector<unsigned long long> active) {
+    int forced = reduceGraph(active);
+    int cnt = popBits(active);
+
+    if (cnt == 0) return forced;
+
+    auto comps = componentsOf(active);
+    if (comps.size() > 1) {
+        int sum = forced;
+        for (auto& c : comps) sum += solveMIS(move(c));
+        return sum;
+    }
+
+    int lb = greedyLower(active);
+    int ub = upperBoundMIS(active);
+
+    if (ub <= lb) return forced + lb;
+
+    int v = chooseBranchVertex(active);
+    if (v < 0) return forced + cnt;
+
+    vector<unsigned long long> excl = active;
+    clearBit(excl, v);
+
+    vector<unsigned long long> incl = active;
+    for (int i = 0; i < W; ++i) incl[i] &= ~adjBits[v][i];
+    clearBit(incl, v);
+
+    int ubEx = upperBoundMIS(excl);
+    int ubIn = 1 + upperBoundMIS(incl);
+
+    int best = lb;
+
+    if (ubEx >= ubIn) {
+        if (ubEx > best) best = max(best, solveMIS(move(excl)));
+        if (ubIn > best) best = max(best, 1 + solveMIS(move(incl)));
+    } else {
+        if (ubIn > best) best = max(best, 1 + solveMIS(move(incl)));
+        if (ubEx > best) best = max(best, solveMIS(move(excl)));
+    }
+
+    return forced + best;
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+    W = (N + 63) >> 6;
+
+    adjBits.assign(N, vector<unsigned long long>(W, 0));
+    adjList.assign(N, {});
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            char c = in.nextBit();
+            if (j > i && c == '0') {
+                setBit(adjBits[i], j);
+                setBit(adjBits[j], i);
+                adjList[i].push_back(j);
+                adjList[j].push_back(i);
+            }
+        }
+    }
+
+    vector<unsigned long long> active(W, 0);
+    for (int i = 0; i < N; ++i) setBit(active, i);
+
+    int ans = solveMIS(move(active));
+    printf("%d\n", ans);
+    return 0;
+}

@@ -1,0 +1,322 @@
+#include <algorithm>
+#include <bit>
+#include <cctype>
+#include <cstdint>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <string>
+#include <vector>
+
+using U128 = unsigned __int128;
+using I128 = __int128_t;
+
+static U128 parse_u128(const std::string& s) {
+    U128 x = 0;
+    for (char c : s) {
+        if (std::isdigit(static_cast<unsigned char>(c))) {
+            x = x * 10 + static_cast<unsigned>(c - '0');
+        }
+    }
+    return x;
+}
+
+static void print_u128(U128 x) {
+    if (x == 0) {
+        std::cout << "0\n";
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + x % 10));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static U128 solve_bitset_dp(const std::vector<uint64_t>& a, uint64_t total, uint64_t scale) {
+    const size_t words = static_cast<size_t>(total / 64) + 1;
+    std::vector<uint64_t> bits(words, 0);
+    bits[0] = 1ULL;
+
+    for (uint64_t x : a) {
+        const size_t ws = static_cast<size_t>(x / 64);
+        const unsigned bs = static_cast<unsigned>(x % 64);
+
+        for (size_t i = words; i-- > ws;) {
+            uint64_t v = bits[i - ws] << bs;
+            if (bs != 0 && i > ws) {
+                v |= bits[i - ws - 1] >> (64 - bs);
+            }
+            bits[i] |= v;
+        }
+    }
+
+    const uint64_t target = total / 2;
+    size_t wi = static_cast<size_t>(target / 64);
+    const unsigned bi = static_cast<unsigned>(target % 64);
+
+    uint64_t word = bits[wi] & (bi == 63 ? ~0ULL : ((1ULL << (bi + 1)) - 1));
+
+    while (true) {
+        if (word != 0) {
+            uint64_t pos = static_cast<uint64_t>(wi) * 64ULL + static_cast<uint64_t>(std::bit_width(word) - 1);
+            U128 diff = static_cast<U128>(total - 2ULL * pos);
+            return diff * static_cast<U128>(scale);
+        }
+        if (wi == 0) break;
+        --wi;
+        word = bits[wi];
+    }
+
+    return static_cast<U128>(total) * static_cast<U128>(scale);
+}
+
+struct Mitm64 {
+    const std::vector<uint64_t>* a;
+    std::vector<uint64_t> right;
+    int mid;
+    int n;
+    uint64_t total;
+    uint64_t target;
+    uint64_t best;
+
+    void consider(uint64_t s) {
+        uint64_t other = total - s;
+        uint64_t d = (s > other) ? (s - other) : (other - s);
+        if (d < best) best = d;
+    }
+
+    void dfs_left(int idx, uint64_t sum) {
+        if (best == 0) return;
+        if (idx == mid) {
+            uint64_t need = (sum <= target) ? (target - sum) : 0;
+            auto it = std::lower_bound(right.begin(), right.end(), need);
+            if (it != right.end()) consider(sum + *it);
+            if (it != right.begin()) {
+                --it;
+                consider(sum + *it);
+            }
+            return;
+        }
+        dfs_left(idx + 1, sum);
+        dfs_left(idx + 1, sum + (*a)[idx]);
+    }
+
+    U128 run(const std::vector<uint64_t>& vals, uint64_t sum) {
+        a = &vals;
+        n = static_cast<int>(vals.size());
+        mid = n / 2;
+        total = sum;
+        target = total / 2;
+        best = total;
+
+        int m = n - mid;
+        size_t sz = size_t(1) << m;
+        right.assign(sz, 0);
+
+        size_t filled = 1;
+        for (int i = 0; i < m; ++i) {
+            uint64_t x = vals[mid + i];
+            for (size_t j = 0; j < filled; ++j) {
+                right[filled + j] = right[j] + x;
+            }
+            filled <<= 1;
+        }
+
+        std::sort(right.begin(), right.end());
+        dfs_left(0, 0);
+        return static_cast<U128>(best);
+    }
+};
+
+struct Mitm128 {
+    const std::vector<U128>* a;
+    std::vector<U128> right;
+    int mid;
+    int n;
+    U128 total;
+    U128 target;
+    U128 best;
+
+    void consider(U128 s) {
+        U128 other = total - s;
+        U128 d = (s > other) ? (s - other) : (other - s);
+        if (d < best) best = d;
+    }
+
+    void dfs_left(int idx, U128 sum) {
+        if (best == 0) return;
+        if (idx == mid) {
+            U128 need = (sum <= target) ? (target - sum) : 0;
+            auto it = std::lower_bound(right.begin(), right.end(), need);
+            if (it != right.end()) consider(sum + *it);
+            if (it != right.begin()) {
+                --it;
+                consider(sum + *it);
+            }
+            return;
+        }
+        dfs_left(idx + 1, sum);
+        dfs_left(idx + 1, sum + (*a)[idx]);
+    }
+
+    U128 run(const std::vector<U128>& vals, U128 sum) {
+        a = &vals;
+        n = static_cast<int>(vals.size());
+        mid = n / 2;
+        total = sum;
+        target = total / 2;
+        best = total;
+
+        int m = n - mid;
+        size_t sz = size_t(1) << m;
+        right.assign(sz, 0);
+
+        size_t filled = 1;
+        for (int i = 0; i < m; ++i) {
+            U128 x = vals[mid + i];
+            for (size_t j = 0; j < filled; ++j) {
+                right[filled + j] = right[j] + x;
+            }
+            filled <<= 1;
+        }
+
+        std::sort(right.begin(), right.end());
+        dfs_left(0, 0);
+        return best;
+    }
+};
+
+struct BranchBound {
+    std::vector<U128> a;
+    std::vector<U128> suffix;
+    U128 best = 0;
+
+    static U128 abs_i128(I128 x) {
+        return x < 0 ? static_cast<U128>(-x) : static_cast<U128>(x);
+    }
+
+    void dfs(int idx, I128 diff) {
+        U128 ad = abs_i128(diff);
+        U128 lower = (ad > suffix[idx]) ? (ad - suffix[idx]) : 0;
+        if (lower >= best) return;
+
+        if (idx == static_cast<int>(a.size())) {
+            best = ad;
+            return;
+        }
+
+        I128 x = static_cast<I128>(a[idx]);
+        I128 d1 = diff + x;
+        I128 d2 = diff - x;
+
+        if (abs_i128(d2) < abs_i128(d1)) std::swap(d1, d2);
+
+        dfs(idx + 1, d1);
+        if (best != 0) dfs(idx + 1, d2);
+    }
+
+    U128 run(std::vector<U128> vals) {
+        a = std::move(vals);
+        std::sort(a.begin(), a.end(), [](U128 x, U128 y) { return x > y; });
+
+        U128 g1 = 0, g2 = 0;
+        for (U128 x : a) {
+            if (g1 <= g2) g1 += x;
+            else g2 += x;
+        }
+        best = (g1 > g2) ? (g1 - g2) : (g2 - g1);
+        if (best == 0) return 0;
+
+        int n = static_cast<int>(a.size());
+        suffix.assign(n + 1, 0);
+        for (int i = n - 1; i >= 0; --i) suffix[i] = suffix[i + 1] + a[i];
+
+        dfs(0, 0);
+        return best;
+    }
+};
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<U128> vals128;
+    vals128.reserve(N);
+
+    std::vector<uint64_t> vals64;
+    vals64.reserve(N);
+
+    U128 total128 = 0;
+    bool all_fit64 = true;
+    bool total_fit64 = true;
+    const U128 ULL_MAX_128 = static_cast<U128>(std::numeric_limits<uint64_t>::max());
+
+    for (int i = 0; i < N; ++i) {
+        std::string s;
+        std::cin >> s;
+        U128 x = parse_u128(s);
+        vals128.push_back(x);
+        total128 += x;
+
+        if (x > ULL_MAX_128) all_fit64 = false;
+        if (total128 > ULL_MAX_128) total_fit64 = false;
+
+        if (x <= ULL_MAX_128) vals64.push_back(static_cast<uint64_t>(x));
+        else vals64.push_back(0);
+    }
+
+    if (N == 0 || total128 == 0) {
+        std::cout << "0\n";
+        return 0;
+    }
+
+    if (all_fit64 && total_fit64) {
+        uint64_t total64 = static_cast<uint64_t>(total128);
+
+        uint64_t g = 0;
+        for (uint64_t x : vals64) g = std::gcd(g, x);
+
+        if (g == 0) {
+            std::cout << "0\n";
+            return 0;
+        }
+
+        std::vector<uint64_t> scaled;
+        scaled.reserve(N);
+        for (uint64_t x : vals64) scaled.push_back(x / g);
+        uint64_t scaled_total = total64 / g;
+
+        const uint64_t MAX_DP_BITS = 250000000ULL;
+        const long double MAX_DP_WORD_OPS = 120000000.0L;
+        long double words = static_cast<long double>(scaled_total / 64 + 1);
+        long double ops = words * static_cast<long double>(N);
+
+        if (scaled_total <= MAX_DP_BITS && ops <= MAX_DP_WORD_OPS) {
+            print_u128(solve_bitset_dp(scaled, scaled_total, g));
+            return 0;
+        }
+
+        if ((N - N / 2) <= 24) {
+            Mitm64 solver;
+            print_u128(solver.run(vals64, total64));
+            return 0;
+        }
+    }
+
+    if ((N - N / 2) <= 22) {
+        Mitm128 solver;
+        print_u128(solver.run(vals128, total128));
+        return 0;
+    }
+
+    BranchBound solver;
+    print_u128(solver.run(std::move(vals128)));
+    return 0;
+}

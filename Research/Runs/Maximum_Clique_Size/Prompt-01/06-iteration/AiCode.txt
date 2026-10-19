@@ -1,0 +1,185 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+int N, W;
+vector<vector<ull>> adjg;
+vector<int> bestClique;
+int bestSize = 0;
+ull lastMask;
+
+inline bool testBit(const vector<ull>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void clearBit(vector<ull>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline int popcntBits(const vector<ull>& b) {
+    int s = 0;
+    for (ull x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline bool emptyBits(const vector<ull>& b) {
+    for (ull x : b) if (x) return false;
+    return true;
+}
+
+inline int firstBit(const vector<ull>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+void greedyInitial(const vector<int>& ord) {
+    vector<ull> p(W);
+    for (int i = 0; i < W; ++i) p[i] = ~0ULL;
+    p[W - 1] &= lastMask;
+
+    int cnt = 0;
+    for (int v : ord) {
+        if (testBit(p, v)) {
+            ++cnt;
+            for (int i = 0; i < W; ++i) p[i] &= adjg[v][i];
+        }
+    }
+    bestSize = max(bestSize, cnt);
+}
+
+void colorSort(const vector<ull>& P, vector<int>& order, vector<int>& color) {
+    order.clear();
+    color.clear();
+
+    vector<ull> U = P;
+    int c = 0;
+
+    while (!emptyBits(U)) {
+        ++c;
+        vector<ull> Q = U;
+
+        while (!emptyBits(Q)) {
+            int v = firstBit(Q);
+
+            order.push_back(v);
+            color.push_back(c);
+
+            clearBit(U, v);
+            clearBit(Q, v);
+
+            const vector<ull>& av = adjg[v];
+            for (int i = 0; i < W; ++i) Q[i] &= ~av[i];
+            Q[W - 1] &= lastMask;
+        }
+    }
+}
+
+void expand(vector<ull>& P, int sz) {
+    if (sz + popcntBits(P) <= bestSize) return;
+
+    if (emptyBits(P)) {
+        if (sz > bestSize) bestSize = sz;
+        return;
+    }
+
+    vector<int> order, color;
+    order.reserve(popcntBits(P));
+    color.reserve(order.capacity());
+    colorSort(P, order, color);
+
+    vector<ull> Pcur = P;
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (sz + color[i] <= bestSize) return;
+
+        int v = order[i];
+        if (!testBit(Pcur, v)) continue;
+
+        vector<ull> Pnext(W);
+        const vector<ull>& av = adjg[v];
+        for (int j = 0; j < W; ++j) Pnext[j] = Pcur[j] & av[j];
+
+        if (sz + 1 + popcntBits(Pnext) > bestSize) {
+            expand(Pnext, sz + 1);
+        } else if (sz + 1 > bestSize) {
+            bestSize = sz + 1;
+        }
+
+        clearBit(Pcur, v);
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+
+    W = (N + 63) >> 6;
+    lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    adjg.assign(N, vector<ull>(W, 0));
+
+    char c;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            do {
+                if (!cin.get(c)) return 0;
+            } while (c != '0' && c != '1');
+
+            if (c == '1' && i != j) {
+                adjg[i][j >> 6] |= 1ULL << (j & 63);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        adjg[i][i >> 6] &= ~(1ULL << (i & 63));
+        adjg[i][W - 1] &= lastMask;
+    }
+
+    if (N == 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    vector<int> deg(N), ord(N);
+    iota(ord.begin(), ord.end(), 0);
+
+    for (int i = 0; i < N; ++i) deg[i] = popcntBits(adjg[i]);
+
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        return deg[a] > deg[b];
+    });
+    greedyInitial(ord);
+
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        return deg[a] < deg[b];
+    });
+    greedyInitial(ord);
+
+    mt19937 rng(1);
+    int trials = (N <= 1500 ? 6 : (N <= 3000 ? 3 : 1));
+    iota(ord.begin(), ord.end(), 0);
+    for (int t = 0; t < trials; ++t) {
+        shuffle(ord.begin(), ord.end(), rng);
+        stable_sort(ord.begin(), ord.end(), [&](int a, int b) {
+            int ba = deg[a] + (int)(rng() & 15);
+            int bb = deg[b] + (int)(rng() & 15);
+            return ba > bb;
+        });
+        greedyInitial(ord);
+    }
+
+    vector<ull> P(W);
+    for (int i = 0; i < W; ++i) P[i] = ~0ULL;
+    P[W - 1] &= lastMask;
+
+    expand(P, 0);
+
+    cout << bestSize << '\n';
+    return 0;
+}

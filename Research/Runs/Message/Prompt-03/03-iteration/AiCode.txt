@@ -1,0 +1,169 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+namespace {
+    unsigned long long comb_tbl[32][17];
+    bool comb_ready = false;
+
+    void init_comb() {
+        if (comb_ready) return;
+        memset(comb_tbl, 0, sizeof(comb_tbl));
+        for (int n = 0; n <= 31; ++n) {
+            comb_tbl[n][0] = 1;
+            for (int k = 1; k <= 16; ++k) {
+                if (k > n) comb_tbl[n][k] = 0;
+                else if (k == n) comb_tbl[n][k] = 1;
+                else comb_tbl[n][k] = comb_tbl[n - 1][k - 1] + comb_tbl[n - 1][k];
+            }
+        }
+        comb_ready = true;
+    }
+
+    unsigned long long rank_subset_16(const vector<int>& pos) {
+        init_comb();
+        unsigned long long rank = 0;
+        int need = 16;
+        int start = 0;
+
+        for (int x : pos) {
+            for (int y = start; y < x; ++y) {
+                rank += comb_tbl[31 - y - 1][need - 1];
+            }
+            start = x + 1;
+            --need;
+        }
+
+        return rank;
+    }
+
+    vector<int> unrank_subset_16(unsigned long long rank) {
+        init_comb();
+        vector<int> pos;
+        int need = 16;
+        int start = 0;
+
+        while (need > 0) {
+            for (int y = start; y <= 31 - need; ++y) {
+                unsigned long long cnt = comb_tbl[31 - y - 1][need - 1];
+                if (rank < cnt) {
+                    pos.push_back(y);
+                    start = y + 1;
+                    --need;
+                    break;
+                } else {
+                    rank -= cnt;
+                }
+            }
+        }
+
+        return pos;
+    }
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    init_comb();
+
+    vector<int> protected_pos;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) protected_pos.push_back(i);
+    }
+
+    unsigned long long header = rank_subset_16(protected_pos);
+
+    for (int t = 0; t < 29; ++t) {
+        vector<bool> A(31, false);
+        bool bit = ((header >> t) & 1ULL) != 0;
+        for (int i = 0; i < 31; ++i) A[i] = bit;
+        send_packet(A);
+    }
+
+    vector<bool> payload;
+    int S = (int)M.size();
+    int rem = S & 15;
+
+    for (int b = 0; b < 4; ++b) payload.push_back(((rem >> b) & 1) != 0);
+    for (bool x : M) payload.push_back(x);
+
+    int ptr = 0;
+    int packets = ((int)payload.size() + 15) / 16;
+
+    for (int t = 0; t < packets; ++t) {
+        vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            bool bit = false;
+            if (ptr < (int)payload.size()) bit = payload[ptr];
+            ++ptr;
+            A[protected_pos[j]] = bit;
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    init_comb();
+
+    int q = (int)R.size();
+
+    unordered_map<unsigned long long, int> cnt;
+    cnt.reserve(64);
+
+    for (int col = 0; col < 31; ++col) {
+        unsigned long long v = 0;
+        for (int t = 0; t < 29 && t < q; ++t) {
+            if (R[t][col]) v |= (1ULL << t);
+        }
+        cnt[v]++;
+    }
+
+    unsigned long long header = 0;
+    int best = -1;
+    for (auto &e : cnt) {
+        if (e.second > best) {
+            best = e.second;
+            header = e.first;
+        }
+    }
+
+    if (header >= comb_tbl[31][16]) header %= comb_tbl[31][16];
+
+    vector<int> protected_pos = unrank_subset_16(header);
+
+    vector<bool> payload;
+    for (int t = 29; t < q; ++t) {
+        for (int x : protected_pos) {
+            payload.push_back(R[t][x]);
+        }
+    }
+
+    if ((int)payload.size() < 4) return vector<bool>();
+
+    int rem = 0;
+    for (int b = 0; b < 4; ++b) {
+        if (payload[b]) rem |= (1 << b);
+    }
+
+    int p = max(0, q - 29);
+    int lo = max(1, 16 * p - 19);
+    int hi = min(1024, 16 * p - 4);
+
+    int S = lo;
+    for (int s = lo; s <= hi; ++s) {
+        if ((s & 15) == rem) {
+            S = s;
+            break;
+        }
+    }
+
+    vector<bool> M;
+    M.reserve(S);
+
+    for (int i = 0; i < S; ++i) {
+        int idx = 4 + i;
+        if (idx < (int)payload.size()) M.push_back(payload[idx]);
+        else M.push_back(false);
+    }
+
+    return M;
+}

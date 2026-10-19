@@ -1,0 +1,253 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <new>
+#include <numeric>
+#include <vector>
+
+using ull = unsigned long long;
+
+bool solve_dp(const std::vector<ull>& a, ull sum, ull& best) {
+    ull target = sum / 2;
+    ull words_ull = target / 64 + 1;
+    const ull MAX_WORDS = 4000000ULL;
+    const ull OP_LIMIT = 120000000ULL;
+
+    if (words_ull > MAX_WORDS) return false;
+    if (!a.empty() && words_ull > OP_LIMIT / a.size()) return false;
+
+    try {
+        size_t words = static_cast<size_t>(words_ull);
+        std::vector<std::uint64_t> bits(words, 0);
+        bits[0] = 1;
+
+        int last_bits = static_cast<int>(target & 63) + 1;
+        std::uint64_t last_mask = (last_bits == 64) ? ~0ULL : ((1ULL << last_bits) - 1ULL);
+
+        for (ull x : a) {
+            if (x > target) continue;
+            size_t sh = static_cast<size_t>(x);
+            size_t word_shift = sh >> 6;
+            unsigned bit_shift = static_cast<unsigned>(sh & 63);
+
+            for (size_t i = words; i-- > word_shift;) {
+                std::uint64_t v = bits[i - word_shift] << bit_shift;
+                if (bit_shift && i > word_shift) {
+                    v |= bits[i - word_shift - 1] >> (64 - bit_shift);
+                }
+                bits[i] |= v;
+            }
+            bits.back() &= last_mask;
+        }
+
+        for (size_t i = words; i-- > 0;) {
+            std::uint64_t w = bits[i];
+            if (w) {
+                best = static_cast<ull>(i) * 64ULL + static_cast<unsigned>(63 - std::countl_zero(w));
+                return true;
+            }
+        }
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+
+    return false;
+}
+
+bool solve_mitm(const std::vector<ull>& nums, ull sum, ull& best) {
+    ull target = sum / 2;
+
+    std::vector<ull> a;
+    a.reserve(nums.size());
+    for (ull x : nums) {
+        if (x <= target) a.push_back(x);
+    }
+
+    if (a.size() > 46) return false;
+
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+    if (!a.empty() && a[0] == target) {
+        best = target;
+        return true;
+    }
+
+    size_t n = a.size();
+    size_t m = std::min<size_t>(22, n / 2);
+    size_t left_n = n - m;
+
+    try {
+        std::vector<ull> right;
+        right.reserve(1ULL << m);
+        right.push_back(0);
+
+        for (size_t i = left_n; i < n; ++i) {
+            ull x = a[i];
+            size_t old = right.size();
+            for (size_t j = 0; j < old; ++j) {
+                ull s = right[j] + x;
+                if (s <= target) right.push_back(s);
+            }
+        }
+
+        std::sort(right.begin(), right.end());
+        right.erase(std::unique(right.begin(), right.end()), right.end());
+
+        best = right.back();
+        if (best == target) return true;
+
+        std::vector<ull> left_suf(left_n + 1, 0);
+        for (size_t i = left_n; i-- > 0;) {
+            left_suf[i] = left_suf[i + 1] + a[i];
+        }
+
+        ull right_max = right.back();
+
+        auto dfs = [&](auto&& self, size_t pos, ull cur) -> void {
+            if (best == target) return;
+
+            ull max_left = cur + left_suf[pos];
+            ull upper;
+            if (max_left >= target) {
+                upper = target;
+            } else {
+                ull need = target - max_left;
+                upper = (right_max >= need) ? target : (max_left + right_max);
+            }
+            if (upper <= best) return;
+
+            if (pos == left_n) {
+                auto it = std::upper_bound(right.begin(), right.end(), target - cur);
+                if (it != right.begin()) {
+                    --it;
+                    ull cand = cur + *it;
+                    if (cand > best) best = cand;
+                }
+                return;
+            }
+
+            ull x = a[pos];
+            if (x <= target - cur) self(self, pos + 1, cur + x);
+            self(self, pos + 1, cur);
+        };
+
+        dfs(dfs, 0, 0);
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+struct DFSSolver {
+    std::vector<ull> a;
+    std::vector<ull> suf;
+    std::vector<ull> sg;
+    ull target = 0;
+    ull best = 0;
+
+    void dfs(size_t i, ull cur) {
+        if (best == target) return;
+        if (cur > best) best = cur;
+        if (i >= a.size()) return;
+
+        ull rem = suf[i];
+        ull possible = cur + rem;
+        if (possible <= best) return;
+
+        ull upper = (possible < target) ? possible : target;
+        ull g = sg[i];
+        if (g > 1) {
+            ull gu = target - ((target - cur) % g);
+            if (gu < upper) upper = gu;
+        }
+        if (upper <= best) return;
+
+        if (possible <= target) {
+            best = possible;
+            return;
+        }
+
+        ull x = a[i];
+        if (x <= target - cur) dfs(i + 1, cur + x);
+
+        size_t j = i + 1;
+        while (j < a.size() && a[j] == x) ++j;
+        dfs(j, cur);
+    }
+};
+
+bool solve_dfs(const std::vector<ull>& nums, ull sum, ull& best) {
+    DFSSolver s;
+    s.target = sum / 2;
+
+    for (ull x : nums) {
+        if (x <= s.target) s.a.push_back(x);
+    }
+
+    std::sort(s.a.begin(), s.a.end(), std::greater<ull>());
+
+    s.best = 0;
+    for (ull x : s.a) {
+        if (x <= s.target - s.best) s.best += x;
+    }
+
+    if (s.best == s.target) {
+        best = s.best;
+        return true;
+    }
+
+    size_t n = s.a.size();
+    s.suf.assign(n + 1, 0);
+    s.sg.assign(n + 1, 0);
+
+    for (size_t i = n; i-- > 0;) {
+        s.suf[i] = s.suf[i + 1] + s.a[i];
+        s.sg[i] = std::gcd(s.sg[i + 1], s.a[i]);
+    }
+
+    s.dfs(0, 0);
+    best = s.best;
+    return true;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t n;
+    if (!(std::cin >> n)) return 0;
+
+    std::vector<ull> a;
+    a.reserve(n);
+
+    ull g = 0;
+    for (size_t i = 0; i < n; ++i) {
+        ull x;
+        std::cin >> x;
+        a.push_back(x);
+        g = std::gcd(g, x);
+    }
+
+    if (g == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    ull sum = 0;
+    for (ull& x : a) {
+        x /= g;
+        sum += x;
+    }
+
+    ull best = 0;
+
+    if (!solve_dp(a, sum, best)) {
+        if (!solve_mitm(a, sum, best)) {
+            solve_dfs(a, sum, best);
+        }
+    }
+
+    ull diff = (sum - 2 * best) * g;
+    std::cout << diff << '\n';
+    return 0;
+}

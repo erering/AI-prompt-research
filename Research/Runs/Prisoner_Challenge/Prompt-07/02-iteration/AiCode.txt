@@ -1,0 +1,58 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int D = 8;
+    vector<int> radix(D, 3);
+
+    vector<int> offset(D + 1, 0);
+    for (int i = 0; i < D; i++) offset[i + 1] = offset[i] + radix[i];
+
+    vector<int> weight(D, 1);
+    for (int i = D - 2; i >= 0; i--) weight[i] = weight[i + 1] * radix[i + 1];
+
+    auto digit = [&](int coins, int level) {
+        int v = coins - 1;
+        return (v / weight[level]) % radix[level];
+    };
+
+    auto id = [&](int level, int d) {
+        return 1 + offset[level] + d;
+    };
+
+    int rows = 1 + offset[D];
+    vector<vector<int>> s(rows, vector<int>(N + 1, -1));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; j++) {
+        s[0][j] = id(0, digit(j, 0));
+    }
+
+    for (int level = 0; level < D; level++) {
+        bool previous_is_A = (level % 2 == 0);
+        bool current_is_A = !previous_is_A;
+
+        for (int stored = 0; stored < radix[level]; stored++) {
+            int state = id(level, stored);
+            s[state][0] = current_is_A ? 0 : 1;
+
+            for (int j = 1; j <= N; j++) {
+                int cur = digit(j, level);
+
+                if (cur < stored) {
+                    s[state][j] = current_is_A ? -1 : -2;
+                } else if (cur > stored) {
+                    s[state][j] = previous_is_A ? -1 : -2;
+                } else {
+                    if (level + 1 < D) {
+                        s[state][j] = id(level + 1, digit(j, level + 1));
+                    } else {
+                        s[state][j] = -1;
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

@@ -1,0 +1,257 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class MaxCliqueSolver {
+public:
+    int n, W;
+    vector<unsigned long long> adj;
+    int best = 0;
+    unsigned long long lastMask;
+
+    MaxCliqueSolver(int n_, vector<unsigned long long>&& adj_)
+        : n(n_), W((n_ + 63) >> 6), adj(std::move(adj_)) {
+        int r = n & 63;
+        lastMask = r ? ((1ULL << r) - 1ULL) : ~0ULL;
+    }
+
+    inline const unsigned long long* row(int v) const {
+        return &adj[(size_t)v * W];
+    }
+
+    inline bool anyBits(const vector<unsigned long long>& b) const {
+        for (auto x : b) if (x) return true;
+        return false;
+    }
+
+    inline void clearBit(vector<unsigned long long>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline int firstBit(const vector<unsigned long long>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    inline int lastBit(const vector<unsigned long long>& b) const {
+        for (int i = W - 1; i >= 0; --i) {
+            if (b[i]) return (i << 6) + (63 - __builtin_clzll(b[i]));
+        }
+        return -1;
+    }
+
+    inline int popcountIntersection(const vector<unsigned long long>& b, int v) const {
+        const unsigned long long* a = row(v);
+        int s = 0;
+        for (int i = 0; i < W; ++i) s += __builtin_popcountll(b[i] & a[i]);
+        return s;
+    }
+
+    int greedyFast() const {
+        vector<unsigned long long> P(W, ~0ULL);
+        if (W) P[W - 1] &= lastMask;
+        int sz = 0;
+
+        while (anyBits(P)) {
+            int v = lastBit(P);
+            ++sz;
+            const unsigned long long* a = row(v);
+            for (int i = 0; i < W; ++i) P[i] &= a[i];
+        }
+        return sz;
+    }
+
+    int greedyDynamic() const {
+        vector<unsigned long long> P(W, ~0ULL);
+        if (W) P[W - 1] &= lastMask;
+        int sz = 0;
+
+        while (anyBits(P)) {
+            int bestV = -1, bestScore = -1;
+            for (int wi = 0; wi < W; ++wi) {
+                unsigned long long x = P[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (wi << 6) + b;
+                    int sc = popcountIntersection(P, v);
+                    if (sc > bestScore || (sc == bestScore && v > bestV)) {
+                        bestScore = sc;
+                        bestV = v;
+                    }
+                    x &= x - 1;
+                }
+            }
+
+            ++sz;
+            const unsigned long long* a = row(bestV);
+            for (int i = 0; i < W; ++i) P[i] &= a[i];
+        }
+        return sz;
+    }
+
+    void colorSort(const vector<unsigned long long>& P, vector<int>& order, vector<int>& color) const {
+        order.clear();
+        color.clear();
+        order.reserve(n);
+        color.reserve(n);
+
+        vector<unsigned long long> U = P;
+        vector<unsigned long long> Q(W);
+
+        int c = 0;
+        while (anyBits(U)) {
+            ++c;
+            Q = U;
+
+            while (anyBits(Q)) {
+                int v = firstBit(Q);
+                order.push_back(v);
+                color.push_back(c);
+
+                clearBit(U, v);
+                const unsigned long long* a = row(v);
+                for (int i = 0; i < W; ++i) {
+                    Q[i] &= U[i] & ~a[i];
+                }
+            }
+        }
+    }
+
+    void expand(vector<unsigned long long>& P, int sz) {
+        vector<int> order, color;
+        colorSort(P, order, color);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (sz + color[i] <= best) return;
+
+            int v = order[i];
+            if (!(P[v >> 6] & (1ULL << (v & 63)))) continue;
+
+            clearBit(P, v);
+
+            vector<unsigned long long> P2(W);
+            const unsigned long long* a = row(v);
+            bool nonempty = false;
+            for (int j = 0; j < W; ++j) {
+                P2[j] = P[j] & a[j];
+                nonempty |= P2[j] != 0;
+            }
+
+            if (!nonempty) {
+                if (sz + 1 > best) best = sz + 1;
+            } else {
+                expand(P2, sz + 1);
+            }
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        best = greedyFast();
+        if (n <= 2500) best = max(best, greedyDynamic());
+
+        vector<unsigned long long> P(W, ~0ULL);
+        P[W - 1] &= lastMask;
+        expand(P, 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    int W = (N + 63) >> 6;
+    vector<unsigned long long> oldAdj((size_t)N * W, 0ULL);
+
+    auto setOld = [&](int i, int j) {
+        oldAdj[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+    };
+    auto clearOld = [&](int i, int j) {
+        oldAdj[(size_t)i * W + (j >> 6)] &= ~(1ULL << (j & 63));
+    };
+    auto testOld = [&](int i, int j) -> bool {
+        return (oldAdj[(size_t)i * W + (j >> 6)] >> (j & 63)) & 1ULL;
+    };
+
+    char ch;
+    long long need = 1LL * N * N;
+    long long cnt = 0;
+
+    while (cnt < need && cin.get(ch)) {
+        if (ch == '0' || ch == '1') {
+            int i = (int)(cnt / N);
+            int j = (int)(cnt % N);
+            if (i != j && ch == '1') setOld(i, j);
+            ++cnt;
+        }
+    }
+
+    for (int i = 0; i < N; ++i) clearOld(i, i);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool e = testOld(i, j) || testOld(j, i);
+            if (e) {
+                setOld(i, j);
+                setOld(j, i);
+            } else {
+                clearOld(i, j);
+                clearOld(j, i);
+            }
+        }
+    }
+
+    vector<int> deg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        int d = 0;
+        for (int w = 0; w < W; ++w) d += __builtin_popcountll(oldAdj[(size_t)i * W + w]);
+        deg[i] = d;
+    }
+
+    vector<int> ord(N);
+    iota(ord.begin(), ord.end(), 0);
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] < deg[b];
+        return a < b;
+    });
+
+    vector<int> pos(N);
+    for (int i = 0; i < N; ++i) pos[ord[i]] = i;
+
+    vector<unsigned long long> newAdj((size_t)N * W, 0ULL);
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = ord[ni];
+        for (int w = 0; w < W; ++w) {
+            unsigned long long x = oldAdj[(size_t)oi * W + w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (w << 6) + b;
+                if (oj < N) {
+                    int nj = pos[oj];
+                    if (nj != ni) {
+                        newAdj[(size_t)ni * W + (nj >> 6)] |= 1ULL << (nj & 63);
+                    }
+                }
+                x &= x - 1;
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        newAdj[(size_t)i * W + (i >> 6)] &= ~(1ULL << (i & 63));
+    }
+
+    MaxCliqueSolver solver(N, std::move(newAdj));
+    cout << solver.solve() << '\n';
+    return 0;
+}

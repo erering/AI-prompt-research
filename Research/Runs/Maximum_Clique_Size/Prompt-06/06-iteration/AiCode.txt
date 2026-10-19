@@ -1,0 +1,242 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static const int SZ = 1 << 20;
+    int idx = 0, size = 0;
+    char buf[SZ];
+    inline char get() {
+        if (idx >= size) {
+            size = (int)fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (!size) return 0;
+        }
+        return buf[idx++];
+    }
+    int nextInt() {
+        char c;
+        int x = 0;
+        do { c = get(); } while (c && (c < '0' || c > '9'));
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = get();
+        }
+        return x;
+    }
+    char nextBit() {
+        char c;
+        do { c = get(); } while (c && c != '0' && c != '1');
+        return c;
+    }
+};
+
+int N, W, bestAns;
+uint64_t lastMask;
+vector<vector<uint64_t>> adjm;
+vector<vector<uint64_t>> candBits;
+vector<vector<int>> ords, cols;
+vector<uint64_t> tmpUncol, tmpAvail;
+
+inline void setbit(vector<uint64_t>& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+inline void clrbit(vector<uint64_t>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+inline bool testbit(const vector<uint64_t>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+inline int firstSet(const vector<uint64_t>& b) {
+    for (int i = 0; i < W; ++i) {
+        uint64_t x = b[i];
+        if (x) return (i << 6) + __builtin_ctzll(x);
+    }
+    return -1;
+}
+inline bool anyBits(const vector<uint64_t>& b) {
+    for (uint64_t x : b) if (x) return true;
+    return false;
+}
+inline int popInter(const vector<uint64_t>& a, const vector<uint64_t>& b) {
+    int s = 0;
+    for (int i = 0; i < W; ++i) s += __builtin_popcountll(a[i] & b[i]);
+    return s;
+}
+
+void colorSort(const vector<uint64_t>& bits, vector<int>& order, vector<int>& color) {
+    order.clear();
+    color.clear();
+    tmpUncol = bits;
+    int c = 0;
+    while (true) {
+        int fs = firstSet(tmpUncol);
+        if (fs < 0) break;
+        ++c;
+        tmpAvail = tmpUncol;
+        while (true) {
+            int v = firstSet(tmpAvail);
+            if (v < 0 || v >= N) break;
+            order.push_back(v);
+            color.push_back(c);
+            clrbit(tmpUncol, v);
+            clrbit(tmpAvail, v);
+            const vector<uint64_t>& av = adjm[v];
+            for (int i = 0; i < W; ++i) tmpAvail[i] &= ~av[i];
+            tmpAvail[W - 1] &= lastMask;
+        }
+    }
+}
+
+int greedyFrom(int start, bool dynamicChoose) {
+    vector<uint64_t> P(W, ~0ULL);
+    P[W - 1] = lastMask;
+    int cnt = 0;
+    if (start >= 0) {
+        ++cnt;
+        for (int i = 0; i < W; ++i) P[i] &= adjm[start][i];
+    }
+    while (true) {
+        int v = -1;
+        if (dynamicChoose) {
+            int bd = -1;
+            for (int wi = 0; wi < W; ++wi) {
+                uint64_t x = P[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int u = (wi << 6) + b;
+                    if (u < N) {
+                        int d = popInter(P, adjm[u]);
+                        if (d > bd) bd = d, v = u;
+                    }
+                    x &= x - 1;
+                }
+            }
+        } else {
+            v = firstSet(P);
+            if (v >= N) v = -1;
+        }
+        if (v < 0) break;
+        ++cnt;
+        for (int i = 0; i < W; ++i) P[i] &= adjm[v][i];
+    }
+    return cnt;
+}
+
+int greedyMatchingUpper() {
+    vector<uint64_t> unmatched(W, ~0ULL), avail(W);
+    unmatched[W - 1] = lastMask;
+    int m = 0;
+    while (true) {
+        int v = firstSet(unmatched);
+        if (v < 0 || v >= N) break;
+        for (int i = 0; i < W; ++i) avail[i] = unmatched[i] & ~adjm[v][i];
+        clrbit(avail, v);
+        avail[W - 1] &= lastMask;
+        int u = firstSet(avail);
+        clrbit(unmatched, v);
+        if (u >= 0 && u < N) {
+            clrbit(unmatched, u);
+            ++m;
+        }
+    }
+    return N - m;
+}
+
+void expand(int depth, int sz) {
+    colorSort(candBits[depth], ords[depth], cols[depth]);
+    vector<int>& order = ords[depth];
+    vector<int>& color = cols[depth];
+    int m = (int)order.size();
+    for (int idx = m - 1; idx >= 0; --idx) {
+        if (sz + color[idx] <= bestAns) return;
+        int v = order[idx];
+        clrbit(candBits[depth], v);
+        vector<uint64_t>& child = candBits[depth + 1];
+        bool nonempty = false;
+        const vector<uint64_t>& av = adjm[v];
+        for (int i = 0; i < W; ++i) {
+            uint64_t x = candBits[depth][i] & av[i];
+            child[i] = x;
+            nonempty |= (x != 0);
+        }
+        if (!nonempty) {
+            if (sz + 1 > bestAns) bestAns = sz + 1;
+        } else {
+            expand(depth + 1, sz + 1);
+        }
+    }
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+    if (N <= 0) return 0;
+    W = (N + 63) >> 6;
+    lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    vector<vector<uint64_t>> orig(N, vector<uint64_t>(W, 0));
+    vector<int> deg(N, 0);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            char c = in.nextBit();
+            if (c == '1' && i != j) {
+                setbit(orig[i], j);
+                ++deg[i];
+            }
+        }
+    }
+
+    vector<int> perm(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    adjm.assign(N, vector<uint64_t>(W, 0));
+    for (int i = 0; i < N; ++i) {
+        const vector<uint64_t>& row = orig[perm[i]];
+        for (int j = 0; j < N; ++j) {
+            if (testbit(row, perm[j])) setbit(adjm[i], j);
+        }
+        clrbit(adjm[i], i);
+        adjm[i][W - 1] &= lastMask;
+    }
+    orig.clear();
+    orig.shrink_to_fit();
+
+    bestAns = 0;
+    bool dyn = (N <= 2500);
+    bestAns = max(bestAns, greedyFrom(-1, dyn));
+    int tries = (N <= 1200 ? min(N, 64) : (N <= 3000 ? min(N, 24) : min(N, 8)));
+    for (int s = 0; s < tries; ++s) bestAns = max(bestAns, greedyFrom(s, dyn && N <= 1800));
+    for (int t = 0; t < tries; ++t) {
+        int s = (int)((1LL * t * 1000003 + 9176) % N);
+        bestAns = max(bestAns, greedyFrom(s, false));
+    }
+
+    tmpUncol.assign(W, 0);
+    tmpAvail.assign(W, 0);
+
+    vector<uint64_t> all(W, ~0ULL);
+    all[W - 1] = lastMask;
+    vector<int> ro, rc;
+    colorSort(all, ro, rc);
+    int rootColorUB = rc.empty() ? 0 : rc.back();
+    int matchUB = greedyMatchingUpper();
+    int rootUB = min(rootColorUB, matchUB);
+    if (bestAns >= rootUB) {
+        printf("%d\n", bestAns);
+        return 0;
+    }
+
+    candBits.assign(N + 1, vector<uint64_t>(W, 0));
+    candBits[0] = all;
+    ords.resize(N + 1);
+    cols.resize(N + 1);
+
+    expand(0, 0);
+    printf("%d\n", bestAns);
+    return 0;
+}

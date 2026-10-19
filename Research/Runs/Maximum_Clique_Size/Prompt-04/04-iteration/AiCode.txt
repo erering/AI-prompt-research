@@ -1,0 +1,328 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    size_t pos = 0, len = 0;
+
+    inline char getChar() {
+        if (pos >= len) {
+            len = fread(buf, 1, BUFSIZE, stdin);
+            pos = 0;
+            if (!len) return 0;
+        }
+        return buf[pos++];
+    }
+
+    int nextInt() {
+        char c;
+        do { c = getChar(); } while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do { c = getChar(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N, W;
+vector<unsigned long long> adjBits;
+vector<vector<int>> compAdj;
+int bestAns = 0;
+mt19937 rng(123456789);
+
+inline void setBit(vector<unsigned long long>& a, int i, int j) {
+    a[(size_t)i * W + (j >> 6)] |= 1ULL << (j & 63);
+}
+
+inline bool testEdge(int i, int j) {
+    return (adjBits[(size_t)i * W + (j >> 6)] >> (j & 63)) & 1ULL;
+}
+
+inline void clearBit(vector<unsigned long long>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline int popFirst(vector<unsigned long long>& b) {
+    for (int i = 0; i < W; ++i) {
+        unsigned long long x = b[i];
+        if (x) {
+            int t = __builtin_ctzll(x);
+            b[i] = x & (x - 1);
+            return (i << 6) + t;
+        }
+    }
+    return -1;
+}
+
+inline bool anyBits(const vector<unsigned long long>& b) {
+    for (unsigned long long x : b) if (x) return true;
+    return false;
+}
+
+inline int popCountBits(const vector<unsigned long long>& b) {
+    int s = 0;
+    for (unsigned long long x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+vector<int> greedyMISComplement(int run) {
+    vector<unsigned char> active(N, 1);
+    vector<int> deg(N);
+    for (int i = 0; i < N; ++i) deg[i] = (int)compAdj[i].size();
+
+    vector<int> res;
+    int remaining = N;
+
+    while (remaining > 0) {
+        int mn = INT_MAX;
+        for (int i = 0; i < N; ++i)
+            if (active[i] && deg[i] < mn) mn = deg[i];
+
+        int delta = run == 0 ? 0 : (run % 3);
+        int chosen = -1, cnt = 0;
+        for (int i = 0; i < N; ++i) {
+            if (active[i] && deg[i] <= mn + delta) {
+                ++cnt;
+                if (run == 0) {
+                    chosen = i;
+                    break;
+                } else if (uniform_int_distribution<int>(1, cnt)(rng) == 1) {
+                    chosen = i;
+                }
+            }
+        }
+
+        res.push_back(chosen);
+
+        vector<int> rem;
+        rem.reserve(compAdj[chosen].size() + 1);
+        rem.push_back(chosen);
+        for (int u : compAdj[chosen]) rem.push_back(u);
+
+        for (int x : rem) {
+            if (!active[x]) continue;
+            active[x] = 0;
+            --remaining;
+            for (int y : compAdj[x]) {
+                if (active[y]) --deg[y];
+            }
+        }
+    }
+
+    return res;
+}
+
+int localImproveSize(vector<int> s) {
+    vector<unsigned char> inSet(N, 0);
+    int sz = 0;
+    for (int v : s) {
+        if (!inSet[v]) {
+            bool ok = true;
+            for (int u : compAdj[v]) {
+                if (inSet[u]) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                inSet[v] = 1;
+                ++sz;
+            }
+        }
+    }
+
+    auto maximalFill = [&]() {
+        for (int v = 0; v < N; ++v) {
+            if (inSet[v]) continue;
+            bool ok = true;
+            for (int u : compAdj[v]) {
+                if (inSet[u]) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) {
+                inSet[v] = 1;
+                ++sz;
+            }
+        }
+    };
+
+    maximalFill();
+
+    vector<int> head(N), nxt(N), members;
+    int limitIter = min(N, 400);
+
+    for (int it = 0; it < limitIter; ++it) {
+        fill(head.begin(), head.end(), -1);
+        members.clear();
+        members.reserve(sz);
+        for (int i = 0; i < N; ++i) if (inSet[i]) members.push_back(i);
+
+        for (int v = 0; v < N; ++v) {
+            if (inSet[v]) continue;
+            int cnt = 0, sole = -1;
+            for (int u : compAdj[v]) {
+                if (inSet[u]) {
+                    sole = u;
+                    if (++cnt > 1) break;
+                }
+            }
+            if (cnt == 1) {
+                nxt[v] = head[sole];
+                head[sole] = v;
+            }
+        }
+
+        bool improved = false;
+
+        for (int u : members) {
+            int x = -1, y = -1;
+            int checkedX = 0;
+            for (int a = head[u]; a != -1 && checkedX < 80; a = nxt[a], ++checkedX) {
+                int checkedY = 0;
+                for (int b = nxt[a]; b != -1 && checkedY < 160; b = nxt[b], ++checkedY) {
+                    if (testEdge(a, b)) {
+                        x = a;
+                        y = b;
+                        break;
+                    }
+                }
+                if (x != -1) break;
+            }
+            if (x != -1) {
+                inSet[u] = 0;
+                inSet[x] = 1;
+                inSet[y] = 1;
+                ++sz;
+                maximalFill();
+                improved = true;
+                break;
+            }
+        }
+
+        if (!improved) break;
+    }
+
+    return sz;
+}
+
+void colorSort(const vector<unsigned long long>& P, vector<int>& order, vector<int>& colors) {
+    vector<unsigned long long> U = P;
+    vector<unsigned long long> Q(W);
+
+    order.clear();
+    colors.clear();
+
+    int color = 0;
+    while (anyBits(U)) {
+        ++color;
+        Q = U;
+
+        while (true) {
+            int v = popFirst(Q);
+            if (v < 0 || v >= N) break;
+
+            order.push_back(v);
+            colors.push_back(color);
+            clearBit(U, v);
+
+            const unsigned long long* av = &adjBits[(size_t)v * W];
+            for (int k = 0; k < W; ++k) Q[k] &= ~av[k];
+        }
+    }
+}
+
+void expand(vector<unsigned long long> P, int cur) {
+    if (cur + popCountBits(P) <= bestAns) return;
+
+    vector<int> order, colors;
+    order.reserve(N);
+    colors.reserve(N);
+    colorSort(P, order, colors);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (cur + colors[i] <= bestAns) return;
+
+        int v = order[i];
+        vector<unsigned long long> P2(W);
+        const unsigned long long* av = &adjBits[(size_t)v * W];
+
+        bool nonempty = false;
+        for (int k = 0; k < W; ++k) {
+            P2[k] = P[k] & av[k];
+            nonempty |= P2[k] != 0;
+        }
+
+        if (nonempty) {
+            expand(std::move(P2), cur + 1);
+        } else if (cur + 1 > bestAns) {
+            bestAns = cur + 1;
+        }
+
+        clearBit(P, v);
+    }
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    adjBits.assign((size_t)N * W, 0);
+    compAdj.assign(N, {});
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int x = in.nextBit();
+            if (i == j) continue;
+            if (x) {
+                setBit(adjBits, i, j);
+                setBit(adjBits, j, i);
+            } else if (i < j) {
+                compAdj[i].push_back(j);
+                compAdj[j].push_back(i);
+            }
+        }
+    }
+
+    int runs;
+    if (N <= 1200) runs = 20;
+    else if (N <= 3000) runs = 10;
+    else if (N <= 7000) runs = 4;
+    else runs = 1;
+
+    vector<int> bestSet;
+    for (int r = 0; r < runs; ++r) {
+        vector<int> s = greedyMISComplement(r);
+        if ((int)s.size() > bestAns) {
+            bestAns = (int)s.size();
+            bestSet = s;
+        }
+    }
+
+    if (!bestSet.empty()) {
+        bestAns = max(bestAns, localImproveSize(bestSet));
+    }
+
+    vector<unsigned long long> P(W, ~0ULL);
+    if (N & 63) P[W - 1] = (1ULL << (N & 63)) - 1ULL;
+
+    expand(std::move(P), 0);
+
+    printf("%d\n", bestAns);
+    return 0;
+}

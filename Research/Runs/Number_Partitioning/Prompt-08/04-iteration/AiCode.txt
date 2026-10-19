@@ -1,0 +1,281 @@
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <queue>
+#include <string>
+#include <vector>
+
+using Sum = unsigned long long;
+using U128 = unsigned __int128;
+
+static void print_u128(U128 x) {
+    if (x == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + int(x % 10)));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static std::vector<Sum> generate_sums_limited(const std::vector<Sum>& a, Sum target, bool make_unique) {
+    std::vector<Sum> sums;
+    if (a.size() <= 24) sums.reserve(size_t(1) << a.size());
+    sums.push_back(0);
+
+    for (Sum v : a) {
+        if (v > target) continue;
+        const size_t sz = sums.size();
+        for (size_t i = 0; i < sz; ++i) {
+            if (sums[i] <= target - v) sums.push_back(sums[i] + v);
+        }
+    }
+
+    std::sort(sums.begin(), sums.end());
+    if (make_unique) sums.erase(std::unique(sums.begin(), sums.end()), sums.end());
+    return sums;
+}
+
+static Sum solve_bitset(const std::vector<Sum>& a, Sum target) {
+    const size_t words = size_t(target / 64) + 1;
+    std::vector<uint64_t> bits(words, 0);
+    bits[0] = 1;
+
+    for (Sum v : a) {
+        if (v > target) continue;
+
+        const size_t ws = size_t(v / 64);
+        const unsigned bs = unsigned(v & 63);
+
+        if (ws >= words) continue;
+
+        for (size_t i = words; i-- > ws;) {
+            uint64_t shifted = bits[i - ws] << bs;
+            if (bs && i > ws) shifted |= bits[i - ws - 1] >> (64 - bs);
+            bits[i] |= shifted;
+        }
+    }
+
+    size_t w = size_t(target / 64);
+    const unsigned r = unsigned(target & 63);
+    uint64_t mask = (r == 63) ? ~uint64_t(0) : ((uint64_t(1) << (r + 1)) - 1);
+
+    while (true) {
+        uint64_t x = bits[w] & mask;
+        if (x) {
+            int pos = 63 - std::countl_zero(x);
+            return Sum(w * 64 + size_t(pos));
+        }
+        if (w == 0) break;
+        --w;
+        mask = ~uint64_t(0);
+    }
+
+    return 0;
+}
+
+static Sum solve_mitm(const std::vector<Sum>& vals, Sum target) {
+    std::vector<Sum> left, right;
+    left.reserve((vals.size() + 1) / 2);
+    right.reserve(vals.size() / 2);
+
+    for (size_t i = 0; i < vals.size(); ++i) {
+        if (i & 1) right.push_back(vals[i]);
+        else left.push_back(vals[i]);
+    }
+
+    std::vector<Sum> right_sums = generate_sums_limited(right, target, true);
+
+    Sum best = 0;
+
+    auto dfs = [&](auto&& self, size_t idx, Sum cur) -> void {
+        if (best == target) return;
+
+        if (idx == left.size()) {
+            Sum rem = target - cur;
+            auto it = std::upper_bound(right_sums.begin(), right_sums.end(), rem);
+            if (it != right_sums.begin()) {
+                --it;
+                Sum cand = cur + *it;
+                if (cand > best) best = cand;
+            }
+            return;
+        }
+
+        if (left[idx] <= target - cur) self(self, idx + 1, cur + left[idx]);
+        self(self, idx + 1, cur);
+    };
+
+    dfs(dfs, 0, 0);
+    return best;
+}
+
+struct Node {
+    Sum sum;
+    size_t i;
+    size_t j;
+};
+
+struct MinCmp {
+    bool operator()(const Node& a, const Node& b) const {
+        return a.sum > b.sum;
+    }
+};
+
+struct MaxCmp {
+    bool operator()(const Node& a, const Node& b) const {
+        return a.sum < b.sum;
+    }
+};
+
+class PairAsc {
+    const std::vector<Sum>& x;
+    const std::vector<Sum>& y;
+    std::priority_queue<Node, std::vector<Node>, MinCmp> pq;
+
+public:
+    PairAsc(const std::vector<Sum>& a, const std::vector<Sum>& b) : x(a), y(b) {
+        std::vector<Node> init;
+        if (!y.empty()) {
+            init.reserve(x.size());
+            for (size_t i = 0; i < x.size(); ++i) init.push_back(Node{x[i] + y[0], i, 0});
+        }
+        pq = std::priority_queue<Node, std::vector<Node>, MinCmp>(MinCmp(), std::move(init));
+    }
+
+    bool next(Sum& out) {
+        if (pq.empty()) return false;
+        Node cur = pq.top();
+        pq.pop();
+        out = cur.sum;
+        if (cur.j + 1 < y.size()) {
+            size_t nj = cur.j + 1;
+            pq.push(Node{x[cur.i] + y[nj], cur.i, nj});
+        }
+        return true;
+    }
+};
+
+class PairDesc {
+    const std::vector<Sum>& x;
+    const std::vector<Sum>& y;
+    std::priority_queue<Node, std::vector<Node>, MaxCmp> pq;
+
+public:
+    PairDesc(const std::vector<Sum>& a, const std::vector<Sum>& b) : x(a), y(b) {
+        std::vector<Node> init;
+        if (!y.empty()) {
+            init.reserve(x.size());
+            size_t last = y.size() - 1;
+            for (size_t i = 0; i < x.size(); ++i) init.push_back(Node{x[i] + y[last], i, last});
+        }
+        pq = std::priority_queue<Node, std::vector<Node>, MaxCmp>(MaxCmp(), std::move(init));
+    }
+
+    bool next(Sum& out) {
+        if (pq.empty()) return false;
+        Node cur = pq.top();
+        pq.pop();
+        out = cur.sum;
+        if (cur.j > 0) {
+            size_t nj = cur.j - 1;
+            pq.push(Node{x[cur.i] + y[nj], cur.i, nj});
+        }
+        return true;
+    }
+};
+
+static Sum solve_schroeppel_shamir(const std::vector<Sum>& vals, Sum target) {
+    std::array<std::vector<Sum>, 4> parts;
+    for (size_t i = 0; i < vals.size(); ++i) parts[i & 3].push_back(vals[i]);
+
+    std::array<std::vector<Sum>, 4> lists;
+    for (int i = 0; i < 4; ++i) lists[i] = generate_sums_limited(parts[i], target, true);
+
+    const std::vector<Sum>* a = &lists[0];
+    const std::vector<Sum>* b = &lists[1];
+    const std::vector<Sum>* c = &lists[2];
+    const std::vector<Sum>* d = &lists[3];
+
+    if (a->size() > b->size()) std::swap(a, b);
+    if (c->size() > d->size()) std::swap(c, d);
+
+    PairAsc asc(*a, *b);
+    PairDesc desc(*c, *d);
+
+    Sum p = 0, q = 0;
+    if (!asc.next(p) || !desc.next(q)) return 0;
+
+    Sum best = 0;
+
+    while (true) {
+        if (p > target) break;
+
+        if (q <= target - p) {
+            Sum cand = p + q;
+            if (cand > best) {
+                best = cand;
+                if (best == target) break;
+            }
+            if (!asc.next(p)) break;
+        } else {
+            if (!desc.next(q)) break;
+        }
+    }
+
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t n;
+    if (!(std::cin >> n)) return 0;
+
+    std::vector<Sum> a(n);
+    U128 total = 0;
+
+    for (size_t i = 0; i < n; ++i) {
+        std::cin >> a[i];
+        total += U128(a[i]);
+    }
+
+    if (n == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<Sum>());
+
+    Sum target = Sum(total / 2);
+    Sum best = 0;
+
+    const U128 max_ull = U128(std::numeric_limits<Sum>::max());
+    if (total <= max_ull) {
+        const U128 words = U128(target / 64 + 1);
+        const U128 bit_ops = words * U128(n);
+
+        if (target <= 200000000ULL && bit_ops <= 200000000ULL) {
+            best = solve_bitset(a, target);
+        } else if (n <= 46) {
+            best = solve_mitm(a, target);
+        } else {
+            best = solve_schroeppel_shamir(a, target);
+        }
+    } else {
+        best = solve_schroeppel_shamir(a, target);
+    }
+
+    U128 diff = total - U128(best) * 2;
+    print_u128(diff);
+
+    return 0;
+}

@@ -1,0 +1,75 @@
+#include <vector>
+using namespace std;
+
+extern vector<bool> send_packet(vector<bool> A);
+
+void send_message(vector<bool> M, vector<bool> C) {
+    const int N = 31;
+
+    for (int k = 0; k < N; ++k) {
+        vector<bool> A(N, false);
+        bool b = C[k];
+        for (int i = 0; i < N; ++i) {
+            if (!C[i]) A[i] = b;
+        }
+        send_packet(A);
+    }
+
+    vector<int> good;
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    vector<bool> payload;
+    int len_code = (int)M.size() - 1;
+    for (int i = 0; i < 10; ++i) {
+        payload.push_back((len_code >> i) & 1);
+    }
+    for (bool b : M) payload.push_back(b);
+
+    int p = 0;
+    while (p < (int)payload.size()) {
+        vector<bool> A(N, false);
+        for (int idx : good) {
+            if (p < (int)payload.size()) A[idx] = payload[p++];
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    const int N = 31;
+
+    vector<bool> C(N, false);
+    for (int k = 0; k < N; ++k) {
+        int ones = 0;
+        for (int i = 0; i < N; ++i) {
+            if (R[k][i]) ++ones;
+        }
+        C[k] = (ones >= 16);
+    }
+
+    vector<int> good;
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    vector<bool> payload;
+    for (int t = N; t < (int)R.size(); ++t) {
+        for (int idx : good) {
+            payload.push_back(R[t][idx]);
+        }
+    }
+
+    int len_code = 0;
+    for (int i = 0; i < 10; ++i) {
+        if (payload[i]) len_code |= (1 << i);
+    }
+    int L = len_code + 1;
+
+    vector<bool> M;
+    for (int i = 0; i < L; ++i) {
+        M.push_back(payload[10 + i]);
+    }
+    return M;
+}

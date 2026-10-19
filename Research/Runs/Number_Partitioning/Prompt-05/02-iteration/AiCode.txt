@@ -1,0 +1,329 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <queue>
+#include <limits>
+#include <cstdint>
+#include <bit>
+
+using U = unsigned __int128;
+
+static U parse_u(const std::string& s) {
+    U x = 0;
+    for (char c : s) {
+        if (c >= '0' && c <= '9') x = x * 10 + (c - '0');
+    }
+    return x;
+}
+
+static void print_u(U x) {
+    if (x == 0) {
+        std::cout << "0\n";
+        return;
+    }
+    std::string s;
+    while (x > 0) {
+        s.push_back(char('0' + x % 10));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    std::cout << s << '\n';
+}
+
+static U gcd_u(U a, U b) {
+    while (b != 0) {
+        U r = a % b;
+        a = b;
+        b = r;
+    }
+    return a;
+}
+
+static bool fits_ull(U x) {
+    return x <= (U)std::numeric_limits<unsigned long long>::max();
+}
+
+static U kk_heuristic(const std::vector<U>& a) {
+    std::priority_queue<U> pq;
+    for (U x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        U x = pq.top(); pq.pop();
+        U y = pq.top(); pq.pop();
+        U d = x >= y ? x - y : y - x;
+        if (d) pq.push(d);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static U greedy_heuristic(const std::vector<U>& a) {
+    U x = 0, y = 0;
+    for (U v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return x >= y ? x - y : y - x;
+}
+
+static bool solve_dp(const std::vector<U>& a, U total, U& ans) {
+    U half_u = total / 2;
+    if (!fits_ull(half_u)) return false;
+
+    unsigned long long half = (unsigned long long)half_u;
+    std::size_t words = (std::size_t)(half / 64) + 1;
+
+    constexpr std::size_t MAX_WORDS = 4000000;
+    constexpr long double MAX_OPS = 120000000.0L;
+
+    if (words > MAX_WORDS) return false;
+    if ((long double)words * (long double)a.size() > MAX_OPS) return false;
+
+    try {
+        std::vector<std::uint64_t> bits(words, 0);
+        bits[0] = 1;
+
+        std::uint64_t last_mask;
+        unsigned rem = (unsigned)(half & 63ULL);
+        if (rem == 63) last_mask = ~0ULL;
+        else last_mask = (1ULL << (rem + 1)) - 1ULL;
+
+        for (U xu : a) {
+            if (xu > half_u) continue;
+            unsigned long long x = (unsigned long long)xu;
+            std::size_t ws = (std::size_t)(x >> 6);
+            unsigned bs = (unsigned)(x & 63ULL);
+
+            if (ws >= words) continue;
+
+            if (bs == 0) {
+                for (std::size_t i = words; i-- > ws;) {
+                    bits[i] |= bits[i - ws];
+                }
+            } else {
+                for (std::size_t i = words; i-- > ws;) {
+                    std::uint64_t v = bits[i - ws] << bs;
+                    if (i > ws) v |= bits[i - ws - 1] >> (64 - bs);
+                    bits[i] |= v;
+                }
+            }
+            bits.back() &= last_mask;
+        }
+
+        for (std::size_t i = words; i-- > 0;) {
+            std::uint64_t w = bits[i];
+            if (w) {
+                unsigned b = std::bit_width(w) - 1;
+                unsigned long long best = (unsigned long long)i * 64ULL + b;
+                ans = total - (U)2 * (U)best;
+                return true;
+            }
+        }
+    } catch (...) {
+        return false;
+    }
+
+    return false;
+}
+
+static bool solve_mitm(const std::vector<U>& a, U total, U& ans) {
+    int n = (int)a.size();
+    if (n > 46) return false;
+    if (!fits_ull(total)) return false;
+
+    unsigned long long total64 = (unsigned long long)total;
+    unsigned long long half = total64 / 2;
+
+    int n1 = n / 2;
+    int n2 = n - n1;
+
+    try {
+        std::vector<unsigned long long> sums;
+        sums.reserve(1ULL << n1);
+        sums.push_back(0);
+
+        for (int i = 0; i < n1; ++i) {
+            unsigned long long v = (unsigned long long)a[i];
+            if (v > half) continue;
+            std::size_t sz = sums.size();
+            for (std::size_t j = 0; j < sz; ++j) {
+                if (sums[j] <= half - v) sums.push_back(sums[j] + v);
+            }
+        }
+
+        std::sort(sums.begin(), sums.end());
+
+        unsigned long long best = 0;
+        bool done = false;
+
+        auto dfs = [&](auto&& self, int idx, unsigned long long cur) -> void {
+            if (done) return;
+            if (idx == n) {
+                unsigned long long target = half - cur;
+                auto it = std::upper_bound(sums.begin(), sums.end(), target);
+                if (it != sums.begin()) {
+                    --it;
+                    unsigned long long cand = cur + *it;
+                    if (cand > best) {
+                        best = cand;
+                        if (best == half) done = true;
+                    }
+                }
+                return;
+            }
+
+            self(self, idx + 1, cur);
+
+            unsigned long long v = (unsigned long long)a[idx];
+            if (v <= half - cur) self(self, idx + 1, cur + v);
+        };
+
+        (void)n2;
+        dfs(dfs, n1, 0);
+
+        ans = (U)total64 - (U)2 * (U)best;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+struct CKK {
+    U best;
+    U global_lower;
+
+    static std::vector<U> child_with(const std::vector<U>& v, U x) {
+        std::vector<U> r;
+        r.reserve(v.size() > 0 ? v.size() - 1 : 0);
+
+        bool inserted = (x == 0);
+        for (std::size_t i = 2; i < v.size(); ++i) {
+            if (!inserted && x >= v[i]) {
+                r.push_back(x);
+                inserted = true;
+            }
+            if (v[i] != 0) r.push_back(v[i]);
+        }
+        if (!inserted) r.push_back(x);
+        return r;
+    }
+
+    void dfs(const std::vector<U>& v, U sum) {
+        if (best == global_lower) return;
+
+        std::size_t n = v.size();
+        if (n == 0) {
+            best = 0;
+            return;
+        }
+        if (n == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+
+        U largest = v[0];
+        U rest_all = sum - largest;
+
+        if (largest >= rest_all) {
+            U exact = largest - rest_all;
+            if (exact < best) best = exact;
+            return;
+        }
+
+        U a = v[0], b = v[1];
+        U rest = sum - a - b;
+
+        U d = a >= b ? a - b : b - a;
+        {
+            std::vector<U> cd = child_with(v, d);
+            dfs(cd, rest + d);
+        }
+
+        if (best == global_lower) return;
+
+        U s = a + b;
+        if (s >= rest) {
+            U exact = s - rest;
+            if (exact < best) best = exact;
+        } else {
+            std::vector<U> cs = child_with(v, s);
+            dfs(cs, sum);
+        }
+    }
+};
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<U> a;
+    a.reserve(N);
+
+    U g = 0;
+    for (int i = 0; i < N; ++i) {
+        std::string s;
+        std::cin >> s;
+        U x = parse_u(s);
+        a.push_back(x);
+        g = gcd_u(g, x);
+    }
+
+    if (a.empty()) {
+        print_u(0);
+        return 0;
+    }
+
+    if (g == 0) {
+        print_u(0);
+        return 0;
+    }
+
+    for (U& x : a) x /= g;
+
+    a.erase(std::remove(a.begin(), a.end(), 0), a.end());
+
+    if (a.empty()) {
+        print_u(0);
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), [](U x, U y) { return x > y; });
+
+    U total = 0;
+    for (U x : a) total += x;
+
+    U lower = total & 1;
+    U best = total;
+
+    U gh = greedy_heuristic(a);
+    if (gh < best) best = gh;
+
+    U kh = kk_heuristic(a);
+    if (kh < best) best = kh;
+
+    if (best == lower) {
+        print_u(best * g);
+        return 0;
+    }
+
+    U ans;
+    if (solve_dp(a, total, ans)) {
+        print_u(ans * g);
+        return 0;
+    }
+
+    if (solve_mitm(a, total, ans)) {
+        print_u(ans * g);
+        return 0;
+    }
+
+    CKK solver;
+    solver.best = best;
+    solver.global_lower = lower;
+    solver.dfs(a, total);
+
+    print_u(solver.best * g);
+    return 0;
+}

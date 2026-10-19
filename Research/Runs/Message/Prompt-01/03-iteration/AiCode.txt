@@ -1,0 +1,129 @@
+#include <vector>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    uint64_t Cbinom[32][32];
+    bool inited = false;
+
+    void init_combinations() {
+        if (inited) return;
+        inited = true;
+        for (int n = 0; n <= 31; ++n) {
+            Cbinom[n][0] = Cbinom[n][n] = 1;
+            for (int k = 1; k < n; ++k) {
+                Cbinom[n][k] = Cbinom[n - 1][k - 1] + Cbinom[n - 1][k];
+            }
+        }
+    }
+
+    uint64_t choose_val(int n, int k) {
+        if (n < 0 || k < 0 || k > n) return 0;
+        return Cbinom[n][k];
+    }
+
+    uint64_t rank_control_set(const std::vector<bool>& C) {
+        init_combinations();
+        uint64_t rank = 0;
+        int need = 15;
+        for (int i = 0; i < 31; ++i) {
+            if (C[i]) {
+                rank += choose_val(30 - i, need);
+                --need;
+            }
+        }
+        return rank;
+    }
+
+    std::vector<bool> unrank_control_set(uint64_t rank) {
+        init_combinations();
+        std::vector<bool> C(31, false);
+        int need = 15;
+        for (int i = 0; i < 31; ++i) {
+            uint64_t zero_count = choose_val(30 - i, need);
+            if (rank < zero_count) {
+                C[i] = false;
+            } else {
+                C[i] = true;
+                rank -= zero_count;
+                --need;
+            }
+        }
+        return C;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    uint64_t rank = rank_control_set(C);
+
+    for (int b = 0; b < 29; ++b) {
+        std::vector<bool> A(31, ((rank >> b) & 1ULL) != 0);
+        send_packet(A);
+    }
+
+    std::vector<bool> payload;
+    int S = (int)M.size();
+    int len_code = S - 1;
+
+    for (int b = 0; b < 10; ++b) {
+        payload.push_back(((len_code >> b) & 1) != 0);
+    }
+    for (bool x : M) payload.push_back(x);
+
+    std::vector<int> protected_pos;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) protected_pos.push_back(i);
+    }
+
+    int ptr = 0;
+    while (ptr < (int)payload.size()) {
+        std::vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            if (ptr < (int)payload.size()) {
+                A[protected_pos[j]] = payload[ptr++];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    uint64_t rank = 0;
+
+    for (int b = 0; b < 29; ++b) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) ++ones;
+        }
+        if (ones >= 16) rank |= (1ULL << b);
+    }
+
+    std::vector<bool> C = unrank_control_set(rank);
+
+    std::vector<int> protected_pos;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) protected_pos.push_back(i);
+    }
+
+    std::vector<bool> bits;
+    for (int p = 29; p < (int)R.size(); ++p) {
+        for (int j = 0; j < 16; ++j) {
+            bits.push_back(R[p][protected_pos[j]]);
+        }
+    }
+
+    int len_code = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (bits[b]) len_code |= (1 << b);
+    }
+    int S = len_code + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[10 + i]);
+    }
+    return M;
+}

@@ -1,0 +1,114 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int NN = 10000;
+    constexpr int LOG = 14;
+    constexpr int START = 9950;
+    constexpr int BITS = 27;
+    constexpr int END_CODE = START + BITS - 1;
+
+    int up[LOG][NN];
+    int dep[NN];
+
+    int A = 0, B = 0, D = 0;
+    int baseA = 0, baseB = 0;
+    int baseCode = 0;
+
+    int lca_node(int x, int y) {
+        if (dep[x] < dep[y]) swap(x, y);
+        int diff = dep[x] - dep[y];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) x = up[k][x];
+        }
+        if (x == y) return x;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[k][x] != up[k][y]) {
+                x = up[k][x];
+                y = up[k][y];
+            }
+        }
+        return up[0][x];
+    }
+
+    int dist_node(int x, int y) {
+        int z = lca_node(x, y);
+        return dep[x] + dep[y] - 2 * dep[z];
+    }
+
+    void apply_update(pair<int,int>& p, int idx, int u) {
+        if (u == 1) {
+            p = {idx, p.first};
+        } else if (u == 2) {
+            p = {idx, p.second};
+        }
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    up[0][i] = Pi;
+    dep[i] = dep[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up[k][i] = up[k - 1][up[k - 1][i]];
+    }
+
+    int oldA = A, oldB = B, oldD = D;
+    int da = dist_node(i, oldA);
+    int db = dist_node(i, oldB);
+
+    int u = 0;
+    if (da > oldD) {
+        D = da;
+        A = i;
+        B = oldA;
+        u = 1;
+    }
+    if (db > D) {
+        D = db;
+        A = i;
+        B = oldB;
+        u = 2;
+    }
+
+    if (i == START - 1) {
+        baseA = A;
+        baseB = B;
+        baseCode = baseA * 10000 + baseB;
+    }
+
+    if (i >= START && i <= END_CODE) {
+        int bit = (baseCode >> (i - START)) & 1;
+        return u * 2 + bit + 1;
+    }
+
+    if (i > END_CODE && u != 0) {
+        return u;
+    }
+
+    return 0;
+}
+
+std::pair<int,int> longest_path(std::vector<int> S) {
+    int code = 0;
+    for (int i = START; i <= END_CODE; ++i) {
+        int v = S[i];
+        int bit = (v - 1) & 1;
+        code |= bit << (i - START);
+    }
+
+    pair<int,int> p = {code / 10000, code % 10000};
+
+    for (int i = START; i <= END_CODE; ++i) {
+        int v = S[i];
+        int u = (v - 1) / 2;
+        apply_update(p, i, u);
+    }
+
+    for (int i = END_CODE + 1; i < NN; ++i) {
+        if (S[i] != 0) {
+            apply_update(p, i, S[i]);
+        }
+    }
+
+    return p;
+}

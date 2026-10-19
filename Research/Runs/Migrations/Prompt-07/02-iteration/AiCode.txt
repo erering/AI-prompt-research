@@ -1,0 +1,97 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static const int MAXN = 10000;
+static const int LOG = 15;
+
+static int up_tbl[MAXN][LOG];
+static int dep_tbl[MAXN];
+static int dia_a, dia_b, dia_len;
+static int first_sent_endpoint;
+
+static int lca_node(int a, int b) {
+    if (dep_tbl[a] < dep_tbl[b]) swap(a, b);
+    int diff = dep_tbl[a] - dep_tbl[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = up_tbl[a][k];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_tbl[a][k] != up_tbl[b][k]) {
+            a = up_tbl[a][k];
+            b = up_tbl[b][k];
+        }
+    }
+    return up_tbl[a][0];
+}
+
+static int dist_node(int a, int b) {
+    int c = lca_node(a, b);
+    return dep_tbl[a] + dep_tbl[b] - 2 * dep_tbl[c];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 0) {
+        dep_tbl[0] = 0;
+        for (int k = 0; k < LOG; ++k) up_tbl[0][k] = 0;
+        dia_a = dia_b = 0;
+        dia_len = 0;
+        first_sent_endpoint = 0;
+        return 0;
+    }
+
+    up_tbl[i][0] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[i][k] = up_tbl[up_tbl[i][k - 1]][k - 1];
+    }
+    dep_tbl[i] = dep_tbl[Pi] + 1;
+
+    bool changed = false;
+    int da = dist_node(i, dia_a);
+    int db = dist_node(i, dia_b);
+
+    if (da > dia_len) {
+        dia_b = dia_a;
+        dia_a = i;
+        dia_len = da;
+        changed = true;
+    } else if (db > dia_len) {
+        dia_a = dia_b;
+        dia_b = i;
+        dia_len = db;
+        changed = true;
+    }
+
+    if (i == N - 2) {
+        first_sent_endpoint = dia_a;
+        return first_sent_endpoint + 1;
+    }
+
+    if (i == N - 1) {
+        if (changed) {
+            int other = (dia_a == i ? dia_b : dia_a);
+            return other + 10001;
+        } else {
+            int other = (dia_a == first_sent_endpoint ? dia_b : dia_a);
+            return other + 1;
+        }
+    }
+
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+    if (N == 1) return {0, 0};
+
+    int first = S[N - 2] - 1;
+    int last_value = S[N - 1];
+
+    if (last_value > 10000) {
+        int other = last_value - 10001;
+        return {N - 1, other};
+    } else {
+        int other = last_value - 1;
+        return {first, other};
+    }
+}

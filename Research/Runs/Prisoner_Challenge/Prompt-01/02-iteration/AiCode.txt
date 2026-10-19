@@ -1,0 +1,84 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int MAXC = 60;
+    vector<long long> best(MAXC + 1, -1);
+    vector<int> preC(MAXC + 1, -1), preR(MAXC + 1, -1);
+    best[0] = 1;
+
+    for (int c = 0; c <= MAXC; ++c) {
+        if (best[c] < 0) continue;
+        for (int r = 2; c + r <= MAXC; ++r) {
+            long long val = min<long long>(N, best[c] * r);
+            if (val > best[c + r]) {
+                best[c + r] = val;
+                preC[c + r] = c;
+                preR[c + r] = r;
+            }
+        }
+    }
+
+    int cost = 0;
+    while (cost <= MAXC && best[cost] < N) ++cost;
+
+    vector<int> rad;
+    int cur = cost;
+    while (cur > 0) {
+        rad.push_back(preR[cur]);
+        cur = preC[cur];
+    }
+    reverse(rad.begin(), rad.end());
+
+    int D = (int)rad.size();
+    vector<long long> place(D, 1);
+    for (int i = D - 2; i >= 0; --i) place[i] = place[i + 1] * rad[i + 1];
+
+    vector<int> start(D);
+    int ptr = 1;
+    for (int i = 0; i < D; ++i) {
+        start[i] = ptr;
+        ptr += rad[i];
+    }
+
+    auto digit = [&](int v, int lvl) -> int {
+        long long z = v - 1;
+        return (int)((z / place[lvl]) % rad[lvl]);
+    };
+
+    int x = cost;
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = start[0] + digit(j, 0);
+    }
+
+    for (int lvl = 0; lvl < D; ++lvl) {
+        for (int d = 0; d < rad[lvl]; ++d) {
+            int id = start[lvl] + d;
+            int inspect = (lvl % 2 == 0 ? 1 : 0);
+            s[id][0] = inspect;
+
+            for (int j = 1; j <= N; ++j) {
+                int cd = digit(j, lvl);
+
+                if (cd == d) {
+                    if (lvl + 1 == D) {
+                        s[id][j] = -1;
+                    } else {
+                        s[id][j] = start[lvl + 1] + digit(j, lvl + 1);
+                    }
+                } else if (inspect == 1) {
+                    if (d < cd) s[id][j] = -1;
+                    else s[id][j] = -2;
+                } else {
+                    if (cd < d) s[id][j] = -1;
+                    else s[id][j] = -2;
+                }
+            }
+        }
+    }
+
+    return s;
+}

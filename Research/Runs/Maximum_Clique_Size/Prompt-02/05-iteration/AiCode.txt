@@ -1,0 +1,263 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastScanner {
+    static constexpr int BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    int pos = 0, len = 0;
+
+    int getChar() {
+        if (pos >= len) {
+            len = (int)fread(buf, 1, BUFSIZE, stdin);
+            pos = 0;
+            if (len == 0) return -1;
+        }
+        return buf[pos++];
+    }
+
+    int nextInt() {
+        int c, x = 0;
+        do {
+            c = getChar();
+        } while (c <= ' ' && c != -1);
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        int c;
+        while ((c = getChar()) != -1) {
+            if (c == '0' || c == '1') return c - '0';
+        }
+        return 0;
+    }
+};
+
+int N, W;
+uint64_t lastMask;
+vector<vector<uint64_t>> adj;
+int bestClique = 0;
+
+inline bool bitTest(const vector<uint64_t>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline bool adjTest(int u, int v) {
+    return (adj[u][v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline int popcountVec(const vector<uint64_t>& b) {
+    int s = 0;
+    for (uint64_t x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline int firstBit(const vector<uint64_t>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+void colorSort(const vector<uint64_t>& P, int pCount, vector<int>& verts, vector<int>& colors) {
+    vector<uint64_t> uncolored = P;
+    vector<uint64_t> colorable(W);
+    int color = 0;
+    int left = pCount;
+
+    while (left > 0) {
+        ++color;
+        colorable = uncolored;
+
+        while (true) {
+            int v = firstBit(colorable);
+            if (v < 0 || v >= N) break;
+
+            verts.push_back(v);
+            colors.push_back(color);
+
+            uint64_t mask = ~(1ULL << (v & 63));
+            uncolored[v >> 6] &= mask;
+            colorable[v >> 6] &= mask;
+            --left;
+
+            const vector<uint64_t>& av = adj[v];
+            for (int i = 0; i < W; ++i) colorable[i] &= ~av[i];
+            colorable[W - 1] &= lastMask;
+        }
+    }
+}
+
+void expand(vector<uint64_t> P, int sz) {
+    int pCount = popcountVec(P);
+    if (sz + pCount <= bestClique) return;
+    if (pCount == 0) {
+        if (sz > bestClique) bestClique = sz;
+        return;
+    }
+
+    vector<int> verts;
+    vector<int> colors;
+    verts.reserve(pCount);
+    colors.reserve(pCount);
+
+    colorSort(P, pCount, verts, colors);
+
+    for (int i = (int)verts.size() - 1; i >= 0; --i) {
+        if (sz + colors[i] <= bestClique) return;
+
+        int v = verts[i];
+        if (!bitTest(P, v)) continue;
+
+        vector<uint64_t> newP(W);
+        int cnt = 0;
+        const vector<uint64_t>& av = adj[v];
+
+        for (int j = 0; j < W; ++j) {
+            uint64_t x = P[j] & av[j];
+            newP[j] = x;
+            cnt += __builtin_popcountll(x);
+        }
+
+        if (sz + 1 + cnt > bestClique) {
+            expand(std::move(newP), sz + 1);
+        }
+
+        P[v >> 6] &= ~(1ULL << (v & 63));
+    }
+}
+
+int greedyComplementMinDegree() {
+    vector<vector<int>> comp(N);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            if (!adjTest(i, j)) {
+                comp[i].push_back(j);
+                comp[j].push_back(i);
+            }
+        }
+    }
+
+    vector<int> deg(N);
+    priority_queue<pair<int, int>, vector<pair<int, int>>, greater<pair<int, int>>> pq;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)comp[i].size();
+        pq.push({deg[i], i});
+    }
+
+    vector<unsigned char> active(N, 1);
+    int remaining = N;
+    int clique = 0;
+
+    auto removeOne = [&](int x) {
+        if (!active[x]) return;
+        active[x] = 0;
+        --remaining;
+        for (int y : comp[x]) {
+            if (active[y]) {
+                --deg[y];
+                pq.push({deg[y], y});
+            }
+        }
+    };
+
+    while (remaining > 0) {
+        int v = -1;
+        while (!pq.empty()) {
+            auto [d, x] = pq.top();
+            pq.pop();
+            if (active[x] && d == deg[x]) {
+                v = x;
+                break;
+            }
+        }
+        if (v < 0) break;
+
+        ++clique;
+
+        vector<int> rem;
+        rem.push_back(v);
+        for (int u : comp[v]) {
+            if (active[u]) rem.push_back(u);
+        }
+
+        for (int x : rem) removeOne(x);
+    }
+
+    return clique;
+}
+
+int main() {
+    FastScanner fs;
+    N = fs.nextInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    int remBits = N & 63;
+    lastMask = remBits ? ((1ULL << remBits) - 1ULL) : ~0ULL;
+
+    vector<vector<uint64_t>> oldAdj(N, vector<uint64_t>(W, 0));
+    vector<int> deg(N, 0);
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = fs.nextBit();
+            if (b && i != j) {
+                oldAdj[i][j >> 6] |= 1ULL << (j & 63);
+                ++deg[i];
+            }
+        }
+    }
+
+    vector<int> perm(N), inv(N);
+    iota(perm.begin(), perm.end(), 0);
+
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    for (int i = 0; i < N; ++i) inv[perm[i]] = i;
+
+    adj.assign(N, vector<uint64_t>(W, 0));
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        for (int w = 0; w < W; ++w) {
+            uint64_t x = oldAdj[oi][w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (w << 6) + b;
+                if (oj < N) {
+                    int nj = inv[oj];
+                    if (nj != ni) adj[ni][nj >> 6] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+        adj[ni][W - 1] &= lastMask;
+    }
+
+    oldAdj.clear();
+    oldAdj.shrink_to_fit();
+
+    bestClique = greedyComplementMinDegree();
+
+    if (bestClique < N) {
+        vector<uint64_t> P(W, ~0ULL);
+        P[W - 1] = lastMask;
+        expand(std::move(P), 0);
+    }
+
+    printf("%d\n", bestClique);
+    return 0;
+}

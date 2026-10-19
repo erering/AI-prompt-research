@@ -1,0 +1,298 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using U64 = unsigned long long;
+using Bits = vector<U64>;
+
+struct FastInput {
+    static constexpr size_t SZ = 1 << 20;
+    char buf[SZ];
+    size_t idx = 0, size = 0;
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (!size) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int readInt() {
+        char c;
+        do c = getChar(); while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int readBit() {
+        char c;
+        do c = getChar(); while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+struct Solver {
+    int n, W;
+    vector<Bits> comp;
+    vector<vector<int>> compList;
+    int best = 0;
+
+    Solver(int n_, vector<Bits>&& c, vector<vector<int>>&& l)
+        : n(n_), W((n_ + 63) >> 6), comp(std::move(c)), compList(std::move(l)) {}
+
+    inline void clearBit(Bits& b, int v) {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline int firstBit(const Bits& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    inline bool anyBits(const Bits& b) const {
+        for (U64 x : b) if (x) return true;
+        return false;
+    }
+
+    inline int popcountBits(const Bits& b) const {
+        int s = 0;
+        for (U64 x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    Bits fullSet() const {
+        Bits b(W, ~0ULL);
+        int r = n & 63;
+        if (r) b[W - 1] = (1ULL << r) - 1;
+        return b;
+    }
+
+    int greedyInitial() const {
+        vector<unsigned char> active(n, 1);
+        vector<int> deg(n);
+        priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+        for (int i = 0; i < n; ++i) {
+            deg[i] = (int)compList[i].size();
+            pq.push({deg[i], i});
+        }
+
+        int alive = n, ans = 0;
+
+        while (alive > 0) {
+            int v = -1;
+            while (!pq.empty()) {
+                auto [d, x] = pq.top();
+                pq.pop();
+                if (active[x] && deg[x] == d) {
+                    v = x;
+                    break;
+                }
+            }
+            if (v < 0) break;
+
+            ++ans;
+            vector<int> rem;
+            rem.push_back(v);
+            for (int u : compList[v]) {
+                if (active[u]) rem.push_back(u);
+            }
+
+            for (int x : rem) {
+                if (!active[x]) continue;
+                active[x] = 0;
+                --alive;
+                for (int y : compList[x]) {
+                    if (active[y]) {
+                        --deg[y];
+                        pq.push({deg[y], y});
+                    }
+                }
+            }
+        }
+
+        return ans;
+    }
+
+    void colorSort(const Bits& P, vector<int>& order, vector<int>& colors) const {
+        order.clear();
+        colors.clear();
+
+        Bits rem = P, avail(W);
+        int color = 0;
+
+        while (anyBits(rem)) {
+            ++color;
+            avail = rem;
+
+            while (true) {
+                int v = firstBit(avail);
+                if (v < 0 || v >= n) break;
+
+                order.push_back(v);
+                colors.push_back(color);
+
+                U64 mask = ~(1ULL << (v & 63));
+                rem[v >> 6] &= mask;
+                avail[v >> 6] &= mask;
+
+                const Bits& cv = comp[v];
+                for (int i = 0; i < W; ++i) avail[i] &= cv[i];
+            }
+        }
+    }
+
+    void expand(const Bits& P, int depth) {
+        if (depth + popcountBits(P) <= best) return;
+
+        vector<int> order, colors;
+        colorSort(P, order, colors);
+
+        if (order.empty()) {
+            if (depth > best) best = depth;
+            return;
+        }
+
+        if (depth + colors.back() <= best) return;
+
+        Bits Pcur = P;
+
+        for (int idx = (int)order.size() - 1; idx >= 0; --idx) {
+            if (depth + colors[idx] <= best) return;
+
+            int v = order[idx];
+            clearBit(Pcur, v);
+
+            Bits Q(W);
+            bool nonempty = false;
+            const Bits& cv = comp[v];
+
+            for (int i = 0; i < W; ++i) {
+                Q[i] = Pcur[i] & ~cv[i];
+                nonempty |= (Q[i] != 0);
+            }
+
+            if (!nonempty) {
+                if (depth + 1 > best) best = depth + 1;
+            } else {
+                expand(Q, depth + 1);
+            }
+
+            if (best == n) return;
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+        best = greedyInitial();
+        if (best < n) {
+            Bits P = fullSet();
+            expand(P, 0);
+        }
+        return best;
+    }
+};
+
+int main() {
+    FastInput in;
+    int N = in.readInt();
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    int GW = (N + 63) >> 6;
+    vector<Bits> globalComp(N, Bits(GW, 0));
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = in.readBit();
+            if (i != j && b == 0) {
+                globalComp[i][j >> 6] |= 1ULL << (j & 63);
+            }
+        }
+    }
+
+    vector<vector<int>> globalList(N);
+    for (int i = 0; i < N; ++i) {
+        for (int w = 0; w < GW; ++w) {
+            U64 x = globalComp[i][w];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (w << 6) + b;
+                if (v < N) globalList[i].push_back(v);
+                x &= x - 1;
+            }
+        }
+    }
+
+    vector<unsigned char> vis(N, 0);
+    vector<int> pos(N, -1);
+    int answer = 0;
+
+    for (int s = 0; s < N; ++s) {
+        if (vis[s]) continue;
+
+        vector<int> compVerts;
+        queue<int> q;
+        vis[s] = 1;
+        q.push(s);
+
+        while (!q.empty()) {
+            int v = q.front();
+            q.pop();
+            compVerts.push_back(v);
+
+            for (int u : globalList[v]) {
+                if (!vis[u]) {
+                    vis[u] = 1;
+                    q.push(u);
+                }
+            }
+        }
+
+        int m = (int)compVerts.size();
+        if (m == 1) {
+            ++answer;
+            continue;
+        }
+
+        sort(compVerts.begin(), compVerts.end(), [&](int a, int b) {
+            if (globalList[a].size() != globalList[b].size())
+                return globalList[a].size() < globalList[b].size();
+            return a < b;
+        });
+
+        for (int i = 0; i < m; ++i) pos[compVerts[i]] = i;
+
+        int W = (m + 63) >> 6;
+        vector<Bits> localComp(m, Bits(W, 0));
+        vector<vector<int>> localList(m);
+
+        for (int i = 0; i < m; ++i) {
+            int gv = compVerts[i];
+            for (int gu : globalList[gv]) {
+                int j = pos[gu];
+                if (j >= 0 && j != i) {
+                    localComp[i][j >> 6] |= 1ULL << (j & 63);
+                    localList[i].push_back(j);
+                }
+            }
+        }
+
+        for (int v : compVerts) pos[v] = -1;
+
+        Solver solver(m, std::move(localComp), std::move(localList));
+        answer += solver.solve();
+    }
+
+    cout << answer << '\n';
+    return 0;
+}

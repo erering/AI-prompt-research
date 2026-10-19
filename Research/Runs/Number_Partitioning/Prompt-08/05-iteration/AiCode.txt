@@ -1,0 +1,235 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <bit>
+#include <new>
+
+using ull = unsigned long long;
+using u64 = std::uint64_t;
+
+ull solve_bitset_dp(const std::vector<ull>& a, ull total, ull target) {
+    std::size_t t = static_cast<std::size_t>(target);
+    std::size_t word_count = t / 64 + 1;
+
+    std::vector<u64> dp(word_count, 0);
+    dp[0] = 1;
+
+    std::size_t valid_bits_last = (t + 1) % 64;
+    u64 last_mask = (valid_bits_last == 0) ? ~0ULL : ((1ULL << valid_bits_last) - 1ULL);
+
+    ull max_reach = 0;
+
+    for (ull x : a) {
+        if (x == 0 || x > target) continue;
+
+        std::size_t shift = static_cast<std::size_t>(x);
+        std::size_t word_shift = shift / 64;
+        unsigned bit_shift = static_cast<unsigned>(shift % 64);
+
+        ull new_max_reach = max_reach + x;
+        if (new_max_reach < max_reach || new_max_reach > target) new_max_reach = target;
+
+        std::size_t new_max_word = static_cast<std::size_t>(new_max_reach / 64);
+
+        for (std::size_t i = new_max_word + 1; i-- > word_shift;) {
+            std::size_t src = i - word_shift;
+            u64 val;
+            if (bit_shift == 0) {
+                val = dp[src];
+            } else {
+                val = dp[src] << bit_shift;
+                if (src > 0) {
+                    val |= dp[src - 1] >> (64 - bit_shift);
+                }
+            }
+            dp[i] |= val;
+        }
+
+        dp.back() &= last_mask;
+        max_reach = new_max_reach;
+
+        if ((dp[t / 64] & (1ULL << (t % 64))) != 0) {
+            return total - target - target;
+        }
+    }
+
+    std::size_t idx = t / 64;
+    unsigned offset = static_cast<unsigned>(t % 64);
+    u64 mask = (offset == 63) ? ~0ULL : ((1ULL << (offset + 1)) - 1ULL);
+
+    while (true) {
+        u64 w = dp[idx] & mask;
+        if (w != 0) {
+            std::size_t bit = static_cast<std::size_t>(std::bit_width(w) - 1);
+            ull best = static_cast<ull>(idx) * 64ULL + static_cast<ull>(bit);
+            return total - best - best;
+        }
+        if (idx == 0) break;
+        --idx;
+        mask = ~0ULL;
+    }
+
+    return total;
+}
+
+std::vector<ull> generate_limited_sums(const std::vector<ull>& a, std::size_t l, std::size_t r, ull target) {
+    std::vector<ull> sums;
+    std::size_t len = r - l;
+    if (len <= 23) {
+        sums.reserve(static_cast<std::size_t>(1ULL << len));
+    }
+    sums.push_back(0);
+
+    for (std::size_t i = l; i < r; ++i) {
+        ull x = a[i];
+        if (x > target) continue;
+
+        std::size_t old_size = sums.size();
+        for (std::size_t j = 0; j < old_size; ++j) {
+            if (sums[j] <= target - x) {
+                sums.push_back(sums[j] + x);
+            }
+        }
+    }
+
+    std::sort(sums.begin(), sums.end());
+    sums.erase(std::unique(sums.begin(), sums.end()), sums.end());
+    return sums;
+}
+
+ull solve_meet_in_middle(const std::vector<ull>& a, ull total, ull target) {
+    std::size_t n = a.size();
+    std::size_t mid = n / 2;
+
+    std::vector<ull> right = generate_limited_sums(a, mid, n, target);
+    ull best = right.empty() ? 0 : right.back();
+
+    auto dfs = [&](auto&& self, std::size_t idx, ull cur) -> bool {
+        if (idx == mid) {
+            ull rem = target - cur;
+            auto it = std::upper_bound(right.begin(), right.end(), rem);
+            if (it != right.begin()) {
+                --it;
+                ull cand = cur + *it;
+                if (cand > best) {
+                    best = cand;
+                    if (best == target) return true;
+                }
+            }
+            return false;
+        }
+
+        if (self(self, idx + 1, cur)) return true;
+
+        ull x = a[idx];
+        if (x <= target - cur) {
+            if (self(self, idx + 1, cur + x)) return true;
+        }
+
+        return false;
+    };
+
+    dfs(dfs, 0, 0);
+    return total - best - best;
+}
+
+ull solve_branch_bound(std::vector<ull> a, ull total, ull target) {
+    a.erase(std::remove_if(a.begin(), a.end(), [&](ull x) { return x > target; }), a.end());
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    ull best = 0;
+    for (ull x : a) {
+        if (x <= target - best) best += x;
+        if (best == target) return total - best - best;
+    }
+
+    std::size_t n = a.size();
+    std::vector<ull> suffix(n + 1, 0);
+    for (std::size_t i = n; i-- > 0;) {
+        if (a[i] >= target || suffix[i + 1] >= target - a[i]) {
+            suffix[i] = target;
+        } else {
+            suffix[i] = suffix[i + 1] + a[i];
+        }
+    }
+
+    auto dfs = [&](auto&& self, std::size_t idx, ull cur) -> bool {
+        if (cur > best) {
+            best = cur;
+            if (best == target) return true;
+        }
+
+        if (idx == n) return false;
+
+        if (best >= cur && suffix[idx] <= best - cur) return false;
+
+        ull x = a[idx];
+        if (x <= target - cur) {
+            if (self(self, idx + 1, cur + x)) return true;
+        }
+
+        return self(self, idx + 1, cur);
+    };
+
+    dfs(dfs, 0, 0);
+    return total - best - best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a(N);
+    ull total = 0;
+
+    for (std::size_t i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        total += a[i];
+    }
+
+    ull target = total / 2;
+
+    if (target == 0) {
+        std::cout << total << '\n';
+        return 0;
+    }
+
+    const ull BIT_TARGET_LIMIT = 200000000ULL;
+    bool target_fits_size_t = target <= static_cast<ull>(std::numeric_limits<std::size_t>::max() - 1);
+    bool can_bitset = target_fits_size_t && target <= BIT_TARGET_LIMIT;
+
+    long double dp_ops = static_cast<long double>(N) * (static_cast<long double>(target) / 64.0L + 1.0L);
+    bool prefer_bitset = can_bitset && (N > 46 || dp_ops <= 350000000.0L || target <= 8000000ULL);
+
+    if (prefer_bitset) {
+        try {
+            std::cout << solve_bitset_dp(a, total, target) << '\n';
+            return 0;
+        } catch (const std::bad_alloc&) {
+        }
+    }
+
+    if (N <= 46) {
+        try {
+            std::cout << solve_meet_in_middle(a, total, target) << '\n';
+            return 0;
+        } catch (const std::bad_alloc&) {
+        }
+    }
+
+    if (can_bitset) {
+        try {
+            std::cout << solve_bitset_dp(a, total, target) << '\n';
+            return 0;
+        } catch (const std::bad_alloc&) {
+        }
+    }
+
+    std::cout << solve_branch_bound(a, total, target) << '\n';
+    return 0;
+}

@@ -1,0 +1,93 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static const int MAXN = 10005;
+static const int LOG = 20;
+
+static int up_tbl[LOG][MAXN];
+static int depth_tbl[MAXN];
+static int diaA = 0, diaB = 0, diaLen = 0;
+
+static int lca_node(int u, int v) {
+    if (depth_tbl[u] < depth_tbl[v]) swap(u, v);
+    int diff = depth_tbl[u] - depth_tbl[v];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) u = up_tbl[k][u];
+    }
+    if (u == v) return u;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (up_tbl[k][u] != up_tbl[k][v]) {
+            u = up_tbl[k][u];
+            v = up_tbl[k][v];
+        }
+    }
+    return up_tbl[0][u];
+}
+
+static int dist_node(int u, int v) {
+    int w = lca_node(u, v);
+    return depth_tbl[u] + depth_tbl[v] - 2 * depth_tbl[w];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        diaA = diaB = 0;
+        diaLen = 0;
+        depth_tbl[0] = 0;
+        for (int k = 0; k < LOG; ++k) up_tbl[k][0] = 0;
+    }
+
+    up_tbl[0][i] = Pi;
+    depth_tbl[i] = depth_tbl[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[k][i] = up_tbl[k - 1][up_tbl[k - 1][i]];
+    }
+
+    int oldA = diaA;
+    int oldB = diaB;
+    int dA = dist_node(i, oldA);
+    int dB = dist_node(i, oldB);
+
+    bool increased = false;
+    int other = -1;
+
+    if (dA > diaLen || dB > diaLen) {
+        increased = true;
+        if (dA >= dB) {
+            diaA = i;
+            diaB = oldA;
+            diaLen = dA;
+            other = oldA;
+        } else {
+            diaA = i;
+            diaB = oldB;
+            diaLen = dB;
+            other = oldB;
+        }
+    }
+
+    if (i == N - 2) {
+        return diaA + 1;
+    }
+
+    if (i == N - 1) {
+        if (increased) {
+            return other + 1;
+        } else {
+            return 10001 + diaB;
+        }
+    }
+
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+    int last = S[N - 1];
+
+    if (last <= 10000) {
+        return {N - 1, last - 1};
+    } else {
+        return {S[N - 2] - 1, last - 10001};
+    }
+}

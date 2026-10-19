@@ -1,0 +1,93 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    if (N == 2) {
+        vector<vector<int>> s(1, vector<int>(N + 1, -1));
+        s[0][0] = 0;
+        s[0][1] = -1;
+        s[0][2] = -2;
+        return s;
+    }
+
+    const int INF = 1e9;
+    vector<int> dp(N + 1, INF), choice(N + 1, -1);
+    dp[1] = 0;
+
+    for (int n = 2; n <= N; n++) {
+        for (int r = 2; r <= n; r++) {
+            int nxt = (n + r - 1) / r;
+            int val = r + dp[nxt];
+            if (val < dp[n]) {
+                dp[n] = val;
+                choice[n] = r;
+            }
+        }
+    }
+
+    vector<int> rad;
+    int cur = N;
+    while (cur > 1) {
+        int r = choice[cur];
+        rad.push_back(r);
+        cur = (cur + r - 1) / r;
+    }
+
+    int L = (int)rad.size();
+    vector<long long> place(L, 1);
+    for (int i = L - 2; i >= 0; i--) place[i] = place[i + 1] * rad[i + 1];
+
+    vector<int> offset(L);
+    int total = 1;
+    for (int i = 0; i < L; i++) {
+        offset[i] = total;
+        total += rad[i];
+    }
+
+    auto digit = [&](int v, int level) {
+        return (int)(((long long)(v - 1) / place[level]) % rad[level]);
+    };
+
+    auto id = [&](int level, int d) {
+        return offset[level] + d;
+    };
+
+    auto declare_smaller = [&](int bag) {
+        return bag == 0 ? -1 : -2;
+    };
+
+    vector<vector<int>> s(total, vector<int>(N + 1, -1));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; j++) {
+        s[0][j] = id(0, digit(j, 0));
+    }
+
+    for (int level = 0; level < L; level++) {
+        int current_bag = (level % 2 == 0) ? 1 : 0;
+        int previous_bag = 1 - current_bag;
+
+        for (int d = 0; d < rad[level]; d++) {
+            int st = id(level, d);
+            s[st][0] = current_bag;
+
+            for (int j = 1; j <= N; j++) {
+                int dj = digit(j, level);
+
+                if (dj < d) {
+                    s[st][j] = declare_smaller(current_bag);
+                } else if (dj > d) {
+                    s[st][j] = declare_smaller(previous_bag);
+                } else {
+                    if (level + 1 == L) {
+                        s[st][j] = -1;
+                    } else {
+                        s[st][j] = id(level + 1, digit(j, level + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

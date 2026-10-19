@@ -1,0 +1,244 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+using Bits = vector<ull>;
+
+int N, W;
+ull LAST_MASK;
+vector<Bits> adjm;
+vector<int> globalDeg;
+int bestAns = 0;
+
+inline void setBit(Bits& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+inline void clearBit(Bits& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline bool testBit(const Bits& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline int popcountBits(const Bits& b) {
+    int s = 0;
+    for (ull x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline int popcountIntersect(const Bits& a, const Bits& b) {
+    int s = 0;
+    for (int i = 0; i < W; ++i) s += __builtin_popcountll(a[i] & b[i]);
+    return s;
+}
+
+inline int firstBit(const Bits& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+inline bool emptyBits(const Bits& b) {
+    for (ull x : b) if (x) return false;
+    return true;
+}
+
+Bits allVertices() {
+    Bits b(W, ~0ULL);
+    if (W) b[W - 1] = LAST_MASK;
+    return b;
+}
+
+void colorSort(const Bits& P, vector<int>& order, vector<int>& colors) {
+    order.clear();
+    colors.clear();
+    int cnt = popcountBits(P);
+    order.reserve(cnt);
+    colors.reserve(cnt);
+
+    Bits U = P;
+    int color = 0;
+
+    while (!emptyBits(U)) {
+        ++color;
+        Bits Q = U;
+
+        while (true) {
+            int v = firstBit(Q);
+            if (v < 0 || v >= N) break;
+
+            order.push_back(v);
+            colors.push_back(color);
+
+            clearBit(U, v);
+            clearBit(Q, v);
+            for (int i = 0; i < W; ++i) Q[i] &= ~adjm[v][i];
+            if (W) Q[W - 1] &= LAST_MASK;
+        }
+    }
+}
+
+int greedyStatic() {
+    Bits P = allVertices();
+    int sz = 0;
+
+    while (!emptyBits(P)) {
+        int v = -1, bd = -1;
+        for (int i = 0; i < W; ++i) {
+            ull x = P[i];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int u = (i << 6) + b;
+                if (u < N && globalDeg[u] > bd) {
+                    bd = globalDeg[u];
+                    v = u;
+                }
+                x &= x - 1;
+            }
+        }
+        if (v < 0) break;
+        ++sz;
+        for (int i = 0; i < W; ++i) P[i] &= adjm[v][i];
+    }
+
+    return sz;
+}
+
+int greedyMaxDegree() {
+    Bits P = allVertices();
+    int sz = 0;
+
+    while (!emptyBits(P)) {
+        int v = -1, bd = -1;
+        for (int i = 0; i < W; ++i) {
+            ull x = P[i];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int u = (i << 6) + b;
+                if (u < N) {
+                    int d = popcountIntersect(P, adjm[u]);
+                    if (d > bd) {
+                        bd = d;
+                        v = u;
+                    }
+                }
+                x &= x - 1;
+            }
+        }
+        if (v < 0) break;
+        ++sz;
+        for (int i = 0; i < W; ++i) P[i] &= adjm[v][i];
+    }
+
+    return sz;
+}
+
+void expand(int depth, Bits P) {
+    int pc = popcountBits(P);
+    if (pc == 0) {
+        if (depth > bestAns) bestAns = depth;
+        return;
+    }
+    if (depth + pc <= bestAns) return;
+
+    vector<int> order, colors;
+    colorSort(P, order, colors);
+
+    for (int idx = (int)order.size() - 1; idx >= 0; --idx) {
+        if (depth + colors[idx] <= bestAns) return;
+
+        int v = order[idx];
+        if (!testBit(P, v)) continue;
+
+        Bits NP(W);
+        for (int i = 0; i < W; ++i) NP[i] = P[i] & adjm[v][i];
+
+        int npc = popcountBits(NP);
+        if (npc == 0) {
+            if (depth + 1 > bestAns) bestAns = depth + 1;
+        } else if (depth + 1 + npc > bestAns) {
+            expand(depth + 1, std::move(NP));
+        }
+
+        clearBit(P, v);
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    LAST_MASK = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    adjm.assign(N, Bits(W, 0));
+
+    long long need = 1LL * N * N;
+    long long got = 0;
+    char c;
+    while (got < need && cin.get(c)) {
+        if (c == '0' || c == '1') {
+            int i = (int)(got / N);
+            int j = (int)(got % N);
+            if (c == '1' && i != j) setBit(adjm[i], j);
+            ++got;
+        }
+    }
+
+    for (int i = 0; i < N; ++i) clearBit(adjm[i], i);
+
+    vector<int> deg(N);
+    for (int i = 0; i < N; ++i) deg[i] = popcountBits(adjm[i]);
+
+    if (N <= 4000) {
+        vector<int> ord(N), pos(N);
+        iota(ord.begin(), ord.end(), 0);
+        sort(ord.begin(), ord.end(), [&](int a, int b) {
+            if (deg[a] != deg[b]) return deg[a] > deg[b];
+            return a < b;
+        });
+        for (int i = 0; i < N; ++i) pos[ord[i]] = i;
+
+        vector<Bits> nadj(N, Bits(W, 0));
+        vector<int> ndeg(N);
+        for (int old = 0; old < N; ++old) {
+            int ni = pos[old];
+            ndeg[ni] = deg[old];
+            for (int w = 0; w < W; ++w) {
+                ull x = adjm[old][w];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int oj = (w << 6) + b;
+                    if (oj < N) setBit(nadj[ni], pos[oj]);
+                    x &= x - 1;
+                }
+            }
+        }
+        adjm.swap(nadj);
+        globalDeg.swap(ndeg);
+    } else {
+        globalDeg = deg;
+    }
+
+    bestAns = max(1, greedyStatic());
+    if (N <= 2500) bestAns = max(bestAns, greedyMaxDegree());
+
+    if (bestAns >= N) {
+        cout << N << '\n';
+        return 0;
+    }
+
+    expand(0, allVertices());
+
+    cout << bestAns << '\n';
+    return 0;
+}

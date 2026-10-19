@@ -1,0 +1,303 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <queue>
+#include <vector>
+
+using ull = unsigned long long;
+
+static ull global_best;
+
+static ull absdiff(ull a, ull b) {
+    return a >= b ? a - b : b - a;
+}
+
+static ull greedy_partition(const std::vector<ull>& a) {
+    ull x = 0, y = 0;
+    for (ull v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return absdiff(x, y);
+}
+
+static ull kk_heuristic(const std::vector<ull>& a) {
+    std::priority_queue<ull> pq;
+    for (ull v : a) if (v) pq.push(v);
+    while (pq.size() > 1) {
+        ull x = pq.top(); pq.pop();
+        ull y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static bool solve_dp(const std::vector<ull>& a, ull total, ull& ans) {
+    ull target = total / 2;
+    if (target > static_cast<ull>(std::numeric_limits<std::size_t>::max() - 63)) return false;
+
+    std::size_t words = static_cast<std::size_t>(target / 64 + 1);
+    long double ops = static_cast<long double>(words) * static_cast<long double>(a.size());
+    if (words > 8000000ULL || ops > 350000000.0L) return false;
+
+    try {
+        std::vector<ull> bits(words, 0);
+        bits[0] = 1;
+
+        int valid = static_cast<int>(target % 64) + 1;
+        ull last_mask = (valid == 64) ? ~0ULL : ((1ULL << valid) - 1ULL);
+
+        for (ull x : a) {
+            if (x > target) continue;
+            std::size_t ws = static_cast<std::size_t>(x / 64);
+            unsigned bs = static_cast<unsigned>(x % 64);
+
+            for (std::size_t i = words; i-- > ws;) {
+                ull v = bits[i - ws] << bs;
+                if (bs && i > ws) v |= bits[i - ws - 1] >> (64 - bs);
+                bits[i] |= v;
+            }
+            bits.back() &= last_mask;
+        }
+
+        ull best_sum = 0;
+        for (std::size_t i = words; i-- > 0;) {
+            ull w = bits[i];
+            if (i == words - 1) w &= last_mask;
+            if (w) {
+                int p = std::bit_width(w) - 1;
+                best_sum = static_cast<ull>(i) * 64ULL + static_cast<ull>(p);
+                break;
+            }
+        }
+
+        ans = total - 2ULL * best_sum;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+static bool solve_mitm(const std::vector<ull>& a, ull total, ull initial_residue, ull& ans) {
+    int n = static_cast<int>(a.size());
+    int n1 = n / 2;
+    int n2 = n - n1;
+    if (n1 > 23) return false;
+
+    ull target = total / 2;
+    ull best_sum = (initial_residue <= total) ? (total - initial_residue) / 2 : 0;
+
+    try {
+        std::vector<ull> sums;
+        sums.reserve(1ULL << n1);
+        sums.push_back(0);
+
+        for (int i = 0; i < n1; ++i) {
+            ull x = a[i];
+            if (x > target) continue;
+            std::size_t sz = sums.size();
+            ull lim = target - x;
+            for (std::size_t j = 0; j < sz; ++j) {
+                if (sums[j] <= lim) sums.push_back(sums[j] + x);
+            }
+        }
+
+        std::sort(sums.begin(), sums.end());
+        sums.erase(std::unique(sums.begin(), sums.end()), sums.end());
+
+        auto dfs = [&](auto&& self, int idx, ull cur) -> void {
+            if (best_sum == target) return;
+            if (idx == n2) {
+                ull rem = target - cur;
+                auto it = std::upper_bound(sums.begin(), sums.end(), rem);
+                if (it != sums.begin()) {
+                    --it;
+                    ull cand = cur + *it;
+                    if (cand > best_sum) best_sum = cand;
+                }
+                return;
+            }
+
+            ull x = a[n1 + idx];
+            if (x <= target - cur) self(self, idx + 1, cur + x);
+            self(self, idx + 1, cur);
+        };
+
+        dfs(dfs, 0, 0);
+        ans = total - 2ULL * best_sum;
+        return true;
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+}
+
+static std::vector<ull> ckk_child(const std::vector<ull>& v, ull z) {
+    std::vector<ull> r;
+    r.reserve(v.size() - (z == 0 ? 2 : 1));
+
+    bool inserted = (z == 0);
+    for (std::size_t i = 2; i < v.size(); ++i) {
+        if (!inserted && z >= v[i]) {
+            r.push_back(z);
+            inserted = true;
+        }
+        r.push_back(v[i]);
+    }
+    if (!inserted) r.push_back(z);
+    return r;
+}
+
+static void ckk(const std::vector<ull>& v, ull total) {
+    if (global_best == (total & 1ULL)) return;
+
+    std::size_t n = v.size();
+    if (n == 0) {
+        global_best = 0;
+        return;
+    }
+    if (n == 1) {
+        if (v[0] < global_best) global_best = v[0];
+        return;
+    }
+
+    ull largest = v[0];
+    ull rest = total - largest;
+    if (largest >= rest) {
+        ull res = largest - rest;
+        if (res < global_best) global_best = res;
+        return;
+    }
+
+    if (n == 2) {
+        ull res = v[0] - v[1];
+        if (res < global_best) global_best = res;
+        return;
+    }
+
+    ull x = v[0], y = v[1];
+
+    {
+        std::vector<ull> d = ckk_child(v, x - y);
+        ckk(d, total - 2ULL * y);
+    }
+
+    if (global_best == (total & 1ULL)) return;
+
+    {
+        std::vector<ull> s = ckk_child(v, x + y);
+        ckk(s, total);
+    }
+}
+
+static ull subset_dfs_fallback(std::vector<ull> a, ull total, ull initial_residue) {
+    ull target = total / 2;
+    a.erase(std::remove_if(a.begin(), a.end(), [&](ull x) { return x > target; }), a.end());
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    std::size_t n = a.size();
+    std::vector<ull> suffix(n + 1, 0);
+    for (std::size_t i = n; i-- > 0;) suffix[i] = suffix[i + 1] + a[i];
+
+    ull best_sum = (initial_residue <= total) ? (total - initial_residue) / 2 : 0;
+
+    struct Frame {
+        std::size_t i;
+        ull cur;
+        unsigned char state;
+    };
+
+    std::vector<Frame> st;
+    st.reserve(n + 1);
+    st.push_back({0, 0, 0});
+
+    while (!st.empty() && best_sum != target) {
+        Frame& f = st.back();
+
+        if (f.cur > target || f.cur + suffix[f.i] <= best_sum) {
+            st.pop_back();
+            continue;
+        }
+
+        if (f.i == n) {
+            if (f.cur > best_sum) best_sum = f.cur;
+            st.pop_back();
+            continue;
+        }
+
+        if (f.state == 0) {
+            f.state = 1;
+            ull x = a[f.i];
+            if (x <= target - f.cur) st.push_back({f.i + 1, f.cur + x, 0});
+        } else if (f.state == 1) {
+            f.state = 2;
+            st.push_back({f.i + 1, f.cur, 0});
+        } else {
+            st.pop_back();
+        }
+    }
+
+    return total - 2ULL * best_sum;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a;
+    a.reserve(N);
+
+    ull total = 0;
+    for (std::size_t i = 0; i < N; ++i) {
+        ull x;
+        std::cin >> x;
+        if (x) {
+            a.push_back(x);
+            total += x;
+        }
+    }
+
+    if (a.empty()) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    global_best = total;
+    global_best = std::min(global_best, greedy_partition(a));
+    global_best = std::min(global_best, kk_heuristic(a));
+
+    if (global_best == (total & 1ULL)) {
+        std::cout << global_best << '\n';
+        return 0;
+    }
+
+    ull ans;
+    if (solve_dp(a, total, ans)) {
+        std::cout << ans << '\n';
+        return 0;
+    }
+
+    if (a.size() <= 47 && solve_mitm(a, total, global_best, ans)) {
+        std::cout << ans << '\n';
+        return 0;
+    }
+
+    if (a.size() <= 3000) {
+        try {
+            ckk(a, total);
+            std::cout << global_best << '\n';
+            return 0;
+        } catch (const std::bad_alloc&) {
+        }
+    }
+
+    ans = subset_dfs_fallback(a, total, global_best);
+    std::cout << ans << '\n';
+    return 0;
+}

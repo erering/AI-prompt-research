@@ -1,0 +1,120 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    vector<int> r = {3, 3, 3, 3, 3, 3, 2};
+    int K = (int)r.size();
+
+    vector<int> cap(K + 1);
+    cap[K] = 2;
+    for (int i = K - 1; i >= 0; --i) cap[i] = 2 + r[i] * cap[i + 1];
+
+    vector<vector<int>> id(K);
+    int x = 0;
+    for (int i = 0; i < K; ++i) {
+        id[i].resize(r[i]);
+        for (int g = 0; g < r[i]; ++g) id[i][g] = ++x;
+    }
+
+    vector<vector<int>> cls(K, vector<int>(N + 1, -1));
+    vector<vector<int>> lo(K + 1, vector<int>(N + 1, 1));
+    vector<vector<int>> hi(K + 1, vector<int>(N + 1, N));
+
+    for (int j = 1; j <= N; ++j) {
+        int L = 1, H = N;
+        for (int l = 0; l < K; ++l) {
+            lo[l][j] = L;
+            hi[l][j] = H;
+
+            if (L == H) {
+                cls[l][j] = -1;
+                continue;
+            }
+
+            if (j == L) {
+                cls[l][j] = -1;
+                L = H = j;
+            } else if (j == H) {
+                cls[l][j] = -2;
+                L = H = j;
+            } else {
+                int start = L + 1;
+                int g = (j - start) / cap[l + 1];
+                if (g < 0) g = 0;
+                if (g >= r[l]) g = r[l] - 1;
+
+                int GL = start + g * cap[l + 1];
+                int GR = min(H - 1, GL + cap[l + 1] - 1);
+
+                cls[l][j] = g;
+                L = GL;
+                H = GR;
+            }
+        }
+        lo[K][j] = L;
+        hi[K][j] = H;
+    }
+
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, 0));
+
+    auto declare_bag_smaller = [](int bag) {
+        return bag == 0 ? -1 : -2;
+    };
+
+    auto cmp_action = [&](int current_bag, bool current_smaller) {
+        if (current_smaller) return declare_bag_smaller(current_bag);
+        return declare_bag_smaller(1 - current_bag);
+    };
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        int c = cls[0][j];
+        if (c == -1) s[0][j] = -1;
+        else if (c == -2) s[0][j] = -2;
+        else s[0][j] = id[0][c];
+    }
+
+    for (int l = 0; l < K; ++l) {
+        int current_bag = (l % 2 == 0 ? 1 : 0);
+
+        for (int g = 0; g < r[l]; ++g) {
+            int st = id[l][g];
+            s[st][0] = current_bag;
+
+            for (int j = 1; j <= N; ++j) {
+                int c = cls[l][j];
+
+                if (c == -1) {
+                    s[st][j] = cmp_action(current_bag, true);
+                } else if (c == -2) {
+                    s[st][j] = cmp_action(current_bag, false);
+                } else if (c < g) {
+                    s[st][j] = cmp_action(current_bag, true);
+                } else if (c > g) {
+                    s[st][j] = cmp_action(current_bag, false);
+                } else {
+                    if (l + 1 == K) {
+                        if (lo[K][j] == hi[K][j]) {
+                            s[st][j] = -1;
+                        } else if (j == lo[K][j]) {
+                            s[st][j] = cmp_action(current_bag, true);
+                        } else {
+                            s[st][j] = cmp_action(current_bag, false);
+                        }
+                    } else {
+                        int nc = cls[l + 1][j];
+                        if (nc == -1) {
+                            s[st][j] = cmp_action(current_bag, true);
+                        } else if (nc == -2) {
+                            s[st][j] = cmp_action(current_bag, false);
+                        } else {
+                            s[st][j] = id[l + 1][nc];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

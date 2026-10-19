@@ -1,0 +1,99 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const long long CAP = 1000000000LL;
+    const int MAXS = 100;
+
+    vector<long long> dp(MAXS + 1, -1);
+    vector<int> par(MAXS + 1, -1);
+    dp[0] = 1;
+
+    for (int s = 1; s <= MAXS; ++s) {
+        for (int r = 2; r <= s; ++r) {
+            if (dp[s - r] < 0) continue;
+            long long val = min(CAP, dp[s - r] * 1LL * r);
+            if (val > dp[s]) {
+                dp[s] = val;
+                par[s] = r;
+            }
+        }
+    }
+
+    int sum = 0;
+    while (sum <= MAXS && dp[sum] < N) ++sum;
+
+    vector<int> rad;
+    int cur = sum;
+    while (cur > 0) {
+        int r = par[cur];
+        rad.push_back(r);
+        cur -= r;
+    }
+
+    int L = (int)rad.size();
+
+    vector<long long> suf(L + 1, 1);
+    for (int i = L - 1; i >= 0; --i) {
+        suf[i] = suf[i + 1] * rad[i];
+    }
+
+    vector<int> off(L);
+    int x = 0;
+    for (int i = 0; i < L; ++i) {
+        off[i] = x + 1;
+        x += rad[i];
+    }
+
+    auto digit = [&](int coins, int pos) -> int {
+        long long v = coins - 1;
+        return (int)((v / suf[pos + 1]) % rad[pos]);
+    };
+
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, 0));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = off[0] + digit(j, 0);
+    }
+
+    for (int p = 0; p < L; ++p) {
+        for (int d = 0; d < rad[p]; ++d) {
+            int id = off[p] + d;
+            int inspect = (p % 2 == 0 ? 1 : 0);
+            s[id][0] = inspect;
+
+            for (int j = 1; j <= N; ++j) {
+                int e = digit(j, p);
+
+                if (inspect == 1) {
+                    if (e > d) {
+                        s[id][j] = -1;
+                    } else if (e < d) {
+                        s[id][j] = -2;
+                    } else {
+                        if (p == L - 1) {
+                            s[id][j] = -1;
+                        } else {
+                            s[id][j] = off[p + 1] + digit(j, p + 1);
+                        }
+                    }
+                } else {
+                    if (e < d) {
+                        s[id][j] = -1;
+                    } else if (e > d) {
+                        s[id][j] = -2;
+                    } else {
+                        if (p == L - 1) {
+                            s[id][j] = -1;
+                        } else {
+                            s[id][j] = off[p + 1] + digit(j, p + 1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

@@ -1,0 +1,102 @@
+#include <vector>
+#include <algorithm>
+#include <cstddef>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    constexpr int N = 31;
+    constexpr int BAD = 15;
+    constexpr int GOOD = 16;
+    constexpr int HEADER_PACKETS = 31;
+    constexpr int LEN_BITS = 10;
+
+    std::vector<int> reliable_indices_from_mask(const std::vector<bool>& C) {
+        std::vector<int> good;
+        good.reserve(GOOD);
+        for (int i = 0; i < N; ++i) {
+            if (!C[i]) good.push_back(i);
+        }
+        return good;
+    }
+
+    std::vector<bool> encode_payload(const std::vector<bool>& M) {
+        std::vector<bool> bits;
+        bits.reserve(LEN_BITS + M.size());
+
+        int len_minus_one = static_cast<int>(M.size()) - 1;
+        for (int b = 0; b < LEN_BITS; ++b) {
+            bits.push_back((len_minus_one >> b) & 1);
+        }
+
+        for (bool x : M) bits.push_back(x);
+        return bits;
+    }
+
+    bool majority_bit(const std::vector<bool>& packet) {
+        int ones = 0;
+        for (bool x : packet) {
+            if (x) ++ones;
+        }
+        return ones >= 16;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    std::vector<int> good = reliable_indices_from_mask(C);
+
+    for (int k = 0; k < HEADER_PACKETS; ++k) {
+        std::vector<bool> A(N, false);
+        bool bit = C[k];
+        for (int idx : good) {
+            A[idx] = bit;
+        }
+        send_packet(A);
+    }
+
+    std::vector<bool> payload = encode_payload(M);
+    std::size_t pos = 0;
+
+    while (pos < payload.size()) {
+        std::vector<bool> A(N, false);
+        for (int idx : good) {
+            if (pos < payload.size()) {
+                A[idx] = payload[pos++];
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    std::vector<bool> C(N, false);
+
+    for (int k = 0; k < HEADER_PACKETS; ++k) {
+        C[k] = majority_bit(R[k]);
+    }
+
+    std::vector<int> good = reliable_indices_from_mask(C);
+
+    std::vector<bool> payload;
+    for (std::size_t p = HEADER_PACKETS; p < R.size(); ++p) {
+        for (int idx : good) {
+            payload.push_back(R[p][idx]);
+        }
+    }
+
+    int len_minus_one = 0;
+    for (int b = 0; b < LEN_BITS && b < static_cast<int>(payload.size()); ++b) {
+        if (payload[b]) len_minus_one |= (1 << b);
+    }
+
+    int len = len_minus_one + 1;
+    std::vector<bool> M;
+    M.reserve(len);
+
+    for (int i = 0; i < len; ++i) {
+        int pos = LEN_BITS + i;
+        M.push_back(pos < static_cast<int>(payload.size()) ? payload[pos] : false);
+    }
+
+    return M;
+}

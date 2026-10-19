@@ -1,0 +1,21 @@
+Output only valid C++20 code, with no explanation, markdown, or code fences. The code must define int send_message(int N, int i, int Pi) and std::pair<int,int> longest_path(std::vector<int> S); no standard input/output is required.
+
+Symbols and definitions:
+N: fixed value 10000.
+V: vertex set {0,1,...,N-1}.
+P[i]: parent of vertex i for 1<=i<N, satisfying 0<=P[i]<i.
+T: undirected tree with edge {i,P[i]} for every 1<=i<N.
+d(x,y): number of edges in the unique path between x and y in T.
+Diameter pair: any (u,v) in V^2 maximizing d(u,v).
+S[i]: sender return value for vertex i; S[0]=0.
+Message: a nonzero S[i], which must be an integer in [1,20000].
+M: number of messages, M=|{i:S[i]!=0}|.
+Z: largest value in S, Z=max_i S[i].
+
+Protocol:
+First execution only calls send_message. Calls are send_message(N,i,P[i]) for i=1,2,...,N-1 in that order. The function may keep state during these calls. It returns S[i]=0 for no message or S[i] in [1,20000] for a message. The total M must be at most 50. The choice is online: at call i, only N, i, P[i], and previous calls/returns are known. The generator may be adaptive, so later P values may depend on earlier S values while always respecting 0<=P[i]<i.
+Second execution only calls longest_path(S) once. This execution has no access to first-execution state except the full vector S of length N. From S it can see both which sites sent messages and the sent integers. It must return any diameter pair of T.
+
+Correctness requirement: for every valid nonadaptive or adaptive sequence of parents satisfying the bounds, the produced S must obey S[i]=0 or 1<=S[i]<=20000, M<=50, and longest_path(S) must return (u,v) with d(u,v)=max_{a,b in V} d(a,b). If several pairs maximize distance, any one is accepted.
+
+Scoring bounds: if any S value is invalid, Z>20000, M>50, or the returned pair is incorrect, score is 0. Subtask 1, 30 points, additionally guarantees existence of v!=0 with d(0,v) equal to the diameter; valid-case score by Z is 10 for 9998<=Z<=20000, 16 for 102<=Z<=9997, 23 for 5<=Z<=101, 30 for Z<=4. Subtask 2, 70 points, has no extra guarantees; valid-case score is 35-25*log_{4000}(Z/5) when 5<=Z<=20000 and M<=50, 40 when Z<=4 and 32<=M<=50, 70-30*log_4(M/8) when Z<=4 and 9<=M<=31, and 70 when Z<=4 and M<=8.

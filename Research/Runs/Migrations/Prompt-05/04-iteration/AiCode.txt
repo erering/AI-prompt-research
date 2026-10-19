@@ -1,0 +1,99 @@
+#include <vector>
+#include <utility>
+#include <algorithm>
+
+namespace {
+    constexpr int MAXN = 10000;
+    constexpr int LOG = 15;
+
+    int up[MAXN][LOG];
+    int depth_arr[MAXN];
+    int diam_a = 0, diam_b = 0, diam_len = 0;
+
+    int lca_node(int a, int b) {
+        if (depth_arr[a] < depth_arr[b]) std::swap(a, b);
+        int diff = depth_arr[a] - depth_arr[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[a][k] != up[b][k]) {
+                a = up[a][k];
+                b = up[b][k];
+            }
+        }
+        return up[a][0];
+    }
+
+    int dist_nodes(int a, int b) {
+        int c = lca_node(a, b);
+        return depth_arr[a] + depth_arr[b] - 2 * depth_arr[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        diam_a = 0;
+        diam_b = 0;
+        diam_len = 0;
+        depth_arr[0] = 0;
+        for (int k = 0; k < LOG; ++k) up[0][k] = 0;
+    }
+
+    up[i][0] = Pi;
+    for (int k = 1; k < LOG; ++k) up[i][k] = up[up[i][k - 1]][k - 1];
+    depth_arr[i] = depth_arr[Pi] + 1;
+
+    bool updated = false;
+    int opposite = -1;
+
+    int da = dist_nodes(i, diam_a);
+    int db = dist_nodes(i, diam_b);
+
+    if (da > diam_len) {
+        diam_len = da;
+        opposite = diam_a;
+        diam_b = diam_a;
+        diam_a = i;
+        updated = true;
+    } else if (db > diam_len) {
+        diam_len = db;
+        opposite = diam_b;
+        diam_a = i;
+        updated = true;
+    }
+
+    int start = N - 50;
+    if (i < start) return 0;
+
+    if (updated) {
+        return opposite + 1;
+    } else {
+        int endpoint = ((i - start) % 2 == 0) ? diam_a : diam_b;
+        return 10001 + endpoint;
+    }
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    int start = N - 50;
+
+    int last_update = -1;
+    int opposite = -1;
+
+    for (int i = start; i < N; ++i) {
+        if (S[i] >= 1 && S[i] <= 10000) {
+            last_update = i;
+            opposite = S[i] - 1;
+        }
+    }
+
+    if (last_update != -1) {
+        return {last_update, opposite};
+    }
+
+    int a = S[start] - 10001;
+    int b = S[start + 1] - 10001;
+    return {a, b};
+}

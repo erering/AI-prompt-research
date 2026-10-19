@@ -1,0 +1,132 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int A_FEWER = -1;
+    const int B_FEWER = -2;
+    const int LOW = -1;
+    const int HIGH = -2;
+    const int STOP = -3;
+
+    vector<long long> best(61, -1);
+    vector<int> parent(61, -1);
+    best[0] = 1;
+
+    for (int s = 1; s <= 60; ++s) {
+        for (int r = 2; r <= s; ++r) {
+            if (best[s - r] < 0) continue;
+            long long cand = r * best[s - r] + 2;
+            if (cand > best[s]) {
+                best[s] = cand;
+                parent[s] = r;
+            }
+        }
+    }
+
+    int S = 2;
+    while (S <= 60 && best[S] < N) ++S;
+
+    vector<int> R;
+    int rem = S;
+    while (rem > 0) {
+        int r = parent[rem];
+        R.push_back(r);
+        rem -= r;
+    }
+
+    int L = (int)R.size();
+
+    vector<long long> cap(L + 1, 1);
+    for (int p = L - 1; p >= 0; --p) {
+        cap[p] = R[p] * cap[p + 1] + 2;
+    }
+
+    vector<vector<int>> id(L);
+    int x = 0;
+    for (int p = 0; p < L; ++p) {
+        id[p].resize(R[p]);
+        for (int d = 0; d < R[p]; ++d) {
+            id[p][d] = ++x;
+        }
+    }
+
+    vector<vector<int>> kind(N + 1, vector<int>(L, STOP));
+
+    for (int v = 1; v <= N; ++v) {
+        long long off = v - 1;
+        for (int p = 0; p < L; ++p) {
+            if (off == 0) {
+                kind[v][p] = LOW;
+                break;
+            }
+            if (off == cap[p] - 1) {
+                kind[v][p] = HIGH;
+                break;
+            }
+            long long t = off - 1;
+            int d = (int)(t / cap[p + 1]);
+            kind[v][p] = d;
+            off = t % cap[p + 1];
+        }
+    }
+
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, A_FEWER));
+
+    auto declare_fewer = [&](int bag) -> int {
+        return bag == 0 ? A_FEWER : B_FEWER;
+    };
+
+    auto declare_other = [&](int bag) -> int {
+        return bag == 0 ? B_FEWER : A_FEWER;
+    };
+
+    function<int(int, int, int)> record_action = [&](int bag, int v, int p) -> int {
+        if (p >= L) return A_FEWER;
+        int k = kind[v][p];
+        if (k == LOW) return declare_fewer(bag);
+        if (k == HIGH) return declare_other(bag);
+        if (k == STOP) return declare_fewer(bag);
+        return id[p][k];
+    };
+
+    s[0][0] = 0;
+    for (int v = 1; v <= N; ++v) {
+        s[0][v] = record_action(0, v, 0);
+    }
+
+    for (int p = 0; p < L; ++p) {
+        for (int d = 0; d < R[p]; ++d) {
+            int row = id[p][d];
+            int observed_bag = (p % 2 == 0 ? 1 : 0);
+            int stored_bag = 1 - observed_bag;
+
+            s[row][0] = observed_bag;
+
+            for (int v = 1; v <= N; ++v) {
+                int k = kind[v][p];
+                int cmp = 0;
+
+                if (k == LOW) cmp = -1;
+                else if (k == HIGH) cmp = 1;
+                else if (k == STOP) {
+                    s[row][v] = declare_fewer(observed_bag);
+                    continue;
+                } else {
+                    if (k < d) cmp = -1;
+                    else if (k > d) cmp = 1;
+                    else cmp = 0;
+                }
+
+                if (cmp < 0) {
+                    s[row][v] = declare_fewer(observed_bag);
+                } else if (cmp > 0) {
+                    s[row][v] = declare_fewer(stored_bag);
+                } else {
+                    s[row][v] = record_action(observed_bag, v, p + 1);
+                }
+            }
+        }
+    }
+
+    return s;
+}

@@ -1,0 +1,309 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+struct MaxCliqueSolver {
+    int n, W;
+    ull lastMask;
+    vector<vector<ull>> adj;
+    int best = 0;
+
+    MaxCliqueSolver(int n_, vector<vector<ull>> adj_) : n(n_), W((n_ + 63) >> 6), adj(std::move(adj_)) {
+        int r = n & 63;
+        lastMask = r ? ((1ULL << r) - 1ULL) : ~0ULL;
+    }
+
+    inline void clearBit(vector<ull>& b, int v) {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline bool testBit(const vector<ull>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline int popcount(const vector<ull>& b) const {
+        int s = 0;
+        for (ull x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline bool empty(const vector<ull>& b) const {
+        for (ull x : b) if (x) return false;
+        return true;
+    }
+
+    inline int firstBit(const vector<ull>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    void colorSort(const vector<ull>& P, vector<int>& vertices, vector<int>& colors) {
+        vertices.clear();
+        colors.clear();
+
+        vector<ull> U = P, Q(W);
+        int color = 0;
+
+        while (!empty(U)) {
+            ++color;
+            Q = U;
+
+            while (!empty(Q)) {
+                int v = firstBit(Q);
+                vertices.push_back(v);
+                colors.push_back(color);
+
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                for (int i = 0; i < W; ++i) {
+                    Q[i] &= ~adj[v][i];
+                }
+                Q[W - 1] &= lastMask;
+            }
+        }
+    }
+
+    int greedyClique() {
+        vector<ull> P(W, ~0ULL);
+        if (W) P[W - 1] = lastMask;
+
+        int res = 0;
+        while (!empty(P)) {
+            int bestV = -1, bestDeg = -1;
+
+            for (int wi = 0; wi < W; ++wi) {
+                ull x = P[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (wi << 6) + b;
+                    if (v < n) {
+                        int deg = 0;
+                        for (int j = 0; j < W; ++j) {
+                            deg += __builtin_popcountll(P[j] & adj[v][j]);
+                        }
+                        if (deg > bestDeg) {
+                            bestDeg = deg;
+                            bestV = v;
+                        }
+                    }
+                    x &= x - 1;
+                }
+            }
+
+            ++res;
+            for (int i = 0; i < W; ++i) P[i] &= adj[bestV][i];
+        }
+
+        return res;
+    }
+
+    void expand(vector<ull> P, int sz) {
+        if (sz + popcount(P) <= best) return;
+
+        if (empty(P)) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        vector<int> vertices, colors;
+        vertices.reserve(n);
+        colors.reserve(n);
+        colorSort(P, vertices, colors);
+
+        for (int i = (int)vertices.size() - 1; i >= 0; --i) {
+            if (sz + colors[i] <= best) return;
+
+            int v = vertices[i];
+            if (!testBit(P, v)) continue;
+
+            vector<ull> P2(W);
+            for (int j = 0; j < W; ++j) P2[j] = P[j] & adj[v][j];
+
+            if (sz + 1 > best) best = sz + 1;
+            if (sz + 1 + popcount(P2) > best) {
+                expand(std::move(P2), sz + 1);
+            }
+
+            clearBit(P, v);
+            if (sz + popcount(P) <= best) return;
+        }
+    }
+
+    int solve(int initialBest) {
+        best = max(best, initialBest);
+        best = max(best, greedyClique());
+
+        vector<ull> P(W, ~0ULL);
+        if (W) P[W - 1] = lastMask;
+
+        expand(std::move(P), 0);
+        return best;
+    }
+};
+
+int greedyMIS(const vector<vector<int>>& h, const vector<int>& deg0) {
+    int n = (int)h.size();
+    vector<int> deg = deg0;
+    vector<char> alive(n, 1);
+    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+    for (int i = 0; i < n; ++i) pq.push({deg[i], i});
+
+    int ans = 0;
+    while (!pq.empty()) {
+        auto [d, v] = pq.top();
+        pq.pop();
+
+        if (!alive[v] || d != deg[v]) continue;
+
+        ++ans;
+        vector<int> removed;
+
+        alive[v] = 0;
+        removed.push_back(v);
+
+        for (int u : h[v]) {
+            if (alive[u]) {
+                alive[u] = 0;
+                removed.push_back(u);
+            }
+        }
+
+        for (int x : removed) {
+            for (int y : h[x]) {
+                if (alive[y]) {
+                    --deg[y];
+                    pq.push({deg[y], y});
+                }
+            }
+        }
+    }
+
+    return ans;
+}
+
+int greedyMatchingBound(const vector<vector<int>>& h) {
+    int n = (int)h.size();
+    vector<char> used(n, 0);
+    int m = 0;
+
+    vector<int> order(n);
+    iota(order.begin(), order.end(), 0);
+    sort(order.begin(), order.end(), [&](int a, int b) {
+        return h[a].size() < h[b].size();
+    });
+
+    for (int v : order) {
+        if (used[v]) continue;
+        for (int u : h[v]) {
+            if (!used[u]) {
+                used[v] = used[u] = 1;
+                ++m;
+                break;
+            }
+        }
+    }
+
+    return n - m;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    vector<unsigned char> mat((size_t)N * N, 0);
+    size_t need = (size_t)N * N;
+    size_t got = 0;
+    char c;
+
+    while (got < need && cin.get(c)) {
+        if (c == '0' || c == '1') {
+            mat[got++] = (unsigned char)(c - '0');
+        }
+    }
+
+    vector<int> hdeg(N, 0);
+    long long hEdges = 0;
+    bool complete = true;
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool edge = mat[(size_t)i * N + j] || mat[(size_t)j * N + i];
+            if (!edge) {
+                ++hdeg[i];
+                ++hdeg[j];
+                ++hEdges;
+                complete = false;
+            }
+        }
+    }
+
+    if (complete) {
+        cout << N << '\n';
+        return 0;
+    }
+
+    int initialBest = 1;
+
+    const long long H_LIMIT = 5000000;
+    if (hEdges <= H_LIMIT) {
+        vector<vector<int>> h(N);
+        for (int i = 0; i < N; ++i) h[i].reserve(hdeg[i]);
+
+        for (int i = 0; i < N; ++i) {
+            for (int j = i + 1; j < N; ++j) {
+                bool edge = mat[(size_t)i * N + j] || mat[(size_t)j * N + i];
+                if (!edge) {
+                    h[i].push_back(j);
+                    h[j].push_back(i);
+                }
+            }
+        }
+
+        initialBest = max(initialBest, greedyMIS(h, hdeg));
+        int upper = greedyMatchingBound(h);
+        if (initialBest >= upper) {
+            cout << initialBest << '\n';
+            return 0;
+        }
+    }
+
+    vector<int> ord(N);
+    iota(ord.begin(), ord.end(), 0);
+    sort(ord.begin(), ord.end(), [&](int a, int b) {
+        if (hdeg[a] != hdeg[b]) return hdeg[a] < hdeg[b];
+        return a < b;
+    });
+
+    int W = (N + 63) >> 6;
+    vector<vector<ull>> adj(N, vector<ull>(W, 0));
+
+    for (int i = 0; i < N; ++i) {
+        int u = ord[i];
+        for (int j = i + 1; j < N; ++j) {
+            int v = ord[j];
+            bool edge = mat[(size_t)u * N + v] || mat[(size_t)v * N + u];
+            if (edge) {
+                adj[i][j >> 6] |= 1ULL << (j & 63);
+                adj[j][i >> 6] |= 1ULL << (i & 63);
+            }
+        }
+    }
+
+    MaxCliqueSolver solver(N, std::move(adj));
+    cout << solver.solve(initialBest) << '\n';
+
+    return 0;
+}

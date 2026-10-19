@@ -1,0 +1,427 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using U64 = unsigned long long;
+
+int N, W;
+vector<vector<U64>> adjH;
+U64 lastMask;
+
+inline int popcnt64(U64 x) { return __builtin_popcountll(x); }
+
+inline bool hasVertex(const vector<U64>& b, int v) {
+    return (b[v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void setVertex(vector<U64>& b, int v) {
+    b[v >> 6] |= 1ULL << (v & 63);
+}
+
+inline void clearVertex(vector<U64>& b, int v) {
+    b[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline bool hasEdgeH(int a, int b) {
+    return (adjH[a][b >> 6] >> (b & 63)) & 1ULL;
+}
+
+int bitCount(const vector<U64>& b) {
+    int s = 0;
+    for (U64 x : b) s += popcnt64(x);
+    return s;
+}
+
+int firstBit(const vector<U64>& b) {
+    for (int i = 0; i < W; ++i) {
+        if (b[i]) return i * 64 + __builtin_ctzll(b[i]);
+    }
+    return -1;
+}
+
+int firstIntersectionBit(const vector<U64>& a, const vector<U64>& b) {
+    for (int i = 0; i < W; ++i) {
+        U64 x = a[i] & b[i];
+        if (x) return i * 64 + __builtin_ctzll(x);
+    }
+    return -1;
+}
+
+int intersectionCount(const vector<U64>& a, const vector<U64>& b) {
+    int s = 0;
+    for (int i = 0; i < W; ++i) s += popcnt64(a[i] & b[i]);
+    return s;
+}
+
+void andNotInPlace(vector<U64>& a, const vector<U64>& b) {
+    for (int i = 0; i < W; ++i) a[i] &= ~b[i];
+    a[W - 1] &= lastMask;
+}
+
+int degreeInActive(int v, const vector<U64>& active) {
+    int d = 0;
+    for (int i = 0; i < W; ++i) d += popcnt64(adjH[v][i] & active[i]);
+    return d;
+}
+
+pair<int,int> twoNeighbors(int v, const vector<U64>& active) {
+    int a = -1, b = -1;
+    for (int i = 0; i < W; ++i) {
+        U64 x = adjH[v][i] & active[i];
+        while (x) {
+            int u = i * 64 + __builtin_ctzll(x);
+            if (a == -1) a = u;
+            else {
+                b = u;
+                return {a, b};
+            }
+            x &= x - 1;
+        }
+    }
+    return {a, b};
+}
+
+vector<int> greedyIndependentInitial() {
+    vector<U64> rem(W, ~0ULL);
+    rem[W - 1] = lastMask;
+    vector<int> indep;
+
+    while (true) {
+        int best = -1, bestDeg = INT_MAX;
+        for (int wi = 0; wi < W; ++wi) {
+            U64 x = rem[wi];
+            while (x) {
+                int v = wi * 64 + __builtin_ctzll(x);
+                if (v < N) {
+                    int d = degreeInActive(v, rem);
+                    if (d < bestDeg) {
+                        bestDeg = d;
+                        best = v;
+                        if (d == 0) break;
+                    }
+                }
+                x &= x - 1;
+            }
+            if (bestDeg == 0) break;
+        }
+        if (best == -1) break;
+
+        indep.push_back(best);
+        clearVertex(rem, best);
+        andNotInPlace(rem, adjH[best]);
+    }
+
+    return indep;
+}
+
+vector<int> improveIndependent(vector<int> indep) {
+    vector<char> inI(N, 0);
+    vector<U64> Ibits(W, 0);
+    for (int v : indep) {
+        inI[v] = 1;
+        setVertex(Ibits, v);
+    }
+
+    bool changed = true;
+    int guard = 0;
+    while (changed && guard++ < N * 3 + 10) {
+        changed = false;
+
+        for (int v = 0; v < N; ++v) {
+            if (!inI[v] && intersectionCount(adjH[v], Ibits) == 0) {
+                inI[v] = 1;
+                setVertex(Ibits, v);
+                changed = true;
+            }
+        }
+        if (changed) continue;
+
+        vector<int> first(N, -1);
+        int remX = -1, addA = -1, addB = -1;
+
+        for (int v = 0; v < N && remX == -1; ++v) {
+            if (inI[v]) continue;
+            int c = intersectionCount(adjH[v], Ibits);
+            if (c == 1) {
+                int x = firstIntersectionBit(adjH[v], Ibits);
+                if (x >= 0) {
+                    if (first[x] == -1) first[x] = v;
+                    else if (!hasEdgeH(v, first[x])) {
+                        remX = x;
+                        addA = first[x];
+                        addB = v;
+                    }
+                }
+            }
+        }
+
+        if (remX != -1) {
+            inI[remX] = 0;
+            clearVertex(Ibits, remX);
+            inI[addA] = 1;
+            setVertex(Ibits, addA);
+            inI[addB] = 1;
+            setVertex(Ibits, addB);
+            changed = true;
+        }
+    }
+
+    vector<int> res;
+    for (int v = 0; v < N; ++v) if (inI[v]) res.push_back(v);
+    return res;
+}
+
+int greedyCoverUpper(const vector<U64>& active) {
+    vector<U64> rem = active;
+    int cnt = bitCount(active);
+    int indep = 0;
+
+    while (true) {
+        int best = -1, bestDeg = INT_MAX;
+        for (int wi = 0; wi < W; ++wi) {
+            U64 x = rem[wi];
+            while (x) {
+                int v = wi * 64 + __builtin_ctzll(x);
+                int d = degreeInActive(v, rem);
+                if (d < bestDeg) {
+                    bestDeg = d;
+                    best = v;
+                    if (d == 0) break;
+                }
+                x &= x - 1;
+            }
+            if (bestDeg == 0) break;
+        }
+
+        if (best == -1) break;
+        ++indep;
+        clearVertex(rem, best);
+        andNotInPlace(rem, adjH[best]);
+    }
+
+    return cnt - indep;
+}
+
+int matchingLowerBound(const vector<U64>& active) {
+    vector<U64> rem = active;
+    int m = 0;
+
+    while (true) {
+        int v = firstBit(rem);
+        if (v < 0 || v >= N) break;
+
+        int u = -1;
+        for (int i = 0; i < W; ++i) {
+            U64 x = adjH[v][i] & rem[i];
+            if (x) {
+                u = i * 64 + __builtin_ctzll(x);
+                break;
+            }
+        }
+
+        clearVertex(rem, v);
+        if (u != -1) {
+            clearVertex(rem, u);
+            ++m;
+        }
+    }
+
+    return m;
+}
+
+vector<vector<U64>> componentsOf(const vector<U64>& active) {
+    vector<vector<U64>> comps;
+    vector<U64> unseen = active;
+
+    while (true) {
+        int s = firstBit(unseen);
+        if (s < 0 || s >= N) break;
+
+        vector<U64> comp(W, 0);
+        vector<int> q;
+        clearVertex(unseen, s);
+        setVertex(comp, s);
+        q.push_back(s);
+
+        for (size_t qi = 0; qi < q.size(); ++qi) {
+            int v = q[qi];
+            for (int i = 0; i < W; ++i) {
+                U64 x = adjH[v][i] & unseen[i];
+                while (x) {
+                    int u = i * 64 + __builtin_ctzll(x);
+                    clearVertex(unseen, u);
+                    setVertex(comp, u);
+                    q.push_back(u);
+                    x &= x - 1;
+                }
+            }
+        }
+
+        comps.push_back(move(comp));
+    }
+
+    return comps;
+}
+
+int mvc(vector<U64> active, int limit) {
+    if (limit <= 0) return 0;
+
+    int offset = 0;
+
+    while (true) {
+        bool changed = false;
+
+        for (int wi = 0; wi < W; ++wi) {
+            U64 x = active[wi];
+            while (x) {
+                int v = wi * 64 + __builtin_ctzll(x);
+                int d = degreeInActive(v, active);
+                if (d == 0) {
+                    clearVertex(active, v);
+                    changed = true;
+                }
+                x &= x - 1;
+            }
+        }
+        if (changed) continue;
+
+        for (int wi = 0; wi < W && !changed; ++wi) {
+            U64 x = active[wi];
+            while (x && !changed) {
+                int v = wi * 64 + __builtin_ctzll(x);
+                int d = degreeInActive(v, active);
+
+                if (d == 1) {
+                    int u = firstIntersectionBit(adjH[v], active);
+                    if (u >= 0) {
+                        clearVertex(active, u);
+                        ++offset;
+                        changed = true;
+                    }
+                } else if (d == 2) {
+                    auto [a, b] = twoNeighbors(v, active);
+                    if (a >= 0 && b >= 0 && hasEdgeH(a, b)) {
+                        clearVertex(active, a);
+                        clearVertex(active, b);
+                        offset += 2;
+                        changed = true;
+                    }
+                }
+
+                x &= x - 1;
+            }
+        }
+
+        if (!changed) break;
+        if (offset >= limit) return limit;
+    }
+
+    if (offset >= limit) return limit;
+    int remLimit = limit - offset;
+
+    int cnt = bitCount(active);
+    if (cnt == 0) return offset;
+
+    int lb = matchingLowerBound(active);
+    if (lb >= remLimit) return limit;
+
+    if (cnt <= 350) {
+        int ub = greedyCoverUpper(active);
+        if (ub < remLimit) remLimit = ub;
+        if (lb >= remLimit) return offset + remLimit;
+    }
+
+    vector<vector<U64>> comps = componentsOf(active);
+    if (comps.size() > 1) {
+        sort(comps.begin(), comps.end(), [](const vector<U64>& a, const vector<U64>& b) {
+            return bitCount(a) > bitCount(b);
+        });
+
+        int total = 0;
+        for (auto& c : comps) {
+            int cap = remLimit - total;
+            if (cap <= 0) return limit;
+            int r = mvc(c, cap);
+            if (r >= cap) return limit;
+            total += r;
+        }
+        return offset + total;
+    }
+
+    int chosen = -1, maxDeg = -1;
+    for (int wi = 0; wi < W; ++wi) {
+        U64 x = active[wi];
+        while (x) {
+            int v = wi * 64 + __builtin_ctzll(x);
+            int d = degreeInActive(v, active);
+            if (d > maxDeg) {
+                maxDeg = d;
+                chosen = v;
+            }
+            x &= x - 1;
+        }
+    }
+
+    if (chosen == -1 || maxDeg <= 0) return offset;
+
+    int best = remLimit;
+
+    vector<U64> a1 = active;
+    clearVertex(a1, chosen);
+    int r1 = 1 + mvc(a1, best - 1);
+    if (r1 < best) best = r1;
+
+    if (maxDeg < best) {
+        vector<U64> a2 = active;
+        clearVertex(a2, chosen);
+        andNotInPlace(a2, adjH[chosen]);
+        int r2 = maxDeg + mvc(a2, best - maxDeg);
+        if (r2 < best) best = r2;
+    }
+
+    return offset + best;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    W = (N + 63) >> 6;
+    int remBits = N & 63;
+    lastMask = remBits ? ((1ULL << remBits) - 1ULL) : ~0ULL;
+
+    adjH.assign(N, vector<U64>(W, 0));
+
+    char c;
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            do {
+                if (!cin.get(c)) return 0;
+            } while (c != '0' && c != '1');
+
+            if (i < j && c == '0') {
+                setVertex(adjH[i], j);
+                setVertex(adjH[j], i);
+            }
+        }
+    }
+
+    vector<int> indep = greedyIndependentInitial();
+    indep = improveIndependent(indep);
+
+    int initialCover = N - (int)indep.size();
+
+    vector<U64> all(W, ~0ULL);
+    all[W - 1] = lastMask;
+
+    int minCover = mvc(all, initialCover);
+    cout << (N - minCover) << '\n';
+
+    return 0;
+}

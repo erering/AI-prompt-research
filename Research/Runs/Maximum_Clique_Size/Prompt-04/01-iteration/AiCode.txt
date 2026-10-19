@@ -1,0 +1,264 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class FastInput {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    size_t idx = 0, size = 0;
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+public:
+    int readInt() {
+        char c;
+        do { c = getChar(); } while (c && (c < '0' || c > '9') && c != '-');
+        int sign = 1;
+        if (c == '-') {
+            sign = -1;
+            c = getChar();
+        }
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x * sign;
+    }
+
+    int readBit() {
+        char c;
+        do { c = getChar(); } while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+struct Solver {
+    int N, W;
+    uint64_t lastMask;
+    vector<uint64_t> adj;
+    int best = 0;
+
+    inline uint64_t* row(int v) {
+        return adj.data() + (size_t)v * W;
+    }
+
+    inline const uint64_t* row(int v) const {
+        return adj.data() + (size_t)v * W;
+    }
+
+    inline bool testBit(const vector<uint64_t>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline void clearBit(vector<uint64_t>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline int popcountBits(const vector<uint64_t>& b) const {
+        int s = 0;
+        for (int i = 0; i < W; ++i) s += __builtin_popcountll(b[i]);
+        return s;
+    }
+
+    inline int popIntersection(const vector<uint64_t>& b, const uint64_t* r) const {
+        int s = 0;
+        for (int i = 0; i < W; ++i) s += __builtin_popcountll(b[i] & r[i]);
+        return s;
+    }
+
+    inline int firstBit(const vector<uint64_t>& b) const {
+        for (int i = 0; i < W; ++i) {
+            uint64_t x = b[i];
+            if (x) return (i << 6) + __builtin_ctzll(x);
+        }
+        return -1;
+    }
+
+    void greedyInitial(int limit) {
+        vector<uint64_t> C(W, ~0ULL);
+        if (W) C[W - 1] = lastMask;
+        int cur = 0;
+
+        while (true) {
+            int v0 = firstBit(C);
+            if (v0 < 0) break;
+
+            int bestv = v0;
+            int bestc = -1;
+            int seen = 0;
+
+            for (int wi = 0; wi < W && seen < limit; ++wi) {
+                uint64_t x = C[wi];
+                while (x && seen < limit) {
+                    int b = __builtin_ctzll(x);
+                    int v = (wi << 6) + b;
+                    if (v < N) {
+                        int c = popIntersection(C, row(v));
+                        if (c > bestc) {
+                            bestc = c;
+                            bestv = v;
+                        }
+                        ++seen;
+                    }
+                    x &= x - 1;
+                }
+            }
+
+            ++cur;
+            const uint64_t* r = row(bestv);
+            for (int i = 0; i < W; ++i) C[i] &= r[i];
+        }
+
+        if (cur > best) best = cur;
+    }
+
+    void colorSort(const vector<uint64_t>& P, vector<int>& verts, vector<int>& colors) const {
+        vector<uint64_t> U = P, Q(W);
+        int rem = 0;
+        for (int i = 0; i < W; ++i) rem += __builtin_popcountll(U[i]);
+
+        int color = 0;
+        verts.clear();
+        colors.clear();
+        verts.reserve(rem);
+        colors.reserve(rem);
+
+        while (rem > 0) {
+            ++color;
+            Q = U;
+
+            while (true) {
+                int v = firstBit(Q);
+                if (v < 0) break;
+
+                verts.push_back(v);
+                colors.push_back(color);
+
+                uint64_t mask = 1ULL << (v & 63);
+                int word = v >> 6;
+                if (U[word] & mask) {
+                    U[word] &= ~mask;
+                    --rem;
+                }
+                Q[word] &= ~mask;
+
+                const uint64_t* r = row(v);
+                for (int i = 0; i < W; ++i) Q[i] &= ~r[i];
+                Q[W - 1] &= lastMask;
+            }
+        }
+    }
+
+    void expand(vector<uint64_t>& P, int sz) {
+        if (sz + popcountBits(P) <= best) return;
+
+        vector<int> verts, colors;
+        colorSort(P, verts, colors);
+
+        for (int idx = (int)verts.size() - 1; idx >= 0; --idx) {
+            if (sz + colors[idx] <= best) return;
+
+            int v = verts[idx];
+            if (!testBit(P, v)) continue;
+
+            int nsz = sz + 1;
+            vector<uint64_t> child(W);
+            const uint64_t* r = row(v);
+            bool any = false;
+            for (int i = 0; i < W; ++i) {
+                child[i] = P[i] & r[i];
+                any |= child[i] != 0;
+            }
+
+            if (!any) {
+                if (nsz > best) best = nsz;
+            } else if (nsz + colors[idx] - 1 > best) {
+                expand(child, nsz);
+            }
+
+            clearBit(P, v);
+        }
+    }
+
+    int solve() {
+        if (N <= 0) return 0;
+        if (N == 1) return 1;
+
+        greedyInitial(N <= 1800 ? N : 80);
+        if (best == N) return best;
+
+        vector<uint64_t> P(W, ~0ULL);
+        P[W - 1] = lastMask;
+        expand(P, 0);
+        return best;
+    }
+};
+
+int main() {
+    FastInput in;
+    int N = in.readInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    int W = (N + 63) >> 6;
+    uint64_t lastMask = (N & 63) ? ((1ULL << (N & 63)) - 1ULL) : ~0ULL;
+
+    vector<uint64_t> raw((size_t)N * W, 0);
+
+    for (int i = 0; i < N; ++i) {
+        uint64_t* r = raw.data() + (size_t)i * W;
+        for (int j = 0; j < N; ++j) {
+            int b = in.readBit();
+            if (b && i != j) r[j >> 6] |= 1ULL << (j & 63);
+        }
+    }
+
+    vector<int> deg(N);
+    for (int i = 0; i < N; ++i) {
+        const uint64_t* r = raw.data() + (size_t)i * W;
+        int d = 0;
+        for (int k = 0; k < W; ++k) d += __builtin_popcountll(r[k]);
+        deg[i] = d;
+    }
+
+    vector<int> perm(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    vector<uint64_t> adj((size_t)N * W, 0);
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        const uint64_t* ro = raw.data() + (size_t)oi * W;
+        uint64_t* rn = adj.data() + (size_t)ni * W;
+        for (int nj = 0; nj < N; ++nj) {
+            if (ni == nj) continue;
+            int oj = perm[nj];
+            if ((ro[oj >> 6] >> (oj & 63)) & 1ULL) {
+                rn[nj >> 6] |= 1ULL << (nj & 63);
+            }
+        }
+        rn[W - 1] &= lastMask;
+    }
+
+    Solver s;
+    s.N = N;
+    s.W = W;
+    s.lastMask = lastMask;
+    s.adj.swap(adj);
+
+    printf("%d\n", s.solve());
+    return 0;
+}

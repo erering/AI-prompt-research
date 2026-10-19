@@ -1,0 +1,154 @@
+#include <bits/stdc++.h>
+
+static constexpr int LP_LOG = 20;
+
+static int lp_N = 0;
+static bool lp_initialized = false;
+static std::vector<std::array<int, LP_LOG>> lp_up;
+static std::vector<int> lp_depth;
+
+static int lp_dia_a = 0;
+static int lp_dia_b = 0;
+static int lp_dia_len = 0;
+
+static int lp_snap_a = 0;
+static int lp_snap_b = 0;
+static bool lp_prev_changed = false;
+
+static void lp_reset(int N) {
+    lp_N = N;
+    lp_initialized = true;
+    lp_up.assign(std::max(1, N), {});
+    lp_depth.assign(std::max(1, N), 0);
+    for (int k = 0; k < LP_LOG; ++k) lp_up[0][k] = 0;
+    lp_dia_a = 0;
+    lp_dia_b = 0;
+    lp_dia_len = 0;
+    lp_snap_a = 0;
+    lp_snap_b = 0;
+    lp_prev_changed = false;
+}
+
+static int lp_lca(int u, int v) {
+    if (lp_depth[u] < lp_depth[v]) std::swap(u, v);
+    int diff = lp_depth[u] - lp_depth[v];
+    for (int k = 0; k < LP_LOG; ++k) {
+        if ((diff >> k) & 1) u = lp_up[u][k];
+    }
+    if (u == v) return u;
+    for (int k = LP_LOG - 1; k >= 0; --k) {
+        if (lp_up[u][k] != lp_up[v][k]) {
+            u = lp_up[u][k];
+            v = lp_up[v][k];
+        }
+    }
+    return lp_up[u][0];
+}
+
+static int lp_dist(int u, int v) {
+    int w = lp_lca(u, v);
+    return lp_depth[u] + lp_depth[v] - 2 * lp_depth[w];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (!lp_initialized || i == 1 || lp_N != N) lp_reset(N);
+
+    if (N <= 1) return 0;
+
+    lp_up[i][0] = Pi;
+    lp_depth[i] = lp_depth[Pi] + 1;
+    for (int k = 1; k < LP_LOG; ++k) {
+        lp_up[i][k] = lp_up[lp_up[i][k - 1]][k - 1];
+    }
+
+    int old_a = lp_dia_a;
+    int old_b = lp_dia_b;
+    int old_len = lp_dia_len;
+
+    int da = lp_dist(i, old_a);
+    int db = lp_dist(i, old_b);
+
+    bool changed = false;
+    int far_endpoint = old_a;
+
+    if (da > old_len || db > old_len) {
+        changed = true;
+        if (da >= db) {
+            far_endpoint = old_a;
+            lp_dia_a = old_a;
+            lp_dia_b = i;
+            lp_dia_len = da;
+        } else {
+            far_endpoint = old_b;
+            lp_dia_a = old_b;
+            lp_dia_b = i;
+            lp_dia_len = db;
+        }
+    }
+
+    if (N == 2) {
+        return 1;
+    }
+
+    if (N == 3) {
+        if (i == 2) {
+            int other = (lp_dia_a == 2 ? lp_dia_b : lp_dia_a);
+            return other + 1;
+        }
+        return 0;
+    }
+
+    if (i == N - 3) {
+        lp_snap_a = lp_dia_a;
+        lp_snap_b = lp_dia_b;
+        return lp_snap_a;
+    }
+
+    if (i == N - 2) {
+        if (changed) {
+            lp_prev_changed = true;
+            return far_endpoint;
+        } else {
+            lp_prev_changed = false;
+            return lp_snap_b;
+        }
+    }
+
+    if (i == N - 1) {
+        if (!changed) {
+            return lp_prev_changed ? 2 : 1;
+        }
+
+        if (!lp_prev_changed) {
+            if (far_endpoint == lp_snap_a) return 3;
+            return 4;
+        } else {
+            if (far_endpoint == N - 2) return 5;
+            return 4;
+        }
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    if (N == 3) {
+        int other = S[2] - 1;
+        return {2, other};
+    }
+
+    int a = S[N - 3];
+    int b = S[N - 2];
+    int flag = S[N - 1];
+
+    if (flag == 1) return {a, b};
+    if (flag == 2) return {N - 2, b};
+    if (flag == 3) return {N - 1, a};
+    if (flag == 4) return {N - 1, b};
+    return {N - 1, N - 2};
+}

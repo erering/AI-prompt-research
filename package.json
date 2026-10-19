@@ -1,0 +1,24 @@
+{
+  "name": "ai-prompt-research",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/erering/AI-prompt-research.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/erering/AI-prompt-research/issues"
+  },
+  "homepage": "https://github.com/erering/AI-prompt-research#readme",
+  "dependencies": {
+    "openai": "^6.42.0"
+  }
+}

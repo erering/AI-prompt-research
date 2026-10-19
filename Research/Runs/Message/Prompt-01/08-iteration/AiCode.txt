@@ -1,0 +1,165 @@
+#include <vector>
+#include <map>
+#include <cstdint>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    constexpr int N = 31;
+    constexpr int K = 16;
+    constexpr int H = 28;
+    constexpr int LEN_BITS = 10;
+
+    uint32_t Cbin[31][31];
+    bool inited = false;
+
+    void init_comb() {
+        if (inited) return;
+        inited = true;
+        for (int n = 0; n <= 30; ++n) {
+            for (int k = 0; k <= 30; ++k) Cbin[n][k] = 0;
+        }
+        Cbin[0][0] = 1;
+        for (int n = 1; n <= 30; ++n) {
+            Cbin[n][0] = Cbin[n][n] = 1;
+            for (int k = 1; k < n; ++k) {
+                Cbin[n][k] = Cbin[n - 1][k - 1] + Cbin[n - 1][k];
+            }
+        }
+    }
+
+    uint32_t rank_comb(const std::vector<int>& a, int n, int k) {
+        uint32_t r = 0;
+        int prev = -1;
+        for (int t = 0; t < k; ++t) {
+            for (int x = prev + 1; x < a[t]; ++x) {
+                r += Cbin[n - 1 - x][k - 1 - t];
+            }
+            prev = a[t];
+        }
+        return r;
+    }
+
+    std::vector<int> unrank_comb(uint32_t r, int n, int k) {
+        std::vector<int> a;
+        int prev = -1;
+        for (int t = 0; t < k; ++t) {
+            for (int x = prev + 1; x < n; ++x) {
+                uint32_t cnt = Cbin[n - 1 - x][k - 1 - t];
+                if (r >= cnt) {
+                    r -= cnt;
+                } else {
+                    a.push_back(x);
+                    prev = x;
+                    break;
+                }
+            }
+        }
+        return a;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    init_comb();
+
+    uint32_t ranks[N] = {};
+
+    for (int i = 0; i < N; ++i) {
+        if (!C[i]) {
+            std::vector<int> comb;
+            for (int j = 0; j < N; ++j) {
+                if (j != i && !C[j]) {
+                    comb.push_back(j < i ? j : j - 1);
+                }
+            }
+            ranks[i] = rank_comb(comb, 30, 15);
+        }
+    }
+
+    for (int b = 0; b < H; ++b) {
+        std::vector<bool> A(N, false);
+        for (int i = 0; i < N; ++i) {
+            if (!C[i]) A[i] = ((ranks[i] >> b) & 1u);
+        }
+        send_packet(A);
+    }
+
+    std::vector<bool> payload;
+    int S = (int)M.size();
+    int len = S - 1;
+
+    for (int b = 0; b < LEN_BITS; ++b) {
+        payload.push_back((len >> b) & 1);
+    }
+    for (bool x : M) payload.push_back(x);
+
+    int ptr = 0;
+    while (ptr < (int)payload.size()) {
+        std::vector<bool> A(N, false);
+        for (int i = 0; i < N; ++i) {
+            if (!C[i]) {
+                if (ptr < (int)payload.size()) A[i] = payload[ptr];
+                ++ptr;
+            }
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    init_comb();
+
+    std::map<uint32_t, int> freq;
+
+    for (int i = 0; i < N; ++i) {
+        uint32_t val = 0;
+        for (int b = 0; b < H; ++b) {
+            if (R[b][i]) val |= (1u << b);
+        }
+
+        if (val >= Cbin[30][15]) continue;
+
+        std::vector<int> comb = unrank_comb(val, 30, 15);
+        uint32_t mask = (1u << i);
+
+        for (int x : comb) {
+            int orig = (x < i ? x : x + 1);
+            mask |= (1u << orig);
+        }
+
+        ++freq[mask];
+    }
+
+    uint32_t protected_mask = 0;
+    int best = -1;
+    for (auto &p : freq) {
+        if (p.second > best) {
+            best = p.second;
+            protected_mask = p.first;
+        }
+    }
+
+    std::vector<bool> bits;
+    for (int p = H; p < (int)R.size(); ++p) {
+        for (int i = 0; i < N; ++i) {
+            if ((protected_mask >> i) & 1u) {
+                bits.push_back(R[p][i]);
+            }
+        }
+    }
+
+    int len = 0;
+    for (int b = 0; b < LEN_BITS; ++b) {
+        if (bits[b]) len |= (1 << b);
+    }
+    int S = len + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[LEN_BITS + i]);
+    }
+
+    return M;
+}

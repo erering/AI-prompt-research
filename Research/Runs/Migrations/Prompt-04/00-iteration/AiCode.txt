@@ -1,0 +1,159 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    constexpr int NN = 10000;
+    constexpr int LOG = 15;
+    constexpr int BASE = 9;
+    constexpr int DIG = 5;
+    constexpr int W = 80;
+    constexpr int K = NN - 1 - W;
+
+    bool initialized = false;
+    int up[LOG][NN];
+    int dep[NN];
+    int diaA = 0, diaB = 0, diaD = 0;
+    int snapA = 0, snapB = 0;
+    int updateCode[W];
+
+    int packetPos[W / 2];
+    int packetAt[NN];
+
+    void init_tables() {
+        if (initialized) return;
+        initialized = true;
+        memset(up, 0, sizeof(up));
+        memset(dep, 0, sizeof(dep));
+        memset(updateCode, 0, sizeof(updateCode));
+        fill(packetAt, packetAt + NN, -1);
+
+        int prev = -1;
+        for (int g = 0; g < W / 2; ++g) {
+            int groupEnd = K + 2 * g + 2;
+            int pos = (g == 0) ? max(K + 10, groupEnd) : max(prev + 1, groupEnd);
+            packetPos[g] = pos;
+            packetAt[pos] = g;
+            prev = pos;
+        }
+    }
+
+    int lca_first(int a, int b) {
+        if (dep[a] < dep[b]) swap(a, b);
+        int diff = dep[a] - dep[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[k][a];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[k][a] != up[k][b]) {
+                a = up[k][a];
+                b = up[k][b];
+            }
+        }
+        return up[0][a];
+    }
+
+    int dist_first(int a, int b) {
+        int c = lca_first(a, b);
+        return dep[a] + dep[b] - 2 * dep[c];
+    }
+
+    int digit_base9(int x, int d) {
+        while (d--) x /= BASE;
+        return x % BASE;
+    }
+
+    void apply_code_pair(int code, int vertex, int &a, int &b) {
+        if (code == 1) {
+            int oldA = a;
+            a = vertex;
+            b = oldA;
+        } else if (code == 2) {
+            a = vertex;
+        }
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    init_tables();
+
+    up[0][i] = Pi;
+    dep[i] = dep[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up[k][i] = up[k - 1][up[k - 1][i]];
+    }
+
+    int code = 0;
+    int da = dist_first(i, diaA);
+    int db = dist_first(i, diaB);
+
+    if (da > diaD) {
+        code = 1;
+        int oldA = diaA;
+        diaA = i;
+        diaB = oldA;
+        diaD = da;
+    } else if (db > diaD) {
+        code = 2;
+        diaA = i;
+        diaD = db;
+    }
+
+    if (i == K) {
+        snapA = diaA;
+        snapB = diaB;
+    }
+
+    if (i > K && i <= NN - 1) {
+        updateCode[i - (K + 1)] = code;
+    }
+
+    if (i >= K && i < K + DIG) {
+        return digit_base9(snapA, i - K) + 1;
+    }
+
+    if (i >= K + DIG && i < K + 2 * DIG) {
+        return digit_base9(snapB, i - (K + DIG)) + 1;
+    }
+
+    if (i >= 0 && i < NN && packetAt[i] != -1) {
+        int g = packetAt[i];
+        int c0 = updateCode[2 * g];
+        int c1 = updateCode[2 * g + 1];
+        return c0 + 3 * c1 + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int,int> longest_path(std::vector<int> S) {
+    int a = 0, b = 0;
+    int pow9 = 1;
+
+    for (int d = 0; d < DIG; ++d) {
+        a += (S[K + d] - 1) * pow9;
+        pow9 *= BASE;
+    }
+
+    pow9 = 1;
+    for (int d = 0; d < DIG; ++d) {
+        b += (S[K + DIG + d] - 1) * pow9;
+        pow9 *= BASE;
+    }
+
+    int prev = -1;
+    for (int g = 0; g < W / 2; ++g) {
+        int groupEnd = K + 2 * g + 2;
+        int pos = (g == 0) ? max(K + 10, groupEnd) : max(prev + 1, groupEnd);
+        prev = pos;
+
+        int val = S[pos] - 1;
+        int c0 = val % 3;
+        int c1 = (val / 3) % 3;
+
+        apply_code_pair(c0, K + 1 + 2 * g, a, b);
+        apply_code_pair(c1, K + 2 + 2 * g, a, b);
+    }
+
+    return {a, b};
+}

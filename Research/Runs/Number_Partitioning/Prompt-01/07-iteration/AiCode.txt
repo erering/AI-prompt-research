@@ -1,0 +1,240 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <numeric>
+#include <vector>
+
+using ull = unsigned long long;
+
+static void tle_forever() {
+    volatile ull x = 0;
+    while (true) ++x;
+}
+
+static ull solve_dp(const std::vector<ull>& a, ull target) {
+    size_t nwords = static_cast<size_t>(target / 64) + 1;
+    std::vector<ull> bits(nwords, 0);
+    bits[0] = 1;
+
+    int valid = static_cast<int>(target & 63) + 1;
+    ull topMask = (valid == 64) ? ~0ULL : ((1ULL << valid) - 1ULL);
+
+    for (ull v : a) {
+        if (v == 0 || v > target) continue;
+
+        size_t ws = static_cast<size_t>(v >> 6);
+        int bs = static_cast<int>(v & 63);
+
+        if (ws >= nwords) continue;
+
+        if (bs == 0) {
+            for (size_t i = nwords - ws; i-- > 0;) {
+                bits[i + ws] |= bits[i];
+            }
+        } else {
+            for (size_t i = nwords - ws; i-- > 0;) {
+                ull cur = bits[i];
+                size_t d = i + ws;
+                bits[d] |= cur << bs;
+                if (d + 1 < nwords) bits[d + 1] |= cur >> (64 - bs);
+            }
+        }
+        bits.back() &= topMask;
+    }
+
+    size_t w = static_cast<size_t>(target >> 6);
+    int b = static_cast<int>(target & 63);
+
+    ull mask = (b == 63) ? ~0ULL : ((1ULL << (b + 1)) - 1ULL);
+    ull word = bits[w] & mask;
+
+    while (true) {
+        if (word) {
+            return static_cast<ull>(w) * 64ULL + static_cast<ull>(63 - std::countl_zero(word));
+        }
+        if (w == 0) return 0;
+        --w;
+        word = bits[w];
+    }
+}
+
+static ull solve_mitm(const std::vector<ull>& a, ull target) {
+    int n = static_cast<int>(a.size());
+    int m = n / 2;
+
+    std::vector<ull> right;
+    right.reserve(size_t(1) << m);
+    right.push_back(0);
+
+    for (int i = 0; i < m; ++i) {
+        ull v = a[i];
+        if (v > target) continue;
+        size_t sz = right.size();
+        for (size_t j = 0; j < sz; ++j) {
+            if (right[j] <= target - v) right.push_back(right[j] + v);
+        }
+    }
+
+    std::sort(right.begin(), right.end());
+    right.erase(std::unique(right.begin(), right.end()), right.end());
+
+    std::vector<ull> left(a.begin() + m, a.end());
+    int l = static_cast<int>(left.size());
+
+    std::vector<ull> suffix(l + 1, 0);
+    for (int i = l - 1; i >= 0; --i) {
+        suffix[i] = suffix[i + 1] + left[i];
+        if (suffix[i] > target) suffix[i] = target;
+    }
+
+    ull best = 0;
+
+    auto dfs = [&](auto&& self, int idx, ull cur) -> void {
+        if (best == target) return;
+
+        auto it = std::upper_bound(right.begin(), right.end(), target - cur);
+        if (it != right.begin()) {
+            --it;
+            ull cand = cur + *it;
+            if (cand > best) best = cand;
+            if (best == target) return;
+        }
+
+        if (idx == l) return;
+
+        ull maxPossible = cur;
+        if (suffix[idx] > target - maxPossible) maxPossible = target;
+        else maxPossible += suffix[idx];
+
+        if (!right.empty()) {
+            ull rmax = right.back();
+            if (rmax > target - maxPossible) maxPossible = target;
+            else maxPossible += rmax;
+        }
+
+        if (maxPossible <= best) return;
+
+        ull v = left[idx];
+        if (v <= target - cur) self(self, idx + 1, cur + v);
+        self(self, idx + 1, cur);
+    };
+
+    dfs(dfs, 0, 0);
+    return best;
+}
+
+static ull solve_bnb(std::vector<ull> a, ull target) {
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    int n = static_cast<int>(a.size());
+    std::vector<ull> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) suffix[i] = suffix[i + 1] + a[i];
+
+    ull best = 0;
+
+    auto dfs = [&](auto&& self, int idx, ull cur) -> void {
+        if (best == target) return;
+        if (cur > best) best = cur;
+        if (idx == n) return;
+        if (cur + suffix[idx] <= best) return;
+
+        ull v = a[idx];
+
+        if (v <= target - cur) self(self, idx + 1, cur + v);
+
+        int j = idx + 1;
+        while (j < n && a[j] == v) ++j;
+        self(self, j, cur);
+    };
+
+    dfs(dfs, 0, 0);
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a(N);
+    ull total = 0;
+    ull g = 0;
+    bool overflow = false;
+
+    for (int i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        if (total > ~0ULL - a[i]) overflow = true;
+        else total += a[i];
+        g = (g == 0) ? a[i] : std::gcd(g, a[i]);
+    }
+
+    if (overflow) tle_forever();
+
+    if (N == 0 || total == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    if (g == 0) g = 1;
+    for (ull& x : a) x /= g;
+    total /= g;
+
+    ull target = total / 2;
+
+    std::vector<ull> b;
+    b.reserve(a.size());
+
+    ull filteredSum = 0;
+    for (ull x : a) {
+        if (x <= target) {
+            b.push_back(x);
+            filteredSum += x;
+        }
+    }
+
+    if (target == 0 || b.empty()) {
+        std::cout << total * g << '\n';
+        return 0;
+    }
+
+    if (filteredSum <= target) {
+        std::cout << (total - 2ULL * filteredSum) * g << '\n';
+        return 0;
+    }
+
+    ull best = 0;
+    size_t m = b.size();
+
+    bool done = false;
+
+    const ull MAX_WORD_OPS = 120000000ULL;
+    const size_t MAX_WORDS = 16000000ULL;
+
+    ull words64 = target / 64 + 1;
+    if (words64 <= static_cast<ull>(MAX_WORDS)) {
+        ull ops = words64 * static_cast<ull>(m);
+        if (m == 0 || words64 <= MAX_WORD_OPS / static_cast<ull>(m)) {
+            if (ops <= MAX_WORD_OPS) {
+                best = solve_dp(b, target);
+                done = true;
+            }
+        }
+    }
+
+    if (!done && m <= 47) {
+        best = solve_mitm(b, target);
+        done = true;
+    }
+
+    if (!done) {
+        if (m > 200) tle_forever();
+        best = solve_bnb(b, target);
+        done = true;
+    }
+
+    std::cout << (total - 2ULL * best) * g << '\n';
+    return 0;
+}

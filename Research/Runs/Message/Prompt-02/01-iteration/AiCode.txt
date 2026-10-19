@@ -1,0 +1,115 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static uint64_t binom_val(int n, int k) {
+    static bool initialized = false;
+    static uint64_t C[32][32];
+    if (!initialized) {
+        for (int i = 0; i <= 31; ++i) {
+            C[i][0] = C[i][i] = 1;
+            for (int j = 1; j < i; ++j) C[i][j] = C[i - 1][j - 1] + C[i - 1][j];
+        }
+        initialized = true;
+    }
+    if (k < 0 || k > n) return 0;
+    return C[n][k];
+}
+
+static uint64_t rank_combination(const vector<int>& comb) {
+    uint64_t rank = 0;
+    int prev = -1;
+    int n = 31, k = 16;
+    for (int j = 0; j < k; ++j) {
+        for (int x = prev + 1; x < comb[j]; ++x) {
+            rank += binom_val(n - 1 - x, k - 1 - j);
+        }
+        prev = comb[j];
+    }
+    return rank;
+}
+
+static vector<int> unrank_combination(uint64_t rank) {
+    vector<int> comb;
+    int n = 31, k = 16;
+    int prev = -1;
+    for (int j = 0; j < k; ++j) {
+        for (int x = prev + 1; x < n; ++x) {
+            uint64_t cnt = binom_val(n - 1 - x, k - 1 - j);
+            if (rank >= cnt) {
+                rank -= cnt;
+            } else {
+                comb.push_back(x);
+                prev = x;
+                break;
+            }
+        }
+    }
+    return comb;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    vector<int> P;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) P.push_back(i);
+    }
+
+    uint64_t id = rank_combination(P);
+
+    for (int b = 0; b < 29; ++b) {
+        vector<bool> A(31, false);
+        bool bit = (id >> b) & 1ULL;
+        for (int x : P) A[x] = bit;
+        send_packet(A);
+    }
+
+    vector<bool> bits;
+    int S = (int)M.size();
+    int len = S - 1;
+    for (int b = 0; b < 10; ++b) bits.push_back((len >> b) & 1);
+    for (bool v : M) bits.push_back(v);
+
+    int packets = ((int)bits.size() + 15) / 16;
+    for (int t = 0; t < packets; ++t) {
+        vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            int idx = t * 16 + j;
+            if (idx < (int)bits.size()) A[P[j]] = bits[idx];
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    uint64_t id = 0;
+
+    for (int b = 0; b < 29; ++b) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) ++ones;
+        }
+        if (ones >= 16) id |= (1ULL << b);
+    }
+
+    vector<int> P = unrank_combination(id);
+
+    vector<bool> bits;
+    for (int t = 29; t < (int)R.size(); ++t) {
+        for (int j = 0; j < 16; ++j) {
+            bits.push_back(R[t][P[j]]);
+        }
+    }
+
+    int len = 0;
+    for (int b = 0; b < 10; ++b) {
+        if (bits[b]) len |= (1 << b);
+    }
+
+    int S = len + 1;
+    vector<bool> M;
+    for (int i = 0; i < S; ++i) {
+        M.push_back(bits[10 + i]);
+    }
+    return M;
+}

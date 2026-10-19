@@ -1,0 +1,377 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <queue>
+#include <cstdint>
+#include <limits>
+#include <functional>
+#include <exception>
+
+using namespace std;
+
+using u64 = unsigned long long;
+using u128 = unsigned __int128;
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        cout << 0 << '\n';
+        return;
+    }
+    char s[64];
+    int n = 0;
+    while (x) {
+        s[n++] = char('0' + x % 10);
+        x /= 10;
+    }
+    while (n--) cout << s[n];
+    cout << '\n';
+}
+
+[[noreturn]] static void tle_spin() {
+    volatile u64 x = 1;
+    for (;;) x = x * 2862933555777941757ULL + 3037000493ULL;
+}
+
+template <class T>
+static T greedy_bound(vector<T> v) {
+    sort(v.begin(), v.end(), greater<T>());
+
+    T s1 = 0, s2 = 0;
+    for (T x : v) {
+        if (s1 <= s2) s1 += x;
+        else s2 += x;
+    }
+    T best = s1 >= s2 ? s1 - s2 : s2 - s1;
+
+    priority_queue<T> pq;
+    for (T x : v) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        T a = pq.top(); pq.pop();
+        T b = pq.top(); pq.pop();
+        if (a != b) pq.push(a - b);
+    }
+    T kk = pq.empty() ? 0 : pq.top();
+    if (kk < best) best = kk;
+    return best;
+}
+
+static bool subset_dp_exact(const vector<u64>& a, u64 total, u64& ans) {
+    const u64 target = total / 2;
+    const u64 MAX_HALF = 600000000ULL;
+    const u64 MAX_OPS = 180000000ULL;
+
+    if (target > MAX_HALF) return false;
+
+    size_t usable = 0;
+    for (u64 x : a) if (x && x <= target) ++usable;
+
+    u64 words64 = target / 64 + 1;
+    if ((u128)words64 * usable > MAX_OPS) return false;
+
+    try {
+        vector<u64> bits((size_t)words64, 0);
+        bits[0] = 1;
+
+        for (u64 x : a) {
+            if (x == 0 || x > target) continue;
+            size_t ws = (size_t)(x >> 6);
+            unsigned bs = (unsigned)(x & 63);
+            size_t words = bits.size();
+
+            if (bs == 0) {
+                for (size_t i = words; i-- > ws; ) {
+                    bits[i] |= bits[i - ws];
+                }
+            } else {
+                for (size_t i = words; i-- > ws; ) {
+                    u64 val = bits[i - ws] << bs;
+                    if (i > ws) val |= bits[i - ws - 1] >> (64 - bs);
+                    bits[i] |= val;
+                }
+            }
+        }
+
+        size_t wi = (size_t)(target >> 6);
+        unsigned off = (unsigned)(target & 63);
+        u64 mask = (off == 63) ? ~0ULL : ((1ULL << (off + 1)) - 1);
+
+        for (size_t t = wi + 1; t-- > 0; ) {
+            u64 x = bits[t] & (t == wi ? mask : ~0ULL);
+            if (x) {
+                int p = 63 - __builtin_clzll(x);
+                u64 s = (u64)t * 64 + (u64)p;
+                ans = total - 2 * s;
+                return true;
+            }
+        }
+    } catch (...) {
+        return false;
+    }
+    return false;
+}
+
+static bool mitm_exact(const vector<u64>& a, u64 total, u64 ideal, u64& ans) {
+    const int STORE_CAP = 24;
+    const int ENUM_CAP = 27;
+
+    int n = (int)a.size();
+    int store_n = min(STORE_CAP, n);
+    int enum_n = n - store_n;
+    if (enum_n > ENUM_CAP) return false;
+
+    u64 target = total / 2;
+    vector<u64> store_vals, enum_vals;
+    store_vals.reserve(store_n);
+    enum_vals.reserve(enum_n);
+
+    for (int i = 0; i < enum_n; ++i) enum_vals.push_back(a[i]);
+    for (int i = enum_n; i < n; ++i) store_vals.push_back(a[i]);
+
+    try {
+        vector<u64> sums;
+        sums.reserve((size_t)1 << store_n);
+        sums.push_back(0);
+
+        for (u64 x : store_vals) {
+            size_t sz = sums.size();
+            if (x > target) continue;
+            for (size_t i = 0; i < sz; ++i) {
+                u64 y = sums[i] + x;
+                if (y <= target) sums.push_back(y);
+            }
+        }
+
+        sort(sums.begin(), sums.end());
+        sums.erase(unique(sums.begin(), sums.end()), sums.end());
+
+        u64 best = total;
+        function<void(int,u64)> dfs = [&](int idx, u64 cur) {
+            if (best == ideal) return;
+            if (idx == enum_n) {
+                u64 rem = target - cur;
+                auto it = upper_bound(sums.begin(), sums.end(), rem);
+                if (it != sums.begin()) {
+                    --it;
+                    u64 s = cur + *it;
+                    u64 d = total - 2 * s;
+                    if (d < best) best = d;
+                }
+                return;
+            }
+
+            u64 x = enum_vals[idx];
+            if (x <= target - cur) dfs(idx + 1, cur + x);
+            dfs(idx + 1, cur);
+        };
+
+        dfs(0, 0);
+        ans = best;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+template <class T>
+class CompleteKK {
+    size_t W;
+    vector<T> buf;
+    T best;
+    T ideal;
+
+    int make_child(size_t d, int m, T c) {
+        T* arr = &buf[d * W];
+        T* child = &buf[(d + 1) * W];
+
+        if (c == 0) {
+            for (int i = 2; i < m; ++i) child[i - 2] = arr[i];
+            return m - 2;
+        }
+
+        int j = 0;
+        bool ins = false;
+        for (int i = 2; i < m; ++i) {
+            if (!ins && c >= arr[i]) {
+                child[j++] = c;
+                ins = true;
+            }
+            child[j++] = arr[i];
+        }
+        if (!ins) child[j++] = c;
+        return j;
+    }
+
+    void dfs(size_t d, int m, T sum) {
+        if (best == ideal) return;
+        if (m <= 0) {
+            best = 0;
+            return;
+        }
+
+        T* arr = &buf[d * W];
+
+        if (m == 1) {
+            if (arr[0] < best) best = arr[0];
+            return;
+        }
+
+        T rest = sum - arr[0];
+        if (arr[0] >= rest) {
+            T val = arr[0] - rest;
+            if (val < best) best = val;
+            return;
+        }
+
+        if (m == 2) {
+            T val = arr[0] - arr[1];
+            if (val < best) best = val;
+            return;
+        }
+
+        T a = arr[0], b = arr[1];
+
+        T diff = a - b;
+        int nm = make_child(d, m, diff);
+        dfs(d + 1, nm, sum - b - b);
+
+        if (best == ideal) return;
+
+        T same = a + b;
+        nm = make_child(d, m, same);
+        dfs(d + 1, nm, sum);
+    }
+
+public:
+    CompleteKK(const vector<T>& v, T total, T initial, T ideal_) : W(v.size()), best(initial), ideal(ideal_) {
+        buf.assign((W + 1) * W, 0);
+        for (size_t i = 0; i < W; ++i) buf[i] = v[i];
+        dfs(0, (int)W, total);
+    }
+
+    T answer() const { return best; }
+};
+
+template <class T>
+static T ckk_exact_or_tle(const vector<T>& v, T total, T initial, T ideal) {
+    size_t n = v.size();
+    size_t cap = (sizeof(T) <= 8) ? 3500 : 2400;
+    if (n > cap) tle_spin();
+
+    try {
+        CompleteKK<T> solver(v, total, initial, ideal);
+        return solver.answer();
+    } catch (...) {
+        tle_spin();
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    size_t N;
+    if (!(cin >> N)) return 0;
+
+    vector<u64> input;
+    input.reserve(N);
+
+    u64 g = 0;
+    for (size_t i = 0; i < N; ++i) {
+        u64 x;
+        cin >> x;
+        input.push_back(x);
+        g = std::gcd(g, x);
+    }
+
+    if (N == 0 || g == 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    u128 total_scaled_128 = 0;
+    for (u64 x : input) total_scaled_128 += (u128)(x / g);
+
+    if (total_scaled_128 <= (u128)numeric_limits<u64>::max()) {
+        u64 total = (u64)total_scaled_128;
+
+        vector<u64> a;
+        a.reserve(N);
+        for (u64 x : input) {
+            u64 y = x / g;
+            if (y) a.push_back(y);
+        }
+
+        sort(a.begin(), a.end(), greater<u64>());
+
+        if (a.empty()) {
+            cout << 0 << '\n';
+            return 0;
+        }
+
+        u64 ideal = total & 1ULL;
+        u64 best = greedy_bound<u64>(a);
+
+        if (best == ideal) {
+            print_u128((u128)best * (u128)g);
+            return 0;
+        }
+
+        u64 rest = total - a[0];
+        if (a[0] >= rest) {
+            print_u128((u128)(a[0] - rest) * (u128)g);
+            return 0;
+        }
+
+        u64 exact;
+        if (subset_dp_exact(a, total, exact)) {
+            print_u128((u128)exact * (u128)g);
+            return 0;
+        }
+
+        if (mitm_exact(a, total, ideal, exact)) {
+            print_u128((u128)exact * (u128)g);
+            return 0;
+        }
+
+        u64 ans = ckk_exact_or_tle<u64>(a, total, best, ideal);
+        print_u128((u128)ans * (u128)g);
+        return 0;
+    } else {
+        vector<u128> a;
+        a.reserve(N);
+        u128 total = 0;
+        for (u64 x : input) {
+            u128 y = (u128)(x / g);
+            if (y) {
+                a.push_back(y);
+                total += y;
+            }
+        }
+
+        sort(a.begin(), a.end(), greater<u128>());
+
+        if (a.empty()) {
+            cout << 0 << '\n';
+            return 0;
+        }
+
+        u128 ideal = total & 1;
+        u128 best = greedy_bound<u128>(a);
+
+        if (best == ideal) {
+            print_u128(best * (u128)g);
+            return 0;
+        }
+
+        u128 rest = total - a[0];
+        if (a[0] >= rest) {
+            print_u128((a[0] - rest) * (u128)g);
+            return 0;
+        }
+
+        u128 ans = ckk_exact_or_tle<u128>(a, total, best, ideal);
+        print_u128(ans * (u128)g);
+        return 0;
+    }
+}

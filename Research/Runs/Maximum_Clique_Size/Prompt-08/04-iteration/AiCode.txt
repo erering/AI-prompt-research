@@ -1,0 +1,280 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    string data;
+    size_t pos = 0;
+
+    FastInput() {
+        char buf[1 << 20];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), stdin)) > 0) {
+            data.append(buf, n);
+        }
+    }
+
+    int nextInt() {
+        while (pos < data.size() && !isdigit((unsigned char)data[pos])) ++pos;
+        int x = 0;
+        while (pos < data.size() && isdigit((unsigned char)data[pos])) {
+            x = x * 10 + (data[pos++] - '0');
+        }
+        return x;
+    }
+
+    int nextBit() {
+        while (pos < data.size() && data[pos] != '0' && data[pos] != '1') ++pos;
+        if (pos >= data.size()) return 0;
+        return data[pos++] - '0';
+    }
+};
+
+class MaxCliqueSolver {
+    using ull = unsigned long long;
+
+    int N, B;
+    ull lastMask;
+    vector<ull> adj;
+    vector<int> deg;
+    int best = 0;
+
+    const ull* row(int v) const {
+        return adj.data() + (size_t)v * B;
+    }
+
+    static bool emptyBits(const vector<ull>& x) {
+        for (ull w : x) if (w) return false;
+        return true;
+    }
+
+    int countBits(const vector<ull>& x) const {
+        int s = 0;
+        for (ull w : x) s += __builtin_popcountll(w);
+        return s;
+    }
+
+    int firstBit(const vector<ull>& x) const {
+        for (int i = 0; i < B; ++i) {
+            if (x[i]) return i * 64 + __builtin_ctzll(x[i]);
+        }
+        return -1;
+    }
+
+    int lastBit(const vector<ull>& x) const {
+        for (int i = B - 1; i >= 0; --i) {
+            if (x[i]) return i * 64 + 63 - __builtin_clzll(x[i]);
+        }
+        return -1;
+    }
+
+    int greedyFast(vector<ull> P, int base) const {
+        int res = base;
+        while (true) {
+            int v = lastBit(P);
+            if (v < 0) break;
+            ++res;
+            const ull* r = row(v);
+            for (int i = 0; i < B; ++i) P[i] &= r[i];
+        }
+        return res;
+    }
+
+    int greedyInternal(vector<ull> P, int base) const {
+        int res = base;
+        while (!emptyBits(P)) {
+            int bestv = -1, bestscore = -1, bestdeg = -1;
+            for (int bi = 0; bi < B; ++bi) {
+                ull w = P[bi];
+                while (w) {
+                    int bit = __builtin_ctzll(w);
+                    int v = bi * 64 + bit;
+                    if (v < N) {
+                        const ull* r = row(v);
+                        int sc = 0;
+                        for (int j = 0; j < B; ++j) sc += __builtin_popcountll(P[j] & r[j]);
+                        if (sc > bestscore || (sc == bestscore && deg[v] > bestdeg)) {
+                            bestscore = sc;
+                            bestdeg = deg[v];
+                            bestv = v;
+                        }
+                    }
+                    w &= w - 1;
+                }
+            }
+            if (bestv < 0) break;
+            ++res;
+            const ull* r = row(bestv);
+            for (int i = 0; i < B; ++i) P[i] &= r[i];
+        }
+        return res;
+    }
+
+    void colorSort(const vector<ull>& P, vector<int>& vertices, vector<int>& colors) const {
+        vertices.clear();
+        colors.clear();
+        vertices.reserve(countBits(P));
+        colors.reserve(vertices.capacity());
+
+        vector<ull> U = P;
+        vector<ull> Q(B);
+        int color = 0;
+
+        while (!emptyBits(U)) {
+            ++color;
+            Q = U;
+
+            while (true) {
+                int v = firstBit(Q);
+                if (v < 0) break;
+
+                vertices.push_back(v);
+                colors.push_back(color);
+
+                ull mask = ~(1ULL << (v & 63));
+                U[v >> 6] &= mask;
+                Q[v >> 6] &= mask;
+
+                const ull* r = row(v);
+                for (int i = 0; i < B; ++i) Q[i] &= ~r[i];
+            }
+        }
+    }
+
+    void expand(vector<ull> P, int depth) {
+        int sz = countBits(P);
+        if (depth + sz <= best) return;
+
+        vector<int> vertices, colors;
+        colorSort(P, vertices, colors);
+
+        for (int i = (int)vertices.size() - 1; i >= 0; --i) {
+            if (depth + colors[i] <= best) return;
+
+            int v = vertices[i];
+            if ((P[v >> 6] & (1ULL << (v & 63))) == 0) continue;
+
+            vector<ull> NP(B);
+            const ull* r = row(v);
+            for (int j = 0; j < B; ++j) NP[j] = P[j] & r[j];
+
+            int nd = depth + 1;
+            if (emptyBits(NP)) {
+                if (nd > best) best = nd;
+            } else {
+                expand(std::move(NP), nd);
+            }
+
+            P[v >> 6] &= ~(1ULL << (v & 63));
+        }
+    }
+
+public:
+    MaxCliqueSolver(int n, vector<ull>&& a, vector<int>&& d)
+        : N(n), B((n + 63) / 64), adj(std::move(a)), deg(std::move(d)) {
+        lastMask = (N % 64) ? ((1ULL << (N % 64)) - 1ULL) : ~0ULL;
+    }
+
+    int solve() {
+        if (N == 0) return 0;
+
+        vector<ull> all(B, ~0ULL);
+        all[B - 1] &= lastMask;
+
+        best = max(best, greedyFast(all, 0));
+
+        int lim = min(N, 256);
+        for (int t = 0; t < lim; ++t) {
+            int s = N - 1 - t;
+            vector<ull> P(B);
+            const ull* r = row(s);
+            for (int i = 0; i < B; ++i) P[i] = r[i];
+            best = max(best, greedyFast(std::move(P), 1));
+        }
+
+        if (N <= 2500) {
+            best = max(best, greedyInternal(all, 0));
+            int lim2 = min(N, 32);
+            if (N <= 1500) {
+                for (int t = 0; t < lim2; ++t) {
+                    int s = N - 1 - t;
+                    vector<ull> P(B);
+                    const ull* r = row(s);
+                    for (int i = 0; i < B; ++i) P[i] = r[i];
+                    best = max(best, greedyInternal(std::move(P), 1));
+                }
+            }
+        }
+
+        if (best < N) expand(all, 0);
+        return best;
+    }
+};
+
+int main() {
+    using ull = unsigned long long;
+
+    FastInput in;
+    int N = in.nextInt();
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    int B = (N + 63) / 64;
+    vector<ull> oldAdj((size_t)N * B, 0);
+
+    for (int i = 0; i < N; ++i) {
+        size_t base = (size_t)i * B;
+        for (int j = 0; j < N; ++j) {
+            int bit = in.nextBit();
+            if (bit && i != j) oldAdj[base + (j >> 6)] |= 1ULL << (j & 63);
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        oldAdj[(size_t)i * B + (i >> 6)] &= ~(1ULL << (i & 63));
+    }
+
+    vector<int> oldDeg(N, 0);
+    for (int i = 0; i < N; ++i) {
+        size_t base = (size_t)i * B;
+        int d = 0;
+        for (int j = 0; j < B; ++j) d += __builtin_popcountll(oldAdj[base + j]);
+        oldDeg[i] = d;
+    }
+
+    vector<int> perm(N);
+    iota(perm.begin(), perm.end(), 0);
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (oldDeg[a] != oldDeg[b]) return oldDeg[a] < oldDeg[b];
+        return a < b;
+    });
+
+    vector<ull> adj((size_t)N * B, 0);
+    vector<int> deg(N);
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        deg[ni] = oldDeg[oi];
+        const ull* oldRow = oldAdj.data() + (size_t)oi * B;
+        size_t nbase = (size_t)ni * B;
+
+        for (int nj = 0; nj < N; ++nj) {
+            int oj = perm[nj];
+            if (oldRow[oj >> 6] & (1ULL << (oj & 63))) {
+                adj[nbase + (nj >> 6)] |= 1ULL << (nj & 63);
+            }
+        }
+    }
+
+    oldAdj.clear();
+    oldAdj.shrink_to_fit();
+
+    for (int i = 0; i < N; ++i) {
+        adj[(size_t)i * B + (i >> 6)] &= ~(1ULL << (i & 63));
+    }
+
+    MaxCliqueSolver solver(N, std::move(adj), std::move(deg));
+    cout << solver.solve() << '\n';
+    return 0;
+}

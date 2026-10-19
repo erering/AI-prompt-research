@@ -1,0 +1,106 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    const int MAXN = 10000;
+    const int LOG = 15;
+
+    int up[LOG][MAXN];
+    int dep[MAXN];
+
+    int diamA, diamB, diamD;
+    bool initialized = false;
+
+    void reset_state() {
+        initialized = true;
+        dep[0] = 0;
+        for (int k = 0; k < LOG; ++k) up[k][0] = 0;
+        diamA = 0;
+        diamB = 0;
+        diamD = 0;
+    }
+
+    int lca_node(int a, int b) {
+        if (dep[a] < dep[b]) swap(a, b);
+
+        int diff = dep[a] - dep[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[k][a];
+        }
+
+        if (a == b) return a;
+
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[k][a] != up[k][b]) {
+                a = up[k][a];
+                b = up[k][b];
+            }
+        }
+
+        return up[0][a];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return dep[a] + dep[b] - 2 * dep[c];
+    }
+
+    void add_vertex(int i, int p) {
+        dep[i] = dep[p] + 1;
+        up[0][i] = p;
+        for (int k = 1; k < LOG; ++k) {
+            up[k][i] = up[k - 1][up[k - 1][i]];
+        }
+    }
+
+    void update_diameter_with(int i) {
+        int da = dist_node(i, diamA);
+        int db = dist_node(i, diamB);
+
+        if (da > diamD) {
+            diamB = i;
+            diamD = da;
+        } else if (db > diamD) {
+            diamA = i;
+            diamD = db;
+        }
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (!initialized || i <= 1) reset_state();
+
+    if (i == 0) return 0;
+
+    add_vertex(i, Pi);
+
+    if (i == N - 1) {
+        int da = dist_node(i, diamA);
+        int db = dist_node(i, diamB);
+
+        if (da > diamD || db > diamD) {
+            int other = (db > da ? diamB : diamA);
+            return other + 10001;
+        } else {
+            return diamB + 1;
+        }
+    }
+
+    update_diameter_with(i);
+
+    if (i == N - 2) {
+        return diamA + 1;
+    }
+
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+
+    if (S[N - 1] > 10000) {
+        return {N - 1, S[N - 1] - 10001};
+    }
+
+    return {S[N - 2] - 1, S[N - 1] - 1};
+}

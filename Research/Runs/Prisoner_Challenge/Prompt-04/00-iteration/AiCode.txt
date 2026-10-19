@@ -1,0 +1,143 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int MAXS = 20;
+
+    vector<long long> cap(MAXS + 1, 0);
+    vector<int> bestq(MAXS + 1, 0);
+    cap[0] = 2;
+
+    for (int s = 1; s <= MAXS; ++s) {
+        for (int q = 1; q <= s; ++q) {
+            long long v = 1LL * q * cap[s - q] + 2;
+            if (v > cap[s]) {
+                cap[s] = v;
+                bestq[s] = q;
+            }
+        }
+    }
+
+    int S = 0;
+    while (S < MAXS && cap[S] < N) ++S;
+
+    vector<int> qs, start, rem_after;
+    int rem = S, id = 1;
+    while (rem > 0) {
+        int q = bestq[rem];
+        qs.push_back(q);
+        start.push_back(id);
+        rem -= q;
+        rem_after.push_back(rem);
+        id += q;
+    }
+
+    int D = (int)qs.size();
+    vector<vector<int>> ans(S + 1, vector<int>(N + 1, -1));
+
+    auto less_bag = [](int side) {
+        return side == 0 ? -1 : -2;
+    };
+
+    auto locate_child = [&](int level, int L, int R, int val) {
+        struct Res {
+            bool ok;
+            int c, l, r;
+        };
+
+        if (level >= D || val <= L || val >= R) return Res{false, -1, L, R};
+
+        int q = qs[level];
+        int nextS = rem_after[level];
+        int childCap = (int)cap[nextS];
+        int inside = R - L - 1;
+        if (inside <= 0) return Res{false, -1, L, R};
+
+        int pos = val - (L + 1);
+        int c = pos / childCap;
+        if (c < 0 || c >= q) return Res{false, -1, L, R};
+
+        int l = L + 1 + c * childCap;
+        int sz = min(childCap, inside - c * childCap);
+        if (sz <= 0 || val < l || val >= l + sz) return Res{false, -1, L, R};
+
+        return Res{true, c, l, l + sz - 1};
+    };
+
+    auto context_at = [&](int level, int val) {
+        pair<int, int> cur = {1, N};
+
+        for (int t = 0; t < level && t < D; ++t) {
+            int L = cur.first, R = cur.second;
+            if (val <= L || val >= R) return cur;
+
+            auto z = locate_child(t, L, R, val);
+            if (!z.ok) return cur;
+
+            cur = {z.l, z.r};
+        }
+
+        return cur;
+    };
+
+    function<int(int, int, int)> start_action = [&](int level, int side, int val) -> int {
+        auto [L, R] = context_at(level, val);
+
+        if (val == L) return less_bag(side);
+        if (val == R) return less_bag(1 - side);
+
+        if (level >= D) return less_bag(side);
+
+        auto z = locate_child(level, L, R, val);
+        if (!z.ok) return less_bag(side);
+
+        return start[level] + z.c;
+    };
+
+    ans[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        ans[0][j] = start_action(0, 0, j);
+    }
+
+    for (int level = 0; level < D; ++level) {
+        int q = qs[level];
+
+        for (int stored = 0; stored < q; ++stored) {
+            int state = start[level] + stored;
+            int curSide = 1 - (level % 2);
+            int prevSide = 1 - curSide;
+
+            ans[state][0] = curSide;
+
+            for (int j = 1; j <= N; ++j) {
+                auto [L, R] = context_at(level, j);
+
+                if (j == L) {
+                    ans[state][j] = less_bag(curSide);
+                    continue;
+                }
+
+                if (j == R) {
+                    ans[state][j] = less_bag(prevSide);
+                    continue;
+                }
+
+                auto z = locate_child(level, L, R, j);
+                if (!z.ok) {
+                    ans[state][j] = less_bag(curSide);
+                    continue;
+                }
+
+                if (z.c < stored) {
+                    ans[state][j] = less_bag(curSide);
+                } else if (z.c > stored) {
+                    ans[state][j] = less_bag(prevSide);
+                } else {
+                    ans[state][j] = start_action(level + 1, curSide, j);
+                }
+            }
+        }
+    }
+
+    return ans;
+}

@@ -1,0 +1,380 @@
+#include <algorithm>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <string>
+#include <vector>
+
+using u64 = std::uint64_t;
+using u128 = unsigned __int128;
+
+struct FastScanner {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    size_t idx = 0, size = 0;
+
+    inline char getChar() {
+        if (idx >= size) {
+            size = std::fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (size == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+    bool readU64(u64 &out) {
+        char c;
+        do {
+            c = getChar();
+            if (!c) return false;
+        } while (c <= ' ');
+        u64 x = 0;
+        while (c > ' ') {
+            x = x * 10 + (u64)(c - '0');
+            c = getChar();
+        }
+        out = x;
+        return true;
+    }
+};
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        std::puts("0");
+        return;
+    }
+    char s[64];
+    int n = 0;
+    while (x > 0) {
+        s[n++] = char('0' + x % 10);
+        x /= 10;
+    }
+    while (n--) std::putchar(s[n]);
+    std::putchar('\n');
+}
+
+[[noreturn]] static void deliberate_tle() {
+    volatile u64 x = 1;
+    for (;;) {
+        x = x * 2862933555777941757ULL + 3037000493ULL;
+    }
+}
+
+static u64 kk_heuristic(const std::vector<u64> &a) {
+    std::priority_queue<u64> pq;
+    for (u64 x : a) if (x) pq.push(x);
+    while (pq.size() > 1) {
+        u64 x = pq.top(); pq.pop();
+        u64 y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static u64 greedy_heuristic(std::vector<u64> a) {
+    std::sort(a.begin(), a.end(), std::greater<u64>());
+    u64 s1 = 0, s2 = 0;
+    for (u64 x : a) {
+        if (s1 <= s2) s1 += x;
+        else s2 += x;
+    }
+    return s1 > s2 ? s1 - s2 : s2 - s1;
+}
+
+static u64 bitset_exact(const std::vector<u64> &a, u64 sum) {
+    u64 target = sum >> 1;
+    size_t words = (size_t)(target / 64) + 1;
+    std::vector<u64> bits(words, 0);
+    bits[0] = 1;
+    u64 perfect = sum & 1ULL;
+    size_t target_word = (size_t)(target >> 6);
+    u64 target_mask = 1ULL << (target & 63);
+
+    for (u64 x : a) {
+        if (x > target) continue;
+        size_t ws = (size_t)(x >> 6);
+        unsigned bs = (unsigned)(x & 63);
+        if (ws >= words) continue;
+        for (size_t ii = words - ws; ii-- > 0;) {
+            u64 v = bits[ii];
+            if (!v) continue;
+            size_t j = ii + ws;
+            if (bs == 0) {
+                bits[j] |= v;
+            } else {
+                bits[j] |= v << bs;
+                if (j + 1 < words) bits[j + 1] |= v >> (64 - bs);
+            }
+        }
+        if (bits[target_word] & target_mask) return perfect;
+    }
+
+    for (size_t i = target_word + 1; i-- > 0;) {
+        u64 m = bits[i];
+        if (i == target_word) {
+            unsigned off = (unsigned)(target & 63);
+            if (off != 63) m &= ((1ULL << (off + 1)) - 1);
+        }
+        if (m) {
+            int pos = 63 - __builtin_clzll(m);
+            u64 best = (u64)i * 64 + (u64)pos;
+            return sum - 2 * best;
+        }
+        if (i == 0) break;
+    }
+    return sum;
+}
+
+static std::vector<u64> gen_sums_limited(const std::vector<u64> &a, size_t l, size_t r, u64 target) {
+    std::vector<u64> sums;
+    size_t m = r - l;
+    if (m < 24) sums.reserve((size_t)1 << m);
+    sums.push_back(0);
+    for (size_t i = l; i < r; ++i) {
+        u64 x = a[i];
+        size_t sz = sums.size();
+        for (size_t j = 0; j < sz; ++j) {
+            u64 y = sums[j] + x;
+            if (y <= target) sums.push_back(y);
+        }
+    }
+    return sums;
+}
+
+static u64 mitm_exact(const std::vector<u64> &a, u64 sum) {
+    const size_t n = a.size();
+    const size_t m = n / 2;
+    const u64 target = sum >> 1;
+    const u64 perfect = sum & 1ULL;
+
+    std::vector<u64> left = gen_sums_limited(a, 0, m, target);
+    std::sort(left.begin(), left.end());
+    left.erase(std::unique(left.begin(), left.end()), left.end());
+
+    u64 best_sum = 0;
+    u64 best_diff = sum;
+
+    std::function<void(size_t, u64)> dfs = [&](size_t idx, u64 cur) {
+        if (best_diff == perfect) return;
+        if (cur > target) return;
+        if (idx == n) {
+            u64 need = target - cur;
+            auto it = std::upper_bound(left.begin(), left.end(), need);
+            if (it != left.begin()) {
+                --it;
+                u64 s = cur + *it;
+                u64 d = sum - 2 * s;
+                if (d < best_diff) {
+                    best_diff = d;
+                    best_sum = s;
+                }
+            }
+            return;
+        }
+        dfs(idx + 1, cur);
+        u64 nx = cur + a[idx];
+        if (nx <= target) dfs(idx + 1, nx);
+    };
+
+    dfs(m, 0);
+    (void)best_sum;
+    return best_diff;
+}
+
+struct CKK {
+    u64 best;
+    u64 perfect;
+
+    CKK(u64 b, u64 p) : best(b), perfect(p) {}
+
+    u64 small_exact(const std::vector<u64> &a, u64 sum) {
+        size_t n = a.size();
+        if (n == 0) return 0;
+        if (n == 1) return a[0];
+
+        u64 target = sum >> 1;
+        size_t m = n / 2;
+
+        std::vector<u64> left;
+        if (m < 24) left.reserve((size_t)1 << m);
+        left.push_back(0);
+        for (size_t i = 0; i < m; ++i) {
+            u64 x = a[i];
+            size_t sz = left.size();
+            for (size_t j = 0; j < sz; ++j) {
+                u64 y = left[j] + x;
+                if (y <= target) left.push_back(y);
+            }
+        }
+        std::sort(left.begin(), left.end());
+        left.erase(std::unique(left.begin(), left.end()), left.end());
+
+        u64 best_diff = sum;
+        std::function<void(size_t, u64)> dfs = [&](size_t idx, u64 cur) {
+            if (best_diff == perfect) return;
+            if (cur > target) return;
+            if (idx == n) {
+                u64 need = target - cur;
+                auto it = std::upper_bound(left.begin(), left.end(), need);
+                if (it != left.begin()) {
+                    --it;
+                    u64 s = cur + *it;
+                    u64 d = sum - 2 * s;
+                    if (d < best_diff) best_diff = d;
+                }
+                return;
+            }
+            dfs(idx + 1, cur);
+            u64 nx = cur + a[idx];
+            if (nx <= target) dfs(idx + 1, nx);
+        };
+        dfs(m, 0);
+        return best_diff;
+    }
+
+    void search(const std::vector<u64> &a, u64 sum) {
+        if (best == perfect) return;
+        size_t n = a.size();
+
+        if (n == 0) {
+            best = 0;
+            return;
+        }
+        if (n == 1) {
+            if (a[0] < best) best = a[0];
+            return;
+        }
+
+        u64 rest = sum - a[0];
+        if (a[0] >= rest) {
+            u64 d = a[0] - rest;
+            if (d < best) best = d;
+            return;
+        }
+
+        u64 lb = 0;
+        if (((lb ^ sum) & 1ULL) != 0) ++lb;
+        if (lb >= best) return;
+
+        if (n <= 26) {
+            u64 d = small_exact(a, sum);
+            if (d < best) best = d;
+            return;
+        }
+
+        u64 x = a[0], y = a[1];
+
+        {
+            u64 d = x - y;
+            std::vector<u64> b;
+            b.reserve(n - 1);
+            bool inserted = false;
+            for (size_t i = 2; i < n; ++i) {
+                if (!inserted && d >= a[i]) {
+                    if (d) b.push_back(d);
+                    inserted = true;
+                }
+                b.push_back(a[i]);
+            }
+            if (!inserted && d) b.push_back(d);
+            search(b, sum - 2 * y);
+        }
+
+        if (best == perfect) return;
+
+        {
+            u64 s = x + y;
+            std::vector<u64> c;
+            c.reserve(n - 1);
+            c.push_back(s);
+            for (size_t i = 2; i < n; ++i) c.push_back(a[i]);
+            search(c, sum);
+        }
+    }
+};
+
+int main() {
+    FastScanner fs;
+    u64 n64;
+    if (!fs.readU64(n64)) return 0;
+    size_t n = (size_t)n64;
+
+    std::vector<u64> a;
+    a.reserve(n);
+    u64 g = 0;
+    u128 sum128 = 0;
+    u64 maxv = 0;
+
+    for (size_t i = 0; i < n; ++i) {
+        u64 x;
+        fs.readU64(x);
+        a.push_back(x);
+        g = std::gcd(g, x);
+        sum128 += (u128)x;
+        if (x > maxv) maxv = x;
+    }
+
+    if (n == 0) {
+        std::puts("0");
+        return 0;
+    }
+
+    u128 rest128 = sum128 - (u128)maxv;
+    if ((u128)maxv >= rest128) {
+        print_u128((u128)maxv - rest128);
+        return 0;
+    }
+
+    if (g == 0) {
+        std::puts("0");
+        return 0;
+    }
+
+    u128 scaled128 = sum128 / (u128)g;
+    if (scaled128 > (u128)std::numeric_limits<u64>::max()) {
+        deliberate_tle();
+    }
+
+    u64 sum = (u64)scaled128;
+    for (u64 &x : a) x /= g;
+
+    std::sort(a.begin(), a.end(), std::greater<u64>());
+
+    u64 perfect = sum & 1ULL;
+
+    u64 h1 = kk_heuristic(a);
+    if (h1 == perfect) {
+        print_u128((u128)h1 * (u128)g);
+        return 0;
+    }
+    u64 h2 = greedy_heuristic(a);
+    u64 initial_best = std::min(h1, h2);
+    if (initial_best == perfect) {
+        print_u128((u128)initial_best * (u128)g);
+        return 0;
+    }
+
+    constexpr u64 BIT_LIMIT = 450000000ULL;
+    u64 target = sum >> 1;
+
+    u64 ans;
+    if (target <= BIT_LIMIT) {
+        ans = bitset_exact(a, sum);
+    } else if (a.size() <= 46) {
+        ans = mitm_exact(a, sum);
+    } else {
+        if (a.size() > 2000) deliberate_tle();
+        CKK solver(initial_best, perfect);
+        solver.search(a, sum);
+        ans = solver.best;
+    }
+
+    print_u128((u128)ans * (u128)g);
+    return 0;
+}

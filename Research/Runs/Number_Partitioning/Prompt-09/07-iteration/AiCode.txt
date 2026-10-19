@@ -1,0 +1,291 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+using u128 = __uint128_t;
+
+static void print_u128(u128 x) {
+    if (x == 0) {
+        cout << '0' << '\n';
+        return;
+    }
+    char s[64];
+    int n = 0;
+    while (x > 0) {
+        s[n++] = char('0' + x % 10);
+        x /= 10;
+    }
+    while (n--) cout << s[n];
+    cout << '\n';
+}
+
+static ull bitset_solve(const vector<ull>& vals, ull target) {
+    size_t words = size_t(target / 64) + 1;
+    vector<ull> dp(words, 0);
+    dp[0] = 1;
+
+    int lastBits = int(target & 63);
+    ull lastMask = (lastBits == 63) ? ~0ULL : ((1ULL << (lastBits + 1)) - 1ULL);
+
+    ull maxReach = 0;
+    size_t targetWord = size_t(target >> 6);
+    int targetBit = int(target & 63);
+
+    for (ull a : vals) {
+        if (a > target) continue;
+
+        ull newMax = maxReach + a;
+        if (newMax < maxReach || newMax > target) newMax = target;
+
+        size_t hi = size_t(newMax >> 6);
+        size_t w = size_t(a >> 6);
+        int b = int(a & 63);
+
+        if (b == 0) {
+            for (size_t i = hi;; --i) {
+                dp[i] |= dp[i - w];
+                if (i == w) break;
+            }
+        } else {
+            for (size_t i = hi;; --i) {
+                ull v = dp[i - w] << b;
+                if (i > w) v |= dp[i - w - 1] >> (64 - b);
+                dp[i] |= v;
+                if (i == w) break;
+            }
+        }
+
+        dp.back() &= lastMask;
+        maxReach = newMax;
+
+        if ((dp[targetWord] >> targetBit) & 1ULL) return target;
+    }
+
+    for (size_t i = targetWord;; --i) {
+        ull word = dp[i];
+        if (i == targetWord) word &= lastMask;
+        if (word) {
+            return ull(i) * 64ULL + ull(63 - __builtin_clzll(word));
+        }
+        if (i == 0) break;
+    }
+    return 0;
+}
+
+static bool sparse_solve(const vector<ull>& vals, ull target, size_t limit, ull& best) {
+    vector<ull> cur, nxt;
+    cur.reserve(1024);
+    cur.push_back(0);
+
+    for (ull a : vals) {
+        if (a > target) continue;
+
+        ull maxBase = target - a;
+        size_t cnt = upper_bound(cur.begin(), cur.end(), maxBase) - cur.begin();
+        if (cnt == 0) continue;
+
+        nxt.clear();
+        nxt.reserve(min(limit + 1, cur.size() + cnt));
+
+        size_t i = 0, j = 0;
+        bool haveLast = false;
+        ull last = 0;
+
+        while (i < cur.size() || j < cnt) {
+            ull v;
+            if (j == cnt || (i < cur.size() && cur[i] < cur[j] + a)) {
+                v = cur[i++];
+            } else if (i == cur.size() || cur[j] + a < cur[i]) {
+                v = cur[j++] + a;
+            } else {
+                v = cur[i];
+                ++i;
+                ++j;
+            }
+
+            if (!haveLast || v != last) {
+                nxt.push_back(v);
+                last = v;
+                haveLast = true;
+                if (nxt.size() > limit) return false;
+            }
+        }
+
+        cur.swap(nxt);
+        if (cur.back() == target) {
+            best = target;
+            return true;
+        }
+    }
+
+    best = cur.back();
+    return true;
+}
+
+static ull mitm_solve(const vector<ull>& vals, ull target) {
+    int m = int(vals.size());
+    int storeCount = min(22, m / 2);
+    int enumCount = m - storeCount;
+
+    vector<ull> storeSums;
+    storeSums.reserve(size_t(1) << storeCount);
+    storeSums.push_back(0);
+
+    for (int i = enumCount; i < m; ++i) {
+        ull a = vals[i];
+        size_t old = storeSums.size();
+        for (size_t j = 0; j < old; ++j) {
+            if (storeSums[j] <= target - a) storeSums.push_back(storeSums[j] + a);
+        }
+    }
+
+    sort(storeSums.begin(), storeSums.end());
+    storeSums.erase(unique(storeSums.begin(), storeSums.end()), storeSums.end());
+
+    vector<ull> enumVals(vals.begin(), vals.begin() + enumCount);
+    vector<ull> suffix(enumCount + 1, 0);
+    for (int i = enumCount - 1; i >= 0; --i) {
+        u128 s = (u128)suffix[i + 1] + enumVals[i];
+        suffix[i] = s > target ? target : (ull)s;
+    }
+
+    ull best = 0;
+    ull storeMax = storeSums.back();
+
+    function<void(int, ull)> dfs = [&](int idx, ull sum) {
+        ull rem = target - sum;
+        auto it = upper_bound(storeSums.begin(), storeSums.end(), rem);
+        if (it != storeSums.begin()) {
+            --it;
+            ull cand = sum + *it;
+            if (cand > best) {
+                best = cand;
+                if (best == target) return;
+            }
+        }
+
+        if (idx == enumCount) return;
+        if ((u128)sum + suffix[idx] + storeMax <= best) return;
+
+        ull a = enumVals[idx];
+        if (a <= target - sum) {
+            dfs(idx + 1, sum + a);
+            if (best == target) return;
+        }
+        dfs(idx + 1, sum);
+    };
+
+    dfs(0, 0);
+    return best;
+}
+
+static ull branch_bound_solve(const vector<ull>& vals, ull target) {
+    int n = int(vals.size());
+    if (n > 2000) {
+        volatile ull sink = 0;
+        while (true) sink++;
+    }
+
+    vector<ull> suffix(n + 1, 0);
+    for (int i = n - 1; i >= 0; --i) {
+        u128 s = (u128)suffix[i + 1] + vals[i];
+        suffix[i] = s > target ? target : (ull)s;
+    }
+
+    ull best = 0;
+
+    function<void(int, ull)> dfs = [&](int i, ull sum) {
+        if (sum > best) {
+            best = sum;
+            if (best == target) return;
+        }
+        if (i == n) return;
+        if ((u128)sum + suffix[i] <= best) return;
+
+        ull a = vals[i];
+        if (a <= target - sum) {
+            dfs(i + 1, sum + a);
+            if (best == target) return;
+        }
+        dfs(i + 1, sum);
+    };
+
+    dfs(0, 0);
+    return best;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    vector<ull> a(N);
+    ull g = 0;
+    u128 sumOrig = 0;
+
+    for (int i = 0; i < N; ++i) {
+        cin >> a[i];
+        sumOrig += (u128)a[i];
+        g = (g == 0) ? a[i] : std::gcd(g, a[i]);
+    }
+
+    if (N == 0 || g == 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    u128 total128 = 0;
+    for (ull x : a) total128 += (u128)(x / g);
+
+    if (total128 > (u128)numeric_limits<ull>::max()) {
+        volatile ull sink = 0;
+        while (true) sink++;
+    }
+
+    ull total = (ull)total128;
+    ull target = total / 2;
+
+    vector<ull> vals;
+    vals.reserve(N);
+
+    u128 candidateSum = 0;
+    for (ull x : a) {
+        ull y = x / g;
+        if (y <= target) {
+            vals.push_back(y);
+            candidateSum += (u128)y;
+        }
+    }
+
+    sort(vals.begin(), vals.end(), greater<ull>());
+
+    ull best = 0;
+
+    if (target == 0 || vals.empty()) {
+        best = 0;
+    } else if (candidateSum <= target) {
+        best = (ull)candidateSum;
+    } else {
+        constexpr ull MAX_DP_BYTES = 48ULL * 1024ULL * 1024ULL;
+        ull maxWords = MAX_DP_BYTES / 8ULL;
+
+        if (target / 64ULL + 1ULL <= maxWords) {
+            best = bitset_solve(vals, target);
+        } else if (vals.size() <= 48) {
+            best = mitm_solve(vals, target);
+        } else {
+            constexpr size_t SPARSE_LIMIT = 2000000;
+            if (!sparse_solve(vals, target, SPARSE_LIMIT, best)) {
+                if (vals.size() <= 54) best = mitm_solve(vals, target);
+                else best = branch_bound_solve(vals, target);
+            }
+        }
+    }
+
+    u128 diffScaled = (u128)total - (u128)2 * best;
+    print_u128(diffScaled * g);
+
+    return 0;
+}

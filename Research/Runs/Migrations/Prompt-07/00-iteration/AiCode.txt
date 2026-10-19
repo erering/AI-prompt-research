@@ -1,0 +1,133 @@
+#include <bits/stdc++.h>
+
+static const int MAXN_LP = 10000;
+static const int LOG_LP = 15;
+
+static int up_lp[MAXN_LP][LOG_LP];
+static int depth_lp[MAXN_LP];
+static int diam_a_lp = 0, diam_b_lp = 0, diam_d_lp = 0;
+static int pref_a_lp = 0, pref_b_lp = 0, pref_d_lp = 0;
+static int last_i_lp = -1;
+
+static void reset_lp() {
+    for (int k = 0; k < LOG_LP; ++k) up_lp[0][k] = 0;
+    depth_lp[0] = 0;
+    diam_a_lp = diam_b_lp = 0;
+    diam_d_lp = 0;
+    pref_a_lp = pref_b_lp = 0;
+    pref_d_lp = 0;
+}
+
+static int lca_lp(int a, int b) {
+    if (depth_lp[a] < depth_lp[b]) std::swap(a, b);
+    int diff = depth_lp[a] - depth_lp[b];
+    for (int k = 0; k < LOG_LP; ++k) {
+        if (diff & (1 << k)) a = up_lp[a][k];
+    }
+    if (a == b) return a;
+    for (int k = LOG_LP - 1; k >= 0; --k) {
+        if (up_lp[a][k] != up_lp[b][k]) {
+            a = up_lp[a][k];
+            b = up_lp[b][k];
+        }
+    }
+    return up_lp[a][0];
+}
+
+static int dist_lp(int a, int b) {
+    int c = lca_lp(a, b);
+    return depth_lp[a] + depth_lp[b] - 2 * depth_lp[c];
+}
+
+static void update_diameter_lp(int v) {
+    int old_a = diam_a_lp, old_b = diam_b_lp;
+    int da = dist_lp(v, old_a);
+    int db = dist_lp(v, old_b);
+
+    if (da > diam_d_lp || db > diam_d_lp) {
+        if (da >= db) {
+            diam_a_lp = old_a;
+            diam_b_lp = v;
+            diam_d_lp = da;
+        } else {
+            diam_a_lp = v;
+            diam_b_lp = old_b;
+            diam_d_lp = db;
+        }
+    }
+}
+
+static int farthest_from_lp(int v) {
+    if (diam_a_lp == v) return diam_b_lp;
+    if (diam_b_lp == v) return diam_a_lp;
+    int da = dist_lp(v, diam_a_lp);
+    int db = dist_lp(v, diam_b_lp);
+    return (da >= db ? diam_a_lp : diam_b_lp);
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 0) {
+        reset_lp();
+        last_i_lp = 0;
+        return 0;
+    }
+
+    if (last_i_lp >= i) {
+        reset_lp();
+    }
+
+    up_lp[i][0] = Pi;
+    for (int k = 1; k < LOG_LP; ++k) {
+        up_lp[i][k] = up_lp[up_lp[i][k - 1]][k - 1];
+    }
+    depth_lp[i] = depth_lp[Pi] + 1;
+
+    update_diameter_lp(i);
+
+    int P = N - 50;
+    int ans = 0;
+
+    if (i == P) {
+        pref_a_lp = diam_a_lp;
+        pref_b_lp = diam_b_lp;
+        pref_d_lp = diam_d_lp;
+        ans = pref_a_lp + 1;
+    } else if (i == P + 1) {
+        if (diam_d_lp > pref_d_lp) ans = farthest_from_lp(i) + 1;
+        else ans = pref_b_lp + 1;
+    } else if (i >= P + 2 && i <= N - 2) {
+        ans = farthest_from_lp(i) + 1;
+    } else if (i == N - 1) {
+        if (diam_a_lp == i) {
+            ans = diam_b_lp + 1;
+        } else if (diam_b_lp == i) {
+            ans = diam_a_lp + 1;
+        } else if (diam_d_lp == pref_d_lp) {
+            ans = 10001;
+        } else {
+            int j = std::max(diam_a_lp, diam_b_lp);
+            ans = 10001 + (j - P);
+        }
+    }
+
+    last_i_lp = i;
+    return ans;
+}
+
+std::pair<int,int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    int P = N - 50;
+    int fin = S[N - 1];
+
+    if (fin <= 10000) {
+        return {N - 1, fin - 1};
+    }
+
+    int code = fin - 10001;
+    if (code == 0) {
+        return {S[P] - 1, S[P + 1] - 1};
+    }
+
+    int j = P + code;
+    return {j, S[j] - 1};
+}

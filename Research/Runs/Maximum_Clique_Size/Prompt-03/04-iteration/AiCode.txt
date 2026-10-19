@@ -1,0 +1,381 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using U64 = unsigned long long;
+
+static inline int popcount64(U64 x) {
+    return __builtin_popcountll(x);
+}
+
+struct MaxCliqueSolver {
+    int n, W;
+    U64 lastMask;
+    vector<vector<U64>> adj;
+    int best = 0;
+
+    MaxCliqueSolver(vector<vector<U64>> a, int initialBest = 0)
+        : n((int)a.size()), adj(std::move(a)), best(initialBest) {
+        W = (n + 63) >> 6;
+        int r = n & 63;
+        lastMask = r ? ((1ULL << r) - 1ULL) : ~0ULL;
+    }
+
+    inline bool testBit(const vector<U64>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline void clearBit(vector<U64>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    int countBits(const vector<U64>& b) const {
+        int s = 0;
+        for (U64 x : b) s += popcount64(x);
+        return s;
+    }
+
+    int firstBit(const vector<U64>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    bool emptyBits(const vector<U64>& b) const {
+        for (U64 x : b) if (x) return false;
+        return true;
+    }
+
+    void colorSort(const vector<U64>& P, vector<int>& order, vector<int>& colors) {
+        order.clear();
+        colors.clear();
+
+        vector<U64> U = P;
+        if (W) U[W - 1] &= lastMask;
+
+        int color = 0;
+        while (!emptyBits(U)) {
+            ++color;
+            vector<U64> Q = U;
+
+            while (!emptyBits(Q)) {
+                int v = firstBit(Q);
+                order.push_back(v);
+                colors.push_back(color);
+
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                const vector<U64>& av = adj[v];
+                for (int i = 0; i < W; ++i) Q[i] &= ~av[i];
+                if (W) Q[W - 1] &= lastMask;
+            }
+        }
+    }
+
+    void expand(vector<U64>& P, int sz) {
+        int pc = countBits(P);
+        if (sz + pc <= best) return;
+        if (pc == 0) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        vector<int> order, colors;
+        colorSort(P, order, colors);
+
+        for (int i = (int)order.size() - 1; i >= 0; --i) {
+            if (sz + colors[i] <= best) return;
+
+            int v = order[i];
+            if (!testBit(P, v)) continue;
+
+            vector<U64> NP(W);
+            const vector<U64>& av = adj[v];
+            for (int j = 0; j < W; ++j) NP[j] = P[j] & av[j];
+            if (W) NP[W - 1] &= lastMask;
+
+            if (sz + 1 + countBits(NP) > best) {
+                expand(NP, sz + 1);
+            } else if (sz + 1 > best) {
+                best = sz + 1;
+            }
+
+            clearBit(P, v);
+        }
+    }
+
+    int solve() {
+        if (n == 0) return best;
+        vector<U64> P(W, ~0ULL);
+        if (W) P[W - 1] = lastMask;
+        expand(P, 0);
+        return best;
+    }
+};
+
+static inline bool getBit(const vector<vector<U64>>& a, int i, int j) {
+    return (a[i][j >> 6] >> (j & 63)) & 1ULL;
+}
+
+static inline void clearBit2(vector<vector<U64>>& a, int i, int j) {
+    a[i][j >> 6] &= ~(1ULL << (j & 63));
+}
+
+int greedyMISCount(const vector<vector<int>>& compAdj, const vector<char>& active, const vector<int>& degStart) {
+    int n = (int)active.size();
+    vector<char> act = active;
+    vector<int> deg = degStart;
+    priority_queue<pair<int,int>, vector<pair<int,int>>, greater<pair<int,int>>> pq;
+
+    int rem = 0;
+    for (int i = 0; i < n; ++i) {
+        if (act[i]) {
+            ++rem;
+            pq.push({deg[i], i});
+        }
+    }
+
+    int ans = 0;
+
+    auto deactivate = [&](int x) {
+        if (!act[x]) return;
+        act[x] = 0;
+        --rem;
+        for (int y : compAdj[x]) {
+            if (act[y]) {
+                --deg[y];
+                pq.push({deg[y], y});
+            }
+        }
+    };
+
+    while (rem > 0) {
+        int v = -1;
+        while (!pq.empty()) {
+            auto [d, x] = pq.top();
+            pq.pop();
+            if (act[x] && deg[x] == d) {
+                v = x;
+                break;
+            }
+        }
+        if (v < 0) {
+            for (int i = 0; i < n; ++i) {
+                if (act[i]) {
+                    v = i;
+                    break;
+                }
+            }
+        }
+
+        ++ans;
+        vector<int> toRemove;
+        toRemove.push_back(v);
+        for (int y : compAdj[v]) if (act[y]) toRemove.push_back(y);
+        for (int x : toRemove) deactivate(x);
+    }
+
+    return ans;
+}
+
+int greedyCliqueBitset(const vector<vector<U64>>& adj) {
+    int n = (int)adj.size();
+    if (n == 0) return 0;
+    int W = (n + 63) >> 6;
+    int r = n & 63;
+    U64 lastMask = r ? ((1ULL << r) - 1ULL) : ~0ULL;
+
+    vector<U64> P(W, ~0ULL);
+    P[W - 1] = lastMask;
+
+    auto emptyBits = [&]() {
+        for (U64 x : P) if (x) return false;
+        return true;
+    };
+
+    auto test = [&](int v) {
+        return (P[v >> 6] >> (v & 63)) & 1ULL;
+    };
+
+    int cnt = 0;
+    while (!emptyBits()) {
+        int bestV = -1, bestD = -1;
+        for (int v = 0; v < n; ++v) {
+            if (!test(v)) continue;
+            int d = 0;
+            for (int k = 0; k < W; ++k) d += popcount64(P[k] & adj[v][k]);
+            if (d > bestD) {
+                bestD = d;
+                bestV = v;
+            }
+        }
+
+        if (bestV < 0) break;
+        ++cnt;
+        for (int k = 0; k < W; ++k) P[k] &= adj[bestV][k];
+        P[W - 1] &= lastMask;
+    }
+    return cnt;
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+    if (N <= 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    int Wold = (N + 63) >> 6;
+    int rOld = N & 63;
+    U64 oldLastMask = rOld ? ((1ULL << rOld) - 1ULL) : ~0ULL;
+
+    vector<vector<U64>> adjOld(N, vector<U64>(Wold, ~0ULL));
+    for (int i = 0; i < N; ++i) {
+        adjOld[i][Wold - 1] &= oldLastMask;
+        clearBit2(adjOld, i, i);
+    }
+
+    vector<vector<int>> compAdj(N);
+
+    char c;
+    long long need = 1LL * N * N;
+    long long got = 0;
+
+    while (got < need && cin.get(c)) {
+        if (c != '0' && c != '1') continue;
+
+        int i = (int)(got / N);
+        int j = (int)(got % N);
+
+        if (i != j && c == '0') {
+            clearBit2(adjOld, i, j);
+            if (i < j) {
+                compAdj[i].push_back(j);
+                compAdj[j].push_back(i);
+            }
+        } else if (i == j) {
+            clearBit2(adjOld, i, j);
+        }
+
+        ++got;
+    }
+
+    vector<char> active(N, 1);
+    vector<int> deg(N);
+    queue<int> q;
+
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)compAdj[i].size();
+        q.push(i);
+    }
+
+    int forced = 0;
+
+    auto deactivate = [&](int x) {
+        if (!active[x]) return;
+        active[x] = 0;
+        for (int y : compAdj[x]) {
+            if (active[y]) {
+                --deg[y];
+                q.push(y);
+            }
+        }
+    };
+
+    while (!q.empty()) {
+        int v = q.front();
+        q.pop();
+
+        if (!active[v]) continue;
+
+        if (deg[v] == 0) {
+            ++forced;
+            deactivate(v);
+        } else if (deg[v] == 1) {
+            int u = -1;
+            for (int x : compAdj[v]) {
+                if (active[x]) {
+                    u = x;
+                    break;
+                }
+            }
+            ++forced;
+            deactivate(v);
+            if (u != -1) deactivate(u);
+        } else if (deg[v] == 2) {
+            int a = -1, b = -1;
+            for (int x : compAdj[v]) {
+                if (active[x]) {
+                    if (a == -1) a = x;
+                    else {
+                        b = x;
+                        break;
+                    }
+                }
+            }
+            if (a != -1 && b != -1 && !getBit(adjOld, a, b)) {
+                ++forced;
+                deactivate(v);
+                deactivate(a);
+                deactivate(b);
+            }
+        }
+    }
+
+    int lowerRemaining = greedyMISCount(compAdj, active, deg);
+
+    vector<int> rem;
+    rem.reserve(N);
+    for (int i = 0; i < N; ++i) if (active[i]) rem.push_back(i);
+
+    int M = (int)rem.size();
+    if (M == 0) {
+        cout << forced << '\n';
+        return 0;
+    }
+
+    sort(rem.begin(), rem.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] < deg[b];
+        return a < b;
+    });
+
+    vector<int> idx(N, -1);
+    for (int i = 0; i < M; ++i) idx[rem[i]] = i;
+
+    int W = (M + 63) >> 6;
+    int r = M & 63;
+    U64 lastMask = r ? ((1ULL << r) - 1ULL) : ~0ULL;
+
+    vector<vector<U64>> adj(M, vector<U64>(W, ~0ULL));
+    for (int i = 0; i < M; ++i) {
+        adj[i][W - 1] &= lastMask;
+        adj[i][i >> 6] &= ~(1ULL << (i & 63));
+    }
+
+    for (int oldU : rem) {
+        int u = idx[oldU];
+        for (int oldV : compAdj[oldU]) {
+            int v = idx[oldV];
+            if (v >= 0) {
+                adj[u][v >> 6] &= ~(1ULL << (v & 63));
+            }
+        }
+    }
+
+    int initialLocal = max(lowerRemaining, greedyCliqueBitset(adj));
+    if (initialLocal >= M) {
+        cout << forced + M << '\n';
+        return 0;
+    }
+
+    MaxCliqueSolver solver(std::move(adj), initialLocal);
+    int localAns = solver.solve();
+
+    cout << forced + localAns << '\n';
+    return 0;
+}

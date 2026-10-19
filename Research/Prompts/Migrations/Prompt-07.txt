@@ -1,0 +1,14 @@
+Think of the structure as a growing family tree. Site 0 exists first. Then site 1 appears and points to one older site, site 2 appears and points to one older site, and so on until site 9999. If you ignore directions, these parent links form a tree. The distance between two sites is the number of links on the unique path between them. The receiver ultimately needs two sites that are as far apart as possible, called diameter endpoints.
+
+Now add the communication challenge. While the tree is being revealed, your sender function sees only one new parent at a time. At site i it is told Pi, where 0<=Pi<i. It may either stay silent by returning 0, or send one small integer by returning a value from 1 to 20000. It can remember what happened earlier in this same reveal run, but it may send at most 50 integers total.
+
+Later, in a completely separate run, all of that memory is gone. The receiver function gets only the array S of returned values: S[0]=0, and for i>=1, S[i] is what the sender returned at site i. Nonzero entries reveal both the sent value and the site that sent it. From only this array, the receiver must output any pair of sites whose tree distance is maximum.
+
+The parent sequence can be adversarial and adaptive: after seeing your earlier send or silence decisions, the grader may choose the next parent, as long as it remains older than the new vertex. Therefore the protocol must work for every possible valid tree and every adaptive reveal.
+
+Write the implementation in C++20 only. Your answer must contain source code only: no explanation, no Markdown, no code fences, no input/output code, and no main function. Define these two functions:
+int send_message(int N, int i, int Pi)
+std::pair<int,int> longest_path(std::vector<int> S)
+The parameter N is provided and is always 10000.
+
+A submission is invalid if it ever returns a nonzero value outside 1..20000, sends more than 50 messages, or returns a pair that is not a diameter. Let Z be the maximum sent integer and M the number of messages. Smaller is better. In an easier setting, vertex 0 is guaranteed to be in some diameter, and the score by Z is 30 for Z<=4, 23 for 5..101, 16 for 102..9997, and 10 for 9998..20000. In the general setting, if 5<=Z<=20000 the score is 35-25*log_{4000}(Z/5); if Z<=4, the score is 70 for M<=8, 70-30*log_4(M/8) for 9<=M<=31, and 40 for 32<=M<=50. Aim for a correct strategy with the smallest practical messages and message count.

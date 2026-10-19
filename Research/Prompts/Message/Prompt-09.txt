@@ -1,0 +1,12 @@
+Output only valid C++20 code; do not output markdown, code fences, or explanatory text.
+
+Model the solution internally as computational stages and decision rules, then implement those stages. The stages must handle this channel: a transmission consists of several 31-bit packets. A hidden but fixed set of 15 indices is adversarial; the other 16 indices are reliable. The sender is given the hidden set as mask C, where C[i]=true means adversarial and C[i]=false means reliable. The receiver does not know C. After each sent packet, the sender observes the exact tainted packet that the receiver will later see, so later decisions may depend on previous observations.
+
+Required code interface:
+void send_message(std::vector<bool> M, std::vector<bool> C);
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R);
+The grader supplies std::vector<bool> send_packet(std::vector<bool> A). A must be length 31; the returned B is length 31. For every reliable index, B[i]=A[i]; for every adversarial index, B[i] is arbitrary and may be chosen adaptively.
+
+Your computation flow should include: encoding a message M of length 1..1024, representing enough metadata for the receiver to know the length, selecting packets using knowledge of C and any feedback, respecting the 100-packet cap, and decoding from only R using rules valid for every possible 15-index adversarial set consistent with the observations. Do not rely on state shared between send_message and receive_message, because the two sides run separately and receive calls may be reordered.
+
+Correctness must hold for every valid C, every message, and every adaptive adversary. The objective is to minimize the worst-case number of packets Q; solutions with Q<=66 meet the strongest target.

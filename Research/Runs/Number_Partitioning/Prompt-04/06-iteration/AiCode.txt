@@ -1,0 +1,272 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <new>
+#include <numeric>
+#include <vector>
+#include <functional>
+
+using ull = unsigned long long;
+
+static ull total_sum_global;
+static ull target_global;
+static ull lower_bound_global;
+
+static inline ull diff_from_best(ull best) {
+    return total_sum_global - best - best;
+}
+
+static inline bool optimal_reached(ull best) {
+    return diff_from_best(best) == lower_bound_global;
+}
+
+static inline ull capped_add(ull a, ull b, ull cap) {
+    if (a >= cap) return cap;
+    if (b >= cap - a) return cap;
+    return a + b;
+}
+
+static std::vector<ull> generate_sums(const std::vector<ull>& v, std::size_t l, std::size_t r, ull target) {
+    std::vector<ull> sums;
+    std::size_t n = r - l;
+    if (n < 63) {
+        ull cap = 1ULL << n;
+        if (cap <= 20000000ULL) sums.reserve(static_cast<std::size_t>(cap));
+    }
+    sums.push_back(0);
+    for (std::size_t i = l; i < r; ++i) {
+        ull x = v[i];
+        std::size_t old = sums.size();
+        for (std::size_t j = 0; j < old; ++j) {
+            if (sums[j] <= target - x) sums.push_back(sums[j] + x);
+        }
+    }
+    return sums;
+}
+
+static ull solve_dp(const std::vector<ull>& vals, ull target) {
+    std::size_t words = static_cast<std::size_t>(target / 64 + 1);
+    std::vector<std::uint64_t> dp(words, 0);
+    dp[0] = 1ULL;
+
+    for (ull a : vals) {
+        if (a > target) continue;
+        std::size_t ws = static_cast<std::size_t>(a / 64);
+        unsigned bs = static_cast<unsigned>(a & 63ULL);
+        if (ws >= words) continue;
+
+        if (bs == 0) {
+            for (std::size_t i = words; i-- > ws;) {
+                dp[i] |= dp[i - ws];
+            }
+        } else {
+            for (std::size_t i = words; i-- > ws;) {
+                std::uint64_t v = dp[i - ws] << bs;
+                if (i > ws) v |= dp[i - ws - 1] >> (64 - bs);
+                dp[i] |= v;
+            }
+        }
+
+        unsigned used_last = static_cast<unsigned>((target & 63ULL) + 1);
+        if (used_last != 64) dp.back() &= ((1ULL << used_last) - 1ULL);
+    }
+
+    std::size_t idx = static_cast<std::size_t>(target / 64);
+    unsigned off = static_cast<unsigned>(target & 63ULL);
+    std::uint64_t mask = (off == 63) ? ~0ULL : ((1ULL << (off + 1)) - 1ULL);
+    std::uint64_t w = dp[idx] & mask;
+
+    for (;;) {
+        if (w) {
+            unsigned b = 63U - static_cast<unsigned>(std::countl_zero(w));
+            return static_cast<ull>(idx) * 64ULL + b;
+        }
+        if (idx == 0) break;
+        --idx;
+        w = dp[idx];
+    }
+    return 0;
+}
+
+static ull solve_mitm(std::vector<ull> vals, ull target, ull initial_best) {
+    std::sort(vals.begin(), vals.end(), std::greater<ull>());
+
+    std::size_t m = vals.size();
+    std::size_t n1 = m / 2;
+    if (n1 > 24) n1 = 24;
+    std::size_t n2 = m - n1;
+
+    std::vector<ull> a = generate_sums(vals, 0, n1, target);
+    std::sort(a.begin(), a.end());
+    a.erase(std::unique(a.begin(), a.end()), a.end());
+
+    ull best = initial_best;
+    ull amax = a.empty() ? 0 : a.back();
+
+    if (m <= 44 && n2 <= 24) {
+        std::vector<ull> b = generate_sums(vals, n1, m, target);
+        for (ull x : b) {
+            ull need = target - x;
+            auto it = std::upper_bound(a.begin(), a.end(), need);
+            if (it != a.begin()) {
+                --it;
+                ull cand = x + *it;
+                if (cand > best) {
+                    best = cand;
+                    if (optimal_reached(best)) return best;
+                }
+            }
+        }
+        return best;
+    }
+
+    std::vector<ull> rest(vals.begin() + static_cast<std::ptrdiff_t>(n1), vals.end());
+    std::vector<ull> suffix(rest.size() + 1, 0);
+    for (std::size_t i = rest.size(); i-- > 0;) {
+        suffix[i] = capped_add(suffix[i + 1], rest[i], target);
+    }
+
+    std::function<void(std::size_t, ull)> dfs = [&](std::size_t i, ull sum) {
+        if (optimal_reached(best)) return;
+
+        ull upper = capped_add(sum, amax, target);
+        upper = capped_add(upper, suffix[i], target);
+        if (upper <= best) return;
+
+        ull need = target - sum;
+        auto it = std::upper_bound(a.begin(), a.end(), need);
+        if (it != a.begin()) {
+            --it;
+            ull cand = sum + *it;
+            if (cand > best) {
+                best = cand;
+                if (optimal_reached(best)) return;
+            }
+        }
+
+        if (i == rest.size()) return;
+
+        ull x = rest[i];
+        if (x <= target - sum) dfs(i + 1, sum + x);
+        dfs(i + 1, sum);
+    };
+
+    dfs(0, 0);
+    return best;
+}
+
+static ull solve_dfs(std::vector<ull> vals, ull target, ull initial_best) {
+    std::sort(vals.begin(), vals.end(), std::greater<ull>());
+    std::size_t m = vals.size();
+
+    if (m > 2000) {
+        static volatile ull sink = 0;
+        for (;;) ++sink;
+    }
+
+    std::vector<ull> suffix(m + 1, 0);
+    for (std::size_t i = m; i-- > 0;) {
+        suffix[i] = capped_add(suffix[i + 1], vals[i], target);
+    }
+
+    ull best = initial_best;
+
+    std::function<void(std::size_t, ull)> dfs = [&](std::size_t i, ull sum) {
+        if (sum > best) {
+            best = sum;
+            if (optimal_reached(best)) return;
+        }
+        if (i == m || optimal_reached(best)) return;
+        if (capped_add(sum, suffix[i], target) <= best) return;
+
+        ull x = vals[i];
+        if (x <= target - sum) dfs(i + 1, sum + x);
+        dfs(i + 1, sum);
+    };
+
+    dfs(0, 0);
+    return best;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> all;
+    all.reserve(N > 0 ? static_cast<std::size_t>(N) : 0);
+
+    ull total = 0;
+    ull g = 0;
+
+    for (int i = 0; i < N; ++i) {
+        ull x;
+        std::cin >> x;
+        all.push_back(x);
+        total += x;
+        g = std::gcd(g, x);
+    }
+
+    total_sum_global = total;
+    target_global = total / 2;
+    target_global = target_global;
+
+    if (g == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    lower_bound_global = ((total / g) & 1ULL) ? g : 0ULL;
+
+    std::vector<ull> vals;
+    vals.reserve(all.size());
+    for (ull x : all) {
+        if (x <= target_global) vals.push_back(x);
+    }
+
+    ull greedy = 0;
+    {
+        std::vector<ull> tmp = vals;
+        std::sort(tmp.begin(), tmp.end(), std::greater<ull>());
+        for (ull x : tmp) {
+            if (x <= target_global - greedy) {
+                greedy += x;
+                if (optimal_reached(greedy)) {
+                    std::cout << diff_from_best(greedy) << '\n';
+                    return 0;
+                }
+            }
+        }
+    }
+
+    ull best = greedy;
+
+    ull words = target_global / 64 + 1;
+    long double ops = static_cast<long double>(words) * static_cast<long double>(vals.size());
+
+    if (words <= 8000000ULL && ops <= 900000000.0L) {
+        try {
+            best = solve_dp(vals, target_global);
+            std::cout << diff_from_best(best) << '\n';
+            return 0;
+        } catch (const std::bad_alloc&) {
+        }
+    }
+
+    if (vals.size() <= 52) {
+        try {
+            best = solve_mitm(vals, target_global, best);
+            std::cout << diff_from_best(best) << '\n';
+            return 0;
+        } catch (const std::bad_alloc&) {
+        }
+    }
+
+    best = solve_dfs(vals, target_global, best);
+    std::cout << diff_from_best(best) << '\n';
+    return 0;
+}

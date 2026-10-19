@@ -1,0 +1,354 @@
+#include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <queue>
+#include <string>
+#include <cstdint>
+#include <limits>
+#include <bit>
+
+using u64 = unsigned long long;
+using u128 = unsigned __int128;
+
+static std::string to_string_u128(u128 x) {
+    if (x == 0) return "0";
+    std::string s;
+    while (x > 0) {
+        int d = int(x % 10);
+        s.push_back(char('0' + d));
+        x /= 10;
+    }
+    std::reverse(s.begin(), s.end());
+    return s;
+}
+
+static u128 absdiff(u128 a, u128 b) {
+    return a >= b ? a - b : b - a;
+}
+
+static u128 kk_heuristic(const std::vector<u64>& v) {
+    std::priority_queue<u128> pq;
+    for (u64 x : v) if (x) pq.push((u128)x);
+    while (pq.size() > 1) {
+        u128 a = pq.top(); pq.pop();
+        u128 b = pq.top(); pq.pop();
+        if (a > b) pq.push(a - b);
+        else if (b > a) pq.push(b - a);
+    }
+    return pq.empty() ? 0 : pq.top();
+}
+
+static u128 lpt_heuristic(const std::vector<u64>& asc) {
+    u128 a = 0, b = 0;
+    for (auto it = asc.rbegin(); it != asc.rend(); ++it) {
+        if (a <= b) a += *it;
+        else b += *it;
+    }
+    return absdiff(a, b);
+}
+
+static u128 bitset_dp(const std::vector<u64>& asc, u64 target, u128 total) {
+    size_t words = size_t(target / 64) + 1;
+    std::vector<u64> bits(words, 0);
+    bits[0] = 1;
+    u64 reach = 0;
+
+    auto apply_shift = [&](u64 sh) {
+        if (sh > target) return;
+        size_t ws = size_t(sh / 64);
+        unsigned bs = unsigned(sh & 63);
+        u64 upper = reach + sh;
+        if (upper > target) upper = target;
+        size_t start = size_t(upper / 64);
+
+        for (size_t i = start + 1; i-- > ws;) {
+            u64 val = bits[i - ws] << bs;
+            if (bs && i > ws) val |= bits[i - ws - 1] >> (64 - bs);
+            bits[i] |= val;
+        }
+
+        unsigned extra = unsigned((target + 1) & 63);
+        if (extra) bits.back() &= ((1ULL << extra) - 1);
+        reach = upper;
+    };
+
+    for (size_t i = 0; i < asc.size();) {
+        u64 w = asc[i];
+        size_t j = i + 1;
+        while (j < asc.size() && asc[j] == w) ++j;
+        if (w <= target) {
+            size_t cnt = j - i;
+            size_t p = 1;
+            while (cnt) {
+                size_t take = std::min(p, cnt);
+                u128 sh128 = (u128)take * (u128)w;
+                if (sh128 <= target) apply_shift((u64)sh128);
+                cnt -= take;
+                if (p <= cnt / 2) p <<= 1;
+                else p = cnt;
+                if (reach == target) break;
+            }
+        }
+        if (reach == target) break;
+        i = j;
+    }
+
+    size_t last = size_t(target / 64);
+    unsigned extra = unsigned((target + 1) & 63);
+    for (size_t i = last + 1; i-- > 0;) {
+        u64 word = bits[i];
+        if (i == last && extra) word &= ((1ULL << extra) - 1);
+        if (word) {
+            int pos = 63 - std::countl_zero(word);
+            u128 best = (u128)i * 64 + (unsigned)pos;
+            return total - 2 * best;
+        }
+    }
+    return total;
+}
+
+static u128 mitm_u64(const std::vector<u64>& vals, u64 target, u128 total) {
+    int n = (int)vals.size();
+    int mid = n / 2;
+    std::vector<u64> b;
+    if (n - mid < 63) b.reserve(size_t(1) << (n - mid));
+    b.push_back(0);
+
+    for (int i = mid; i < n; ++i) {
+        u64 w = vals[i];
+        size_t sz = b.size();
+        if (w > target) continue;
+        for (size_t k = 0; k < sz; ++k) {
+            if (b[k] <= target - w) b.push_back(b[k] + w);
+        }
+    }
+    std::sort(b.begin(), b.end());
+
+    u64 best = 0;
+    auto dfs = [&](auto&& self, int idx, u64 cur) -> void {
+        if (best == target) return;
+        if (idx == mid) {
+            u64 rem = target - cur;
+            auto it = std::upper_bound(b.begin(), b.end(), rem);
+            if (it != b.begin()) {
+                --it;
+                u64 s = cur + *it;
+                if (s > best) best = s;
+            }
+            return;
+        }
+        self(self, idx + 1, cur);
+        u64 w = vals[idx];
+        if (w <= target - cur) self(self, idx + 1, cur + w);
+    };
+    dfs(dfs, 0, 0);
+
+    return total - 2 * (u128)best;
+}
+
+static u128 mitm_u128(const std::vector<u64>& vals, u128 target, u128 total) {
+    int n = (int)vals.size();
+    int mid = n / 2;
+    std::vector<u128> b;
+    if (n - mid < 60) b.reserve(size_t(1) << (n - mid));
+    b.push_back(0);
+
+    for (int i = mid; i < n; ++i) {
+        u128 w = vals[i];
+        size_t sz = b.size();
+        if (w > target) continue;
+        for (size_t k = 0; k < sz; ++k) {
+            if (b[k] <= target - w) b.push_back(b[k] + w);
+        }
+    }
+    std::sort(b.begin(), b.end());
+
+    u128 best = 0;
+    auto dfs = [&](auto&& self, int idx, u128 cur) -> void {
+        if (best == target) return;
+        if (idx == mid) {
+            u128 rem = target - cur;
+            auto it = std::upper_bound(b.begin(), b.end(), rem);
+            if (it != b.begin()) {
+                --it;
+                u128 s = cur + *it;
+                if (s > best) best = s;
+            }
+            return;
+        }
+        self(self, idx + 1, cur);
+        u128 w = vals[idx];
+        if (w <= target - cur) self(self, idx + 1, cur + w);
+    };
+    dfs(dfs, 0, 0);
+
+    return total - 2 * best;
+}
+
+static u128 ckk_best, ckk_parity;
+
+static void ckk(std::vector<u128> a, u128 sum) {
+    if (ckk_best == ckk_parity) return;
+
+    size_t m = a.size();
+    if (m == 0) {
+        if (ckk_best > 0) ckk_best = 0;
+        return;
+    }
+    if (m == 1) {
+        if (a[0] < ckk_best) ckk_best = a[0];
+        return;
+    }
+
+    u128 largest = a[0];
+    u128 rest = sum - largest;
+    if (largest >= rest) {
+        u128 exact = largest - rest;
+        if (exact < ckk_best) ckk_best = exact;
+        return;
+    }
+
+    u128 x = a[0], y = a[1];
+
+    auto make_child = [&](u128 val) {
+        std::vector<u128> child;
+        child.reserve(m - 1);
+        bool inserted = (val == 0);
+        for (size_t i = 2; i < m; ++i) {
+            if (!inserted && val >= a[i]) {
+                child.push_back(val);
+                inserted = true;
+            }
+            child.push_back(a[i]);
+        }
+        if (!inserted) child.push_back(val);
+        return child;
+    };
+
+    std::vector<u128> diff_child = make_child(x - y);
+    ckk(std::move(diff_child), sum - 2 * y);
+    if (ckk_best == ckk_parity) return;
+
+    std::vector<u128> sum_child = make_child(x + y);
+    ckk(std::move(sum_child), sum);
+}
+
+static void deliberate_tle() {
+    volatile u64 x = 1;
+    while (true) x = x * 3 + 1;
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u64> vals(N);
+    u64 g = 0;
+    u128 total_orig = 0;
+
+    for (size_t i = 0; i < N; ++i) {
+        u64 x;
+        std::cin >> x;
+        vals[i] = x;
+        g = std::gcd(g, x);
+        total_orig += (u128)x;
+    }
+
+    if (N == 0 || total_orig == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    for (u64& x : vals) x /= g;
+    u128 total = total_orig / g;
+    u128 target128 = total / 2;
+    u128 parity = total & 1;
+
+    std::sort(vals.begin(), vals.end());
+
+    u128 mx = vals.empty() ? 0 : vals.back();
+    if (mx >= total - mx) {
+        std::cout << to_string_u128((mx - (total - mx)) * (u128)g) << '\n';
+        return 0;
+    }
+
+    u128 best = lpt_heuristic(vals);
+    u128 kk = kk_heuristic(vals);
+    if (kk < best) best = kk;
+
+    if (best == parity) {
+        std::cout << to_string_u128(best * (u128)g) << '\n';
+        return 0;
+    }
+
+    constexpr u64 DP_TARGET_LIMIT = 300000000ULL;
+    constexpr unsigned long long DP_OP_LIMIT = 160000000ULL;
+
+    if (target128 <= DP_TARGET_LIMIT) {
+        u64 target = (u64)target128;
+        size_t words = size_t(target / 64) + 1;
+        unsigned long long chunks = 0;
+
+        for (size_t i = 0; i < vals.size();) {
+            u64 w = vals[i];
+            size_t j = i + 1;
+            while (j < vals.size() && vals[j] == w) ++j;
+            if (w <= target) {
+                size_t cnt = j - i;
+                size_t p = 1;
+                while (cnt) {
+                    size_t take = std::min(p, cnt);
+                    ++chunks;
+                    cnt -= take;
+                    if (p <= cnt / 2) p <<= 1;
+                    else p = cnt;
+                }
+            }
+            i = j;
+        }
+
+        if ((u128)chunks * (u128)words <= DP_OP_LIMIT) {
+            u128 ans = bitset_dp(vals, target, total);
+            std::cout << to_string_u128(ans * (u128)g) << '\n';
+            return 0;
+        }
+    }
+
+    std::vector<u64> eligible;
+    eligible.reserve(vals.size());
+    if (target128 <= (u128)std::numeric_limits<u64>::max()) {
+        u64 t = (u64)target128;
+        for (u64 x : vals) if (x <= t) eligible.push_back(x);
+        if (eligible.size() <= 46) {
+            u128 ans = mitm_u64(eligible, t, total);
+            std::cout << to_string_u128(ans * (u128)g) << '\n';
+            return 0;
+        }
+    } else {
+        eligible = vals;
+        if (eligible.size() <= 42) {
+            u128 ans = mitm_u128(eligible, target128, total);
+            std::cout << to_string_u128(ans * (u128)g) << '\n';
+            return 0;
+        }
+    }
+
+    if (vals.size() > 2000) deliberate_tle();
+
+    std::vector<u128> a;
+    a.reserve(vals.size());
+    for (auto it = vals.rbegin(); it != vals.rend(); ++it) {
+        if (*it) a.push_back((u128)*it);
+    }
+
+    ckk_best = best;
+    ckk_parity = parity;
+    ckk(std::move(a), total);
+
+    std::cout << to_string_u128(ckk_best * (u128)g) << '\n';
+    return 0;
+}

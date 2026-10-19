@@ -1,0 +1,122 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int C = 3;
+
+    int L = 0;
+    int len = N;
+    while (len > 2) {
+        len = (len - 2 + C - 1) / C;
+        ++L;
+    }
+
+    int states = 1 + C * L;
+    vector<vector<int>> s(states, vector<int>(N + 1, -1));
+
+    auto state_id = [&](int level, int block) {
+        return 1 + level * C + block;
+    };
+
+    vector<vector<int>> code(L + 1, vector<int>(N + 1, 0));
+
+    for (int v = 1; v <= N; ++v) {
+        int lo = 1, hi = N;
+
+        for (int level = 0; level <= L; ++level) {
+            int n = hi - lo + 1;
+
+            if (n <= 1) {
+                code[level][v] = 0;
+                continue;
+            }
+
+            if (n == 2) {
+                code[level][v] = (v == lo ? 0 : C + 1);
+                continue;
+            }
+
+            if (v == lo) {
+                code[level][v] = 0;
+                hi = lo;
+            } else if (v == hi) {
+                code[level][v] = C + 1;
+                lo = hi;
+            } else {
+                int m = n - 2;
+                int start = lo + 1;
+
+                for (int b = 0; b < C; ++b) {
+                    int sz = m / C + (b < m % C);
+                    int end = start + sz - 1;
+
+                    if (sz > 0 && start <= v && v <= end) {
+                        code[level][v] = b + 1;
+                        lo = start;
+                        hi = end;
+                        break;
+                    }
+
+                    start = end + 1;
+                }
+            }
+        }
+    }
+
+    auto current_smaller = [](int bag) {
+        return bag == 0 ? -1 : -2;
+    };
+
+    auto current_larger = [](int bag) {
+        return bag == 0 ? -2 : -1;
+    };
+
+    s[0][0] = 0;
+
+    for (int j = 1; j <= N; ++j) {
+        int c = code[0][j];
+
+        if (c == 0) {
+            s[0][j] = -1;
+        } else if (c == C + 1) {
+            s[0][j] = -2;
+        } else {
+            s[0][j] = state_id(0, c - 1);
+        }
+    }
+
+    for (int level = 0; level < L; ++level) {
+        int bag = (level % 2 == 0 ? 1 : 0);
+
+        for (int block = 0; block < C; ++block) {
+            int id = state_id(level, block);
+            int stored = block + 1;
+
+            s[id][0] = bag;
+
+            for (int j = 1; j <= N; ++j) {
+                int c = code[level][j];
+
+                if (c < stored) {
+                    s[id][j] = current_smaller(bag);
+                } else if (c > stored) {
+                    s[id][j] = current_larger(bag);
+                } else {
+                    int nc = code[level + 1][j];
+
+                    if (nc == 0) {
+                        s[id][j] = current_smaller(bag);
+                    } else if (nc == C + 1) {
+                        s[id][j] = current_larger(bag);
+                    } else if (level + 1 < L) {
+                        s[id][j] = state_id(level + 1, nc - 1);
+                    } else {
+                        s[id][j] = current_smaller(bag);
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

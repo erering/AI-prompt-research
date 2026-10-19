@@ -1,0 +1,293 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+class FastInput {
+    static constexpr size_t BUFSIZE = 1 << 20;
+    char buf[BUFSIZE];
+    size_t idx = 0, sz = 0;
+
+    inline char getChar() {
+        if (idx >= sz) {
+            sz = fread(buf, 1, BUFSIZE, stdin);
+            idx = 0;
+            if (sz == 0) return 0;
+        }
+        return buf[idx++];
+    }
+
+public:
+    int nextInt() {
+        char c;
+        do {
+            c = getChar();
+            if (!c) return 0;
+        } while (c <= ' ');
+        int x = 0;
+        while (c > ' ') {
+            x = x * 10 + (c - '0');
+            c = getChar();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do {
+            c = getChar();
+        } while (c != '0' && c != '1' && c);
+        return c == '1';
+    }
+};
+
+class MaxCliqueSolver {
+    int N, W;
+    vector<uint64_t> adj;
+    vector<uint64_t> nonadj;
+    vector<uint64_t> validMask;
+    int best = 0;
+
+    inline uint64_t* row(vector<uint64_t>& a, int v) {
+        return &a[(size_t)v * W];
+    }
+
+    inline const uint64_t* row(const vector<uint64_t>& a, int v) const {
+        return &a[(size_t)v * W];
+    }
+
+    inline void setBit(vector<uint64_t>& b, int v) {
+        b[v >> 6] |= 1ULL << (v & 63);
+    }
+
+    inline void resetBit(vector<uint64_t>& b, int v) {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline bool testBit(const vector<uint64_t>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    int popcountBits(const vector<uint64_t>& b) const {
+        int s = 0;
+        for (uint64_t x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    int firstBit(const vector<uint64_t>& b) const {
+        for (int i = 0; i < W; ++i) {
+            if (b[i]) return (i << 6) + __builtin_ctzll(b[i]);
+        }
+        return -1;
+    }
+
+    bool anyBit(const vector<uint64_t>& b) const {
+        for (uint64_t x : b) if (x) return true;
+        return false;
+    }
+
+    void intersectWithAdj(vector<uint64_t>& out, const vector<uint64_t>& in, int v) const {
+        const uint64_t* av = row(adj, v);
+        for (int i = 0; i < W; ++i) out[i] = in[i] & av[i];
+    }
+
+    int degreeInSet(int v, const vector<uint64_t>& p) const {
+        const uint64_t* av = row(adj, v);
+        int d = 0;
+        for (int i = 0; i < W; ++i) d += __builtin_popcountll(p[i] & av[i]);
+        return d;
+    }
+
+    int chooseMaxDegreeVertex(const vector<uint64_t>& p) const {
+        int bv = -1, bd = -1;
+        for (int wi = 0; wi < W; ++wi) {
+            uint64_t x = p[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                if (v < N) {
+                    int d = degreeInSet(v, p);
+                    if (d > bd) {
+                        bd = d;
+                        bv = v;
+                    }
+                }
+                x &= x - 1;
+            }
+        }
+        return bv;
+    }
+
+    int greedyClique(vector<uint64_t> p) const {
+        int res = 0;
+        vector<uint64_t> q(W);
+        while (anyBit(p)) {
+            int v = chooseMaxDegreeVertex(p);
+            if (v < 0) break;
+            ++res;
+            intersectWithAdj(q, p, v);
+            p.swap(q);
+        }
+        return res;
+    }
+
+    void initialHeuristic() {
+        vector<uint64_t> all(W, ~0ULL);
+        if (N & 63) all[W - 1] = (1ULL << (N & 63)) - 1ULL;
+
+        best = max(best, greedyClique(all));
+
+        int tries = min(N, N <= 1000 ? 48 : 16);
+        vector<uint64_t> p(W);
+        for (int v = 0; v < tries; ++v) {
+            intersectWithAdj(p, all, v);
+            best = max(best, 1 + greedyClique(p));
+            if (best == N) return;
+        }
+    }
+
+    void colorSort(const vector<uint64_t>& p, vector<int>& verts, vector<int>& colors) const {
+        verts.clear();
+        colors.clear();
+
+        vector<uint64_t> u = p;
+        vector<uint64_t> avail(W);
+        int color = 0;
+
+        while (anyBit(u)) {
+            ++color;
+            avail = u;
+
+            while (anyBit(avail)) {
+                int v = firstBit(avail);
+                verts.push_back(v);
+                colors.push_back(color);
+
+                resetBit(u, v);
+                resetBit(avail, v);
+
+                const uint64_t* nv = row(nonadj, v);
+                for (int i = 0; i < W; ++i) avail[i] &= nv[i];
+            }
+        }
+    }
+
+    void expand(int szClique, vector<uint64_t>& p) {
+        int pCount = popcountBits(p);
+        if (szClique + pCount <= best) return;
+
+        vector<int> verts, colors;
+        colorSort(p, verts, colors);
+
+        for (int i = (int)verts.size() - 1; i >= 0; --i) {
+            if (szClique + colors[i] <= best) return;
+
+            int v = verts[i];
+            if (!testBit(p, v)) continue;
+
+            vector<uint64_t> q(W);
+            int qCount = 0;
+            const uint64_t* av = row(adj, v);
+
+            for (int j = 0; j < W; ++j) {
+                q[j] = p[j] & av[j];
+                qCount += __builtin_popcountll(q[j]);
+            }
+
+            if (qCount == 0) {
+                if (szClique + 1 > best) best = szClique + 1;
+            } else if (szClique + 1 + qCount > best) {
+                expand(szClique + 1, q);
+            }
+
+            resetBit(p, v);
+        }
+    }
+
+public:
+    MaxCliqueSolver(int n, vector<uint64_t>&& a) : N(n), W((n + 63) >> 6), adj(move(a)) {
+        validMask.assign(W, ~0ULL);
+        if (N & 63) validMask[W - 1] = (1ULL << (N & 63)) - 1ULL;
+
+        nonadj.assign((size_t)N * W, 0);
+
+        for (int v = 0; v < N; ++v) {
+            uint64_t* nr = row(nonadj, v);
+            const uint64_t* ar = row(adj, v);
+            for (int i = 0; i < W; ++i) nr[i] = (~ar[i]) & validMask[i];
+            nr[v >> 6] &= ~(1ULL << (v & 63));
+        }
+    }
+
+    int solve() {
+        if (N == 0) return 0;
+        if (N == 1) return 1;
+
+        initialHeuristic();
+
+        vector<uint64_t> all(W, ~0ULL);
+        if (N & 63) all[W - 1] = (1ULL << (N & 63)) - 1ULL;
+
+        expand(0, all);
+        return best;
+    }
+};
+
+int main() {
+    FastInput in;
+    int N = in.nextInt();
+
+    if (N <= 0) {
+        printf("0\n");
+        return 0;
+    }
+
+    int W = (N + 63) >> 6;
+    vector<uint64_t> oldAdj((size_t)N * W, 0);
+    vector<int> deg(N, 0);
+
+    for (int i = 0; i < N; ++i) {
+        uint64_t* r = &oldAdj[(size_t)i * W];
+        for (int j = 0; j < N; ++j) {
+            int bit = in.nextBit();
+            if (bit && i != j) {
+                r[j >> 6] |= 1ULL << (j & 63);
+                ++deg[i];
+            }
+        }
+    }
+
+    vector<int> perm(N), newId(N);
+    iota(perm.begin(), perm.end(), 0);
+
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    for (int i = 0; i < N; ++i) newId[perm[i]] = i;
+
+    vector<uint64_t> adj((size_t)N * W, 0);
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = perm[ni];
+        uint64_t* nr = &adj[(size_t)ni * W];
+        const uint64_t* orow = &oldAdj[(size_t)oi * W];
+
+        for (int wi = 0; wi < W; ++wi) {
+            uint64_t x = orow[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (wi << 6) + b;
+                if (oj < N && oj != oi) {
+                    int nj = newId[oj];
+                    nr[nj >> 6] |= 1ULL << (nj & 63);
+                }
+                x &= x - 1;
+            }
+        }
+        nr[ni >> 6] &= ~(1ULL << (ni & 63));
+    }
+
+    MaxCliqueSolver solver(N, move(adj));
+    printf("%d\n", solver.solve());
+    return 0;
+}

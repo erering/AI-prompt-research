@@ -1,0 +1,103 @@
+#include <vector>
+#include <utility>
+#include <array>
+#include <algorithm>
+
+namespace {
+    constexpr int LOG = 20;
+
+    int curN = 0;
+    std::vector<int> depth_;
+    std::vector<std::array<int, LOG>> up_;
+    int diaA = 0, diaB = 0, diaD = 0;
+    int snapA = 0, snapB = 0;
+
+    int lca_(int a, int b) {
+        if (depth_[a] < depth_[b]) std::swap(a, b);
+        int diff = depth_[a] - depth_[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up_[a][k];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up_[a][k] != up_[b][k]) {
+                a = up_[a][k];
+                b = up_[b][k];
+            }
+        }
+        return up_[a][0];
+    }
+
+    int dist_(int a, int b) {
+        int c = lca_(a, b);
+        return depth_[a] + depth_[b] - 2 * depth_[c];
+    }
+
+    void reset_(int N) {
+        curN = N;
+        depth_.assign(N, 0);
+        up_.assign(N, {});
+        for (int k = 0; k < LOG; ++k) up_[0][k] = 0;
+        diaA = diaB = diaD = 0;
+        snapA = snapB = 0;
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || curN != N) reset_(N);
+
+    up_[i][0] = Pi;
+    depth_[i] = depth_[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) up_[i][k] = up_[up_[i][k - 1]][k - 1];
+
+    int oldA = diaA, oldB = diaB, oldD = diaD;
+    int dA = dist_(i, oldA);
+    int dB = dist_(i, oldB);
+
+    bool changed = false;
+    int retained = oldA;
+
+    if (std::max(dA, dB) > oldD) {
+        changed = true;
+        if (dA >= dB) {
+            retained = oldA;
+            diaA = i;
+            diaB = oldA;
+            diaD = dA;
+        } else {
+            retained = oldB;
+            diaA = i;
+            diaB = oldB;
+            diaD = dB;
+        }
+    }
+
+    if (N <= 2) return 0;
+
+    if (i == N - 2) {
+        snapA = diaA;
+        snapB = diaB;
+        return snapA + 1;
+    }
+
+    if (i == N - 1) {
+        if (changed) return 2 * retained + 2;
+        return 2 * snapB + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+    if (N == 2) return {0, 1};
+
+    int a = S[N - 2] - 1;
+    int x = S[N - 1] - 1;
+    int id = x / 2;
+    int flag = x & 1;
+
+    if (flag) return {N - 1, id};
+    return {a, id};
+}

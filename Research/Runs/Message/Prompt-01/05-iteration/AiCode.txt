@@ -1,0 +1,116 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static unsigned long long COMB[32][32];
+static bool COMB_INIT = false;
+
+static void init_comb() {
+    if (COMB_INIT) return;
+    COMB_INIT = true;
+    for (int n = 0; n <= 31; ++n) {
+        COMB[n][0] = COMB[n][n] = 1;
+        for (int k = 1; k < n; ++k) COMB[n][k] = COMB[n - 1][k - 1] + COMB[n - 1][k];
+    }
+}
+
+static unsigned long long rank_subset_16(const vector<int>& s) {
+    init_comb();
+    unsigned long long r = 0;
+    int prev = -1;
+    for (int i = 0; i < 16; ++i) {
+        for (int v = prev + 1; v < s[i]; ++v) {
+            r += COMB[31 - 1 - v][16 - 1 - i];
+        }
+        prev = s[i];
+    }
+    return r;
+}
+
+static vector<int> unrank_subset_16(unsigned long long r) {
+    init_comb();
+    vector<int> s;
+    int prev = -1;
+    for (int i = 0; i < 16; ++i) {
+        for (int v = prev + 1; v < 31; ++v) {
+            unsigned long long cnt = COMB[31 - 1 - v][16 - 1 - i];
+            if (r >= cnt) {
+                r -= cnt;
+            } else {
+                s.push_back(v);
+                prev = v;
+                break;
+            }
+        }
+    }
+    return s;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    vector<int> P;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) P.push_back(i);
+    }
+
+    unsigned long long rank = rank_subset_16(P);
+
+    for (int b = 0; b < 29; ++b) {
+        vector<bool> A(31, false);
+        bool bit = (rank >> b) & 1ULL;
+        for (int idx : P) A[idx] = bit;
+        send_packet(A);
+    }
+
+    int S = (int)M.size();
+    vector<bool> payload;
+    int mod = S & 15;
+    for (int b = 0; b < 4; ++b) payload.push_back((mod >> b) & 1);
+    for (bool x : M) payload.push_back(x);
+
+    int N = (int)(payload.size() + 15) / 16;
+    payload.resize(N * 16, false);
+
+    int ptr = 0;
+    for (int t = 0; t < N; ++t) {
+        vector<bool> A(31, false);
+        for (int j = 0; j < 16; ++j) {
+            A[P[j]] = payload[ptr++];
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    unsigned long long rank = 0;
+    for (int b = 0; b < 29; ++b) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) if (R[b][i]) ++ones;
+        if (ones >= 16) rank |= (1ULL << b);
+    }
+
+    vector<int> P = unrank_subset_16(rank);
+
+    vector<bool> payload;
+    for (int t = 29; t < (int)R.size(); ++t) {
+        for (int j = 0; j < 16; ++j) {
+            payload.push_back(R[t][P[j]]);
+        }
+    }
+
+    int mod = 0;
+    for (int b = 0; b < 4; ++b) {
+        if (payload[b]) mod |= (1 << b);
+    }
+
+    int N = (int)R.size() - 29;
+    int S;
+    if (mod <= 12) S = 16 * (N - 1) + mod;
+    else S = 16 * (N - 2) + mod;
+
+    vector<bool> M;
+    for (int i = 0; i < S; ++i) {
+        M.push_back(payload[4 + i]);
+    }
+    return M;
+}

@@ -1,0 +1,117 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    const int MAXN = 10005;
+    const int LOG = 15;
+
+    int up[LOG][MAXN];
+    int depth_arr[MAXN];
+    int diamU = 0, diamV = 0, diamD = 0;
+    int firstMsg = 9950;
+
+    int lca_node(int a, int b) {
+        if (depth_arr[a] < depth_arr[b]) swap(a, b);
+        int diff = depth_arr[a] - depth_arr[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up[k][a];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up[k][a] != up[k][b]) {
+                a = up[k][a];
+                b = up[k][b];
+            }
+        }
+        return up[0][a];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return depth_arr[a] + depth_arr[b] - 2 * depth_arr[c];
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1) {
+        firstMsg = max(1, N - 50);
+        diamU = diamV = diamD = 0;
+        depth_arr[0] = 0;
+        for (int k = 0; k < LOG; ++k) up[k][0] = 0;
+    }
+
+    up[0][i] = Pi;
+    depth_arr[i] = depth_arr[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up[k][i] = up[k - 1][up[k - 1][i]];
+    }
+
+    int oldU = diamU, oldV = diamV, oldD = diamD;
+
+    int du = dist_node(i, oldU);
+    int dv = dist_node(i, oldV);
+
+    if (du > diamD) {
+        diamU = i;
+        diamV = oldU;
+        diamD = du;
+    } else if (dv > diamD) {
+        diamU = i;
+        diamV = oldV;
+        diamD = dv;
+    }
+
+    if (i < firstMsg) return 0;
+
+    if (i == firstMsg) {
+        return diamU + 1;
+    }
+
+    bool changed = !(diamU == oldU && diamV == oldV);
+
+    if (i == firstMsg + 1) {
+        if (!changed) return oldV + 1;
+        int other = (diamU == i ? diamV : diamU);
+        return 10001 + other;
+    }
+
+    if (!changed) return 20000;
+
+    int other = (diamU == i ? diamV : diamU);
+    return other + 1;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+
+    int first = -1;
+    for (int i = 1; i < N; ++i) {
+        if (S[i] != 0) {
+            first = i;
+            break;
+        }
+    }
+
+    if (first == -1) return {0, 0};
+
+    int u = S[first] - 1;
+    int v = u;
+
+    if (first + 1 < N && S[first + 1] != 0) {
+        int x = S[first + 1];
+        if (x <= 10000) {
+            v = x - 1;
+        } else {
+            u = first + 1;
+            v = x - 10001;
+        }
+    }
+
+    for (int i = first + 2; i < N; ++i) {
+        if (S[i] == 0 || S[i] == 20000) continue;
+        u = i;
+        v = S[i] - 1;
+    }
+
+    return {u, v};
+}

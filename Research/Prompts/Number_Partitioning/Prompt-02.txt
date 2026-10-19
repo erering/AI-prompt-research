@@ -1,0 +1,7 @@
+Write a complete C++20 program using only the standard library.
+1. Problem: You are given N positive integers. Assign each integer to exactly one of two groups. Minimize the absolute difference between the two group sums.
+2. Input: The first line contains integer N. Each of the next N lines contains one positive integer Ai.
+3. Output: Print one line containing the minimum possible absolute difference.
+4. Example: input lines are 4, 1, 5, 7, 9; the correct output is 0.
+5. Evaluation: Time limit is 1 second. Test cases are ordered by increasing N and run sequentially. If a Time Limit Exceeded occurs, evaluation stops and credit is based on the largest N solved before it. If a Wrong Answer or Run-Time Error occurs, evaluation stops and total credit is zero.
+6. Requirements: the answer must be exact for every completed run, must compile under standard C++20, and must output only valid C++20 code with no explanation or code fences.

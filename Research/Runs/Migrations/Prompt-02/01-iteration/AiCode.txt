@@ -1,0 +1,123 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+static const int MAXN = 10005;
+static const int LOG = 20;
+
+static int senderN = -1;
+static int upTbl[MAXN][LOG];
+static int dep[MAXN];
+
+static int diamA = 0, diamB = 0, diamLen = 0;
+static int initA = 0, initB = 0;
+static int updLast[3] = {0, 0, 0};
+
+static void reset_sender(int N) {
+    senderN = N;
+    for (int k = 0; k < LOG; ++k) upTbl[0][k] = 0;
+    dep[0] = 0;
+    diamA = diamB = 0;
+    diamLen = 0;
+    initA = initB = 0;
+    updLast[0] = updLast[1] = updLast[2] = 0;
+}
+
+static int lca_node(int a, int b) {
+    if (dep[a] < dep[b]) swap(a, b);
+    int diff = dep[a] - dep[b];
+    for (int k = 0; k < LOG; ++k) {
+        if (diff & (1 << k)) a = upTbl[a][k];
+    }
+    if (a == b) return a;
+    for (int k = LOG - 1; k >= 0; --k) {
+        if (upTbl[a][k] != upTbl[b][k]) {
+            a = upTbl[a][k];
+            b = upTbl[b][k];
+        }
+    }
+    return upTbl[a][0];
+}
+
+static int tree_dist(int a, int b) {
+    int c = lca_node(a, b);
+    return dep[a] + dep[b] - 2 * dep[c];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || senderN != N) reset_sender(N);
+
+    upTbl[i][0] = Pi;
+    for (int k = 1; k < LOG; ++k) {
+        upTbl[i][k] = upTbl[upTbl[i][k - 1]][k - 1];
+    }
+    dep[i] = dep[Pi] + 1;
+
+    int oldA = diamA, oldB = diamB, oldD = diamLen;
+    int da = tree_dist(i, oldA);
+    int db = tree_dist(i, oldB);
+
+    int upd = 0;
+    if (da > oldD || db > oldD) {
+        if (da >= db) {
+            upd = 1;
+            diamA = i;
+            diamB = oldA;
+            diamLen = da;
+        } else {
+            upd = 2;
+            diamA = i;
+            diamB = oldB;
+            diamLen = db;
+        }
+    }
+
+    int checkpoint = N - 4;
+
+    if (i == checkpoint) {
+        initA = diamA;
+        initB = diamB;
+        return initA + 1;
+    }
+
+    if (i > checkpoint) {
+        int idx = i - (checkpoint + 1);
+        if (0 <= idx && idx < 3) updLast[idx] = upd;
+    }
+
+    if (i == checkpoint + 1) {
+        return initB + 1;
+    }
+
+    if (i == N - 1) {
+        int code = updLast[0] + 3 * updLast[1] + 9 * updLast[2];
+        return code + 1;
+    }
+
+    return 0;
+}
+
+pair<int, int> longest_path(vector<int> S) {
+    int N = (int)S.size();
+    if (N < 5) return {0, max(0, N - 1)};
+
+    int checkpoint = N - 4;
+    int a = S[checkpoint] - 1;
+    int b = S[checkpoint + 1] - 1;
+    int code = S[N - 1] - 1;
+
+    for (int k = 0; k < 3; ++k) {
+        int t = code % 3;
+        code /= 3;
+        int x = checkpoint + 1 + k;
+
+        if (t == 1) {
+            int oldA = a;
+            a = x;
+            b = oldA;
+        } else if (t == 2) {
+            a = x;
+        }
+    }
+
+    return {a, b};
+}

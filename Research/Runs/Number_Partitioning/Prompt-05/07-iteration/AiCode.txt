@@ -1,0 +1,322 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <vector>
+
+using ull = unsigned long long;
+
+void print_product(ull a, ull b) {
+    if (a == 0 || b == 0) {
+        std::cout << 0 << '\n';
+        return;
+    }
+
+    const ull BASE = 1000000000ULL;
+    std::vector<ull> A, B;
+
+    while (a > 0) {
+        A.push_back(a % BASE);
+        a /= BASE;
+    }
+    while (b > 0) {
+        B.push_back(b % BASE);
+        b /= BASE;
+    }
+
+    std::vector<ull> C(A.size() + B.size() + 2, 0);
+    for (std::size_t i = 0; i < A.size(); ++i) {
+        for (std::size_t j = 0; j < B.size(); ++j) {
+            C[i + j] += A[i] * B[j];
+        }
+    }
+
+    for (std::size_t i = 0; i + 1 < C.size(); ++i) {
+        C[i + 1] += C[i] / BASE;
+        C[i] %= BASE;
+    }
+
+    while (C.size() > 1 && C.back() == 0) C.pop_back();
+
+    std::cout << C.back();
+    for (std::size_t i = C.size() - 1; i-- > 0;) {
+        std::cout << std::setw(9) << std::setfill('0') << C[i];
+    }
+    std::cout << '\n';
+}
+
+ull greedy_diff(const std::vector<ull>& a) {
+    ull s1 = 0, s2 = 0;
+    for (ull x : a) {
+        if (s1 <= s2) s1 += x;
+        else s2 += x;
+    }
+    return s1 >= s2 ? s1 - s2 : s2 - s1;
+}
+
+ull kk_diff(const std::vector<ull>& a) {
+    std::priority_queue<ull> pq;
+    for (ull x : a) {
+        if (x) pq.push(x);
+    }
+
+    while (pq.size() > 1) {
+        ull x = pq.top(); pq.pop();
+        ull y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+        else if (y > x) pq.push(y - x);
+    }
+
+    return pq.empty() ? 0ULL : pq.top();
+}
+
+ull solve_dp(const std::vector<ull>& a, ull sum) {
+    ull target = sum / 2;
+    std::size_t words = static_cast<std::size_t>(target / 64 + 1);
+    std::vector<ull> bits(words, 0);
+    bits[0] = 1;
+
+    ull reachable = 0;
+
+    for (ull x : a) {
+        if (x > target) continue;
+
+        ull old_reachable = reachable;
+        reachable = std::min(target, reachable + x);
+
+        std::size_t word_shift = static_cast<std::size_t>(x / 64);
+        unsigned bit_shift = static_cast<unsigned>(x & 63ULL);
+
+        std::size_t old_max_word = static_cast<std::size_t>(old_reachable / 64);
+        std::size_t new_max_word = static_cast<std::size_t>(reachable / 64);
+        std::size_t upper = std::min(new_max_word, old_max_word + word_shift + (bit_shift ? 1 : 0));
+
+        if (word_shift >= words) continue;
+
+        for (std::size_t i = upper + 1; i-- > word_shift;) {
+            ull v = bits[i - word_shift] << bit_shift;
+            if (bit_shift && i > word_shift) {
+                v |= bits[i - word_shift - 1] >> (64 - bit_shift);
+            }
+            bits[i] |= v;
+        }
+    }
+
+    std::size_t last = static_cast<std::size_t>(target / 64);
+    unsigned rem = static_cast<unsigned>(target & 63ULL);
+
+    for (std::size_t i = last + 1; i-- > 0;) {
+        ull w = bits[i];
+        if (i == last && rem != 63) {
+            w &= ((1ULL << (rem + 1)) - 1ULL);
+        }
+
+        if (w != 0) {
+            unsigned pos = std::bit_width(w) - 1;
+            ull best = static_cast<ull>(i) * 64ULL + pos;
+            return sum - 2ULL * best;
+        }
+    }
+
+    return sum;
+}
+
+std::vector<ull> subset_sums_limited(const std::vector<ull>& a, std::size_t l, std::size_t r, ull target) {
+    std::vector<ull> sums;
+    sums.reserve(1ULL << (r - l));
+    sums.push_back(0);
+
+    for (std::size_t i = l; i < r; ++i) {
+        ull x = a[i];
+        std::size_t sz = sums.size();
+        for (std::size_t j = 0; j < sz; ++j) {
+            if (sums[j] <= target && x <= target - sums[j]) {
+                sums.push_back(sums[j] + x);
+            }
+        }
+    }
+
+    return sums;
+}
+
+ull solve_mitm(const std::vector<ull>& a, ull sum) {
+    ull target = sum / 2;
+    std::size_t n = a.size();
+    std::size_t mid = n / 2;
+
+    std::vector<ull> left = subset_sums_limited(a, 0, mid, target);
+    std::vector<ull> right = subset_sums_limited(a, mid, n, target);
+
+    std::sort(right.begin(), right.end());
+
+    ull best = 0;
+    for (ull x : left) {
+        if (x > target) continue;
+        ull need = target - x;
+        auto it = std::upper_bound(right.begin(), right.end(), need);
+        if (it != right.begin()) {
+            --it;
+            ull cur = x + *it;
+            if (cur > best) {
+                best = cur;
+                if (best == target) break;
+            }
+        }
+    }
+
+    return sum - 2ULL * best;
+}
+
+struct CKK {
+    ull best;
+    ull parity;
+
+    std::vector<ull> make_child(const std::vector<ull>& v, ull x) {
+        std::vector<ull> child;
+        child.reserve(v.size());
+
+        if (x == 0) {
+            for (std::size_t i = 2; i < v.size(); ++i) child.push_back(v[i]);
+            return child;
+        }
+
+        bool inserted = false;
+        for (std::size_t i = 2; i < v.size(); ++i) {
+            if (!inserted && x >= v[i]) {
+                child.push_back(x);
+                inserted = true;
+            }
+            child.push_back(v[i]);
+        }
+        if (!inserted) child.push_back(x);
+
+        return child;
+    }
+
+    void search(const std::vector<ull>& v, ull sum) {
+        if (best == parity) return;
+
+        std::size_t n = v.size();
+
+        if (n == 0) {
+            best = 0;
+            return;
+        }
+
+        if (n == 1) {
+            if (v[0] < best) best = v[0];
+            return;
+        }
+
+        ull rest = sum - v[0];
+        ull lb = v[0] > rest ? v[0] - rest : 0ULL;
+        if (lb < parity) lb = parity;
+        if (lb >= best) return;
+
+        if (n == 2) {
+            ull d = v[0] - v[1];
+            if (d < best) best = d;
+            return;
+        }
+
+        ull a = v[0];
+        ull b = v[1];
+
+        ull diff = a - b;
+        std::vector<ull> c1 = make_child(v, diff);
+        search(c1, sum - 2ULL * b);
+
+        if (best == parity) return;
+
+        ull sum_ab = a + b;
+        std::vector<ull> c2 = make_child(v, sum_ab);
+        search(c2, sum);
+    }
+};
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    std::size_t N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<ull> a;
+    a.reserve(N);
+
+    ull g = 0;
+    for (std::size_t i = 0; i < N; ++i) {
+        ull x;
+        std::cin >> x;
+        a.push_back(x);
+        g = std::gcd(g, x);
+    }
+
+    if (N == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    if (g == 0) g = 1;
+
+    ull sum = 0;
+    for (ull& x : a) {
+        x /= g;
+        sum += x;
+    }
+
+    a.erase(std::remove(a.begin(), a.end(), 0ULL), a.end());
+
+    if (a.empty()) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<ull>());
+
+    if (a.size() == 1) {
+        print_product(a[0], g);
+        return 0;
+    }
+
+    if (a[0] >= sum - a[0]) {
+        print_product(a[0] - (sum - a[0]), g);
+        return 0;
+    }
+
+    ull parity = sum & 1ULL;
+    ull best = std::min(greedy_diff(a), kk_diff(a));
+
+    if (best == parity) {
+        print_product(best, g);
+        return 0;
+    }
+
+    ull target = sum / 2;
+    long double words = static_cast<long double>(target / 64 + 1);
+    long double estimate = words * static_cast<long double>(a.size());
+
+    if (target <= 250000000ULL && estimate <= 120000000.0L) {
+        ull ans = solve_dp(a, sum);
+        print_product(ans, g);
+        return 0;
+    }
+
+    if (a.size() <= 46) {
+        ull ans = solve_mitm(a, sum);
+        print_product(ans, g);
+        return 0;
+    }
+
+    CKK solver;
+    solver.best = best;
+    solver.parity = parity;
+    solver.search(a, sum);
+
+    print_product(solver.best, g);
+    return 0;
+}

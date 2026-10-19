@@ -1,0 +1,308 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+struct MaxCliqueSolver {
+    int n, W;
+    ull lastMask;
+    vector<vector<ull>> adj;
+    int best = 0;
+    mt19937 rng{712367821};
+
+    MaxCliqueSolver(int n_, vector<vector<ull>> adj_) : n(n_), adj(std::move(adj_)) {
+        W = (n + 63) >> 6;
+        int rem = n & 63;
+        lastMask = rem ? ((1ULL << rem) - 1ULL) : ~0ULL;
+    }
+
+    inline bool anyBits(const vector<ull>& b) const {
+        for (ull x : b) if (x) return true;
+        return false;
+    }
+
+    inline int popcountBits(const vector<ull>& b) const {
+        int s = 0;
+        for (ull x : b) s += __builtin_popcountll(x);
+        return s;
+    }
+
+    inline int popcountIntersection(const vector<ull>& a, const vector<ull>& b) const {
+        int s = 0;
+        for (int i = 0; i < W; ++i) s += __builtin_popcountll(a[i] & b[i]);
+        return s;
+    }
+
+    inline void clearBit(vector<ull>& b, int v) const {
+        b[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline bool testBit(const vector<ull>& b, int v) const {
+        return (b[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    int greedyClique(int iter) {
+        vector<ull> P(W, ~0ULL);
+        if (W) P[W - 1] = lastMask;
+        int sz = 0;
+
+        while (anyBits(P)) {
+            int chosen = -1;
+            long long bestScore = LLONG_MIN;
+
+            for (int w = 0; w < W; ++w) {
+                ull x = P[w];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (w << 6) + b;
+                    if (v >= n) break;
+
+                    int c = popcountIntersection(P, adj[v]);
+                    long long score;
+                    if (iter == 0) {
+                        score = 1000000LL * c - v;
+                    } else {
+                        score = 1000000LL * c + (long long)(rng() % 6000000U);
+                    }
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        chosen = v;
+                    }
+
+                    x &= x - 1;
+                }
+            }
+
+            if (chosen < 0) break;
+            ++sz;
+            for (int i = 0; i < W; ++i) P[i] &= adj[chosen][i];
+        }
+
+        return sz;
+    }
+
+    void colorSort(const vector<ull>& P, vector<int>& verts, vector<int>& colors) {
+        verts.clear();
+        colors.clear();
+
+        vector<ull> U = P;
+        vector<ull> Q(W);
+        int color = 0;
+
+        while (anyBits(U)) {
+            ++color;
+            Q = U;
+
+            while (anyBits(Q)) {
+                int v = -1;
+                for (int w = 0; w < W; ++w) {
+                    if (Q[w]) {
+                        v = (w << 6) + __builtin_ctzll(Q[w]);
+                        break;
+                    }
+                }
+
+                verts.push_back(v);
+                colors.push_back(color);
+
+                clearBit(U, v);
+                clearBit(Q, v);
+
+                for (int i = 0; i < W; ++i) Q[i] &= ~adj[v][i];
+                if (W) Q[W - 1] &= lastMask;
+            }
+        }
+    }
+
+    void expand(vector<ull> P, int sz) {
+        int pc = popcountBits(P);
+        if (sz + pc <= best) return;
+        if (pc == 0) {
+            if (sz > best) best = sz;
+            return;
+        }
+
+        vector<int> verts, colors;
+        colorSort(P, verts, colors);
+
+        for (int i = (int)verts.size() - 1; i >= 0; --i) {
+            if (sz + colors[i] <= best) return;
+
+            int v = verts[i];
+            if (!testBit(P, v)) continue;
+
+            vector<ull> child(W);
+            for (int j = 0; j < W; ++j) child[j] = P[j] & adj[v][j];
+
+            if (anyBits(child)) {
+                if (sz + 1 + popcountBits(child) > best) {
+                    expand(std::move(child), sz + 1);
+                }
+            } else {
+                if (sz + 1 > best) best = sz + 1;
+            }
+
+            clearBit(P, v);
+            if (sz + popcountBits(P) <= best) return;
+        }
+    }
+
+    int solve() {
+        if (n == 0) return 0;
+
+        int tries = 1;
+        if (n <= 250) tries = 80;
+        else if (n <= 600) tries = 35;
+        else if (n <= 1200) tries = 16;
+        else tries = 6;
+
+        for (int i = 0; i < tries; ++i) {
+            best = max(best, greedyClique(i));
+        }
+
+        vector<ull> P(W, ~0ULL);
+        if (W) P[W - 1] = lastMask;
+
+        expand(std::move(P), 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    int W0 = (N + 63) >> 6;
+    vector<vector<ull>> orig(N, vector<ull>(W0, 0));
+
+    char ch;
+    int cnt = 0;
+    while (cnt < N * N && cin.get(ch)) {
+        if (ch == '0' || ch == '1') {
+            int i = cnt / N;
+            int j = cnt % N;
+            if (ch == '1' && i != j) {
+                orig[i][j >> 6] |= 1ULL << (j & 63);
+            }
+            ++cnt;
+        }
+    }
+
+    auto testOrig = [&](int i, int j) -> bool {
+        return (orig[i][j >> 6] >> (j & 63)) & 1ULL;
+    };
+
+    vector<vector<int>> comp(N);
+    vector<int> deg(N, 0);
+
+    for (int i = 0; i < N; ++i) {
+        orig[i][i >> 6] &= ~(1ULL << (i & 63));
+    }
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            bool e = testOrig(i, j) || testOrig(j, i);
+            if (e) {
+                orig[i][j >> 6] |= 1ULL << (j & 63);
+                orig[j][i >> 6] |= 1ULL << (i & 63);
+            } else {
+                comp[i].push_back(j);
+                comp[j].push_back(i);
+                ++deg[i];
+                ++deg[j];
+            }
+        }
+    }
+
+    vector<char> active(N, 1);
+    queue<int> q;
+    for (int i = 0; i < N; ++i) {
+        if (deg[i] <= 1) q.push(i);
+    }
+
+    int base = 0;
+
+    auto removeVertex = [&](int x) {
+        active[x] = 0;
+        for (int y : comp[x]) {
+            if (active[y]) {
+                --deg[y];
+                if (deg[y] <= 1) q.push(y);
+            }
+        }
+    };
+
+    while (!q.empty()) {
+        int v = q.front();
+        q.pop();
+
+        if (!active[v] || deg[v] > 1) continue;
+
+        if (deg[v] == 0) {
+            ++base;
+            removeVertex(v);
+        } else {
+            int u = -1;
+            for (int y : comp[v]) {
+                if (active[y]) {
+                    u = y;
+                    break;
+                }
+            }
+
+            ++base;
+            removeVertex(v);
+            if (u != -1 && active[u]) removeVertex(u);
+        }
+    }
+
+    vector<int> verts;
+    verts.reserve(N);
+    for (int i = 0; i < N; ++i) {
+        if (active[i]) verts.push_back(i);
+    }
+
+    sort(verts.begin(), verts.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] < deg[b];
+        return a < b;
+    });
+
+    int M = (int)verts.size();
+    if (M == 0) {
+        cout << base << '\n';
+        return 0;
+    }
+
+    vector<int> inv(N, -1);
+    for (int i = 0; i < M; ++i) inv[verts[i]] = i;
+
+    int W = (M + 63) >> 6;
+    int rem = M & 63;
+    ull lastMask = rem ? ((1ULL << rem) - 1ULL) : ~0ULL;
+
+    vector<vector<ull>> adj(M, vector<ull>(W, ~0ULL));
+    for (int i = 0; i < M; ++i) {
+        if (W) adj[i][W - 1] = lastMask;
+        adj[i][i >> 6] &= ~(1ULL << (i & 63));
+    }
+
+    for (int oldU : verts) {
+        int u = inv[oldU];
+        for (int oldV : comp[oldU]) {
+            if (active[oldV] && oldU < oldV) {
+                int v = inv[oldV];
+                adj[u][v >> 6] &= ~(1ULL << (v & 63));
+                adj[v][u >> 6] &= ~(1ULL << (u & 63));
+            }
+        }
+    }
+
+    MaxCliqueSolver solver(M, std::move(adj));
+    cout << base + solver.solve() << '\n';
+
+    return 0;
+}

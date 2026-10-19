@@ -1,0 +1,100 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<vector<int>> devise_strategy(int N) {
+    const int MAXS = 60;
+
+    vector<long long> dp(MAXS + 1, -1);
+    vector<int> prv(MAXS + 1, -1);
+    dp[0] = 1;
+
+    for (int s = 1; s <= MAXS; ++s) {
+        for (int r = 2; r <= s; ++r) {
+            if (dp[s - r] < 0) continue;
+            long long val = dp[s - r] * r;
+            if (val > N) val = N;
+            if (val > dp[s]) {
+                dp[s] = val;
+                prv[s] = r;
+            }
+        }
+    }
+
+    int total = 0;
+    for (int s = 0; s <= MAXS; ++s) {
+        if (dp[s] >= N) {
+            total = s;
+            break;
+        }
+    }
+
+    vector<int> base;
+    int cur_sum = total;
+    while (cur_sum > 0) {
+        int r = prv[cur_sum];
+        base.push_back(r);
+        cur_sum -= r;
+    }
+
+    int L = (int)base.size();
+
+    vector<long long> suf(L + 1, 1);
+    for (int i = L - 1; i >= 0; --i) {
+        suf[i] = suf[i + 1] * base[i];
+    }
+
+    auto get_digit = [&](int value, int pos) -> int {
+        long long v = value - 1;
+        return (int)((v / suf[pos + 1]) % base[pos]);
+    };
+
+    vector<vector<int>> id(L);
+    int state = 1;
+    for (int i = 0; i < L; ++i) {
+        id[i].resize(base[i]);
+        for (int d = 0; d < base[i]; ++d) {
+            id[i][d] = state++;
+        }
+    }
+
+    int x = state - 1;
+    vector<vector<int>> s(x + 1, vector<int>(N + 1, -1));
+
+    s[0][0] = 0;
+    for (int j = 1; j <= N; ++j) {
+        s[0][j] = id[0][get_digit(j, 0)];
+    }
+
+    for (int pos = 0; pos < L; ++pos) {
+        for (int d = 0; d < base[pos]; ++d) {
+            int row = id[pos][d];
+            s[row][0] = (pos % 2 == 0 ? 1 : 0);
+
+            for (int j = 1; j <= N; ++j) {
+                int cd = get_digit(j, pos);
+
+                if (pos % 2 == 0) {
+                    if (d < cd) {
+                        s[row][j] = -1;
+                    } else if (d > cd) {
+                        s[row][j] = -2;
+                    } else {
+                        if (pos + 1 == L) s[row][j] = -1;
+                        else s[row][j] = id[pos + 1][get_digit(j, pos + 1)];
+                    }
+                } else {
+                    if (cd < d) {
+                        s[row][j] = -1;
+                    } else if (cd > d) {
+                        s[row][j] = -2;
+                    } else {
+                        if (pos + 1 == L) s[row][j] = -1;
+                        else s[row][j] = id[pos + 1][get_digit(j, pos + 1)];
+                    }
+                }
+            }
+        }
+    }
+
+    return s;
+}

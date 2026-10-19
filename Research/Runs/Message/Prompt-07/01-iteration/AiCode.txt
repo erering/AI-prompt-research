@@ -1,0 +1,165 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+vector<bool> send_packet(vector<bool> A);
+
+static long long COMB[32][32];
+static bool comb_ready = false;
+
+static void init_comb() {
+    if (comb_ready) return;
+    comb_ready = true;
+    for (int n = 0; n <= 31; ++n) {
+        COMB[n][0] = COMB[n][n] = 1;
+        for (int k = 1; k < n; ++k) COMB[n][k] = COMB[n - 1][k - 1] + COMB[n - 1][k];
+    }
+}
+
+static long long rank_mask(const vector<bool>& C) {
+    init_comb();
+    vector<int> pos;
+    for (int i = 0; i < 31; ++i) if (C[i]) pos.push_back(i);
+    long long rank = 0;
+    int prev = -1;
+    int rem = 15;
+    for (int x : pos) {
+        for (int v = prev + 1; v < x; ++v) {
+            rank += COMB[31 - 1 - v][rem - 1];
+        }
+        prev = x;
+        --rem;
+    }
+    return rank;
+}
+
+static vector<bool> unrank_mask(long long rank) {
+    init_comb();
+    vector<bool> C(31, false);
+    int rem = 15;
+    for (int v = 0; v < 31 && rem > 0; ++v) {
+        long long cnt = COMB[31 - 1 - v][rem - 1];
+        if (rank < cnt) {
+            C[v] = true;
+            --rem;
+        } else {
+            rank -= cnt;
+        }
+    }
+    return C;
+}
+
+void send_message(vector<bool> M, vector<bool> C) {
+    init_comb();
+
+    const long long SHIFT = 1LL << 28;
+    const long long TOTAL = COMB[31][15];
+
+    long long r = rank_mask(C);
+    long long low = r & (SHIFT - 1);
+    int high = (int)(r >> 28);
+
+    for (int b = 0; b < 28; ++b) {
+        bool bit = (low >> b) & 1LL;
+        vector<bool> A(31, bit);
+        send_packet(A);
+    }
+
+    bool has_two = (low + SHIFT < TOTAL);
+    int reserve = -1;
+
+    if (has_two) {
+        long long other_rank = low + (1 - high) * SHIFT;
+        vector<bool> O = unrank_mask(other_rank);
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i] && !O[i]) {
+                reserve = i;
+                break;
+            }
+        }
+    }
+
+    int n = (int)M.size();
+    int s = (reserve == -1 ? 0 : 1);
+    int D = (4 + n + s + 15) / 16;
+    int n_min = 16 * (D - 1) - s - 3;
+    int offset = n - n_min;
+
+    vector<bool> stream;
+    for (int b = 0; b < 4; ++b) stream.push_back((offset >> b) & 1);
+    for (bool x : M) stream.push_back(x);
+
+    int ptr = 0;
+    for (int p = 0; p < D; ++p) {
+        vector<bool> A(31, false);
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i]) {
+                if (p == 0 && i == reserve) {
+                    A[i] = high;
+                } else {
+                    if (ptr < (int)stream.size()) A[i] = stream[ptr++];
+                    else A[i] = false;
+                }
+            }
+        }
+        send_packet(A);
+    }
+}
+
+vector<bool> receive_message(vector<vector<bool>> R) {
+    init_comb();
+
+    const long long SHIFT = 1LL << 28;
+    const long long TOTAL = COMB[31][15];
+
+    long long low = 0;
+    for (int b = 0; b < 28; ++b) {
+        int ones = 0;
+        for (int i = 0; i < 31; ++i) if (R[b][i]) ++ones;
+        if (ones >= 16) low |= (1LL << b);
+    }
+
+    bool has_two = (low + SHIFT < TOTAL);
+    long long chosen_rank = low;
+    int reserve = -1;
+
+    if (has_two) {
+        vector<bool> C0 = unrank_mask(low);
+        vector<bool> C1 = unrank_mask(low + SHIFT);
+
+        for (int i = 0; i < 31; ++i) {
+            if (!C0[i] && !C1[i]) {
+                reserve = i;
+                break;
+            }
+        }
+
+        bool high = R[28][reserve];
+        chosen_rank = low + (high ? SHIFT : 0);
+    }
+
+    vector<bool> C = unrank_mask(chosen_rank);
+
+    vector<bool> stream;
+    for (int p = 28; p < (int)R.size(); ++p) {
+        for (int i = 0; i < 31; ++i) {
+            if (!C[i]) {
+                if (p == 28 && i == reserve) continue;
+                stream.push_back(R[p][i]);
+            }
+        }
+    }
+
+    int offset = 0;
+    for (int b = 0; b < 4; ++b) {
+        if (stream[b]) offset |= (1 << b);
+    }
+
+    int D = (int)R.size() - 28;
+    int s = (reserve == -1 ? 0 : 1);
+    int n_min = 16 * (D - 1) - s - 3;
+    int n = n_min + offset;
+
+    vector<bool> M;
+    for (int i = 0; i < n; ++i) M.push_back(stream[4 + i]);
+    return M;
+}

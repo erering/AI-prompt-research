@@ -1,0 +1,473 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct FastInput {
+    static constexpr size_t SZ = 1 << 20;
+    char buf[SZ];
+    size_t idx = 0, len = 0;
+
+    inline char getch() {
+        if (idx >= len) {
+            len = fread(buf, 1, SZ, stdin);
+            idx = 0;
+            if (!len) return 0;
+        }
+        return buf[idx++];
+    }
+
+    int nextInt() {
+        char c;
+        do c = getch(); while (c && (c < '0' || c > '9'));
+        int x = 0;
+        while (c >= '0' && c <= '9') {
+            x = x * 10 + (c - '0');
+            c = getch();
+        }
+        return x;
+    }
+
+    int nextBit() {
+        char c;
+        do c = getch(); while (c && c != '0' && c != '1');
+        return c == '1';
+    }
+};
+
+int N;
+vector<vector<int>> compAdj;
+vector<pair<int,int>> compEdges;
+
+int greedyIS(unsigned seed) {
+    vector<unsigned char> alive(N, 1);
+    vector<int> deg(N), key(N);
+    for (int i = 0; i < N; ++i) deg[i] = (int)compAdj[i].size();
+
+    uint32_t x = seed * 1000003u + 1234567u;
+    for (int i = 0; i < N; ++i) {
+        x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+        key[i] = seed ? (int)x : i;
+    }
+
+    using T = tuple<int,int,int>;
+    priority_queue<T, vector<T>, greater<T>> pq;
+    for (int i = 0; i < N; ++i) pq.emplace(deg[i], key[i], i);
+
+    int ans = 0, rem = N;
+    vector<int> remv;
+    while (rem > 0) {
+        int d, k, v;
+        do {
+            if (pq.empty()) return ans;
+            tie(d, k, v) = pq.top();
+            pq.pop();
+        } while (!alive[v] || deg[v] != d);
+
+        ++ans;
+        remv.clear();
+        remv.push_back(v);
+        for (int u : compAdj[v]) if (alive[u]) remv.push_back(u);
+
+        for (int u : remv) {
+            if (alive[u]) {
+                alive[u] = 0;
+                --rem;
+            }
+        }
+
+        for (int u : remv) {
+            for (int w : compAdj[u]) {
+                if (alive[w]) {
+                    --deg[w];
+                    pq.emplace(deg[w], key[w], w);
+                }
+            }
+        }
+    }
+    return ans;
+}
+
+int greedyVC() {
+    vector<unsigned char> alive(N, 1);
+    vector<int> deg(N);
+    long long edges = compEdges.size();
+
+    priority_queue<pair<int,int>> pq;
+    for (int i = 0; i < N; ++i) {
+        deg[i] = (int)compAdj[i].size();
+        pq.push({deg[i], i});
+    }
+
+    int cover = 0;
+    while (edges > 0) {
+        int d, v;
+        do {
+            if (pq.empty()) return cover;
+            tie(d, v) = pq.top();
+            pq.pop();
+        } while (!alive[v] || deg[v] != d);
+
+        if (d == 0) break;
+        alive[v] = 0;
+        ++cover;
+        edges -= deg[v];
+
+        for (int u : compAdj[v]) {
+            if (alive[u]) {
+                --deg[u];
+                pq.push({deg[u], u});
+            }
+        }
+    }
+    return cover;
+}
+
+int initialCliqueLower() {
+    int bestIS = 0;
+    bestIS = max(bestIS, greedyIS(0));
+    bestIS = max(bestIS, greedyIS(1));
+    bestIS = max(bestIS, greedyIS(2));
+    bestIS = max(bestIS, greedyIS(3));
+    return bestIS;
+}
+
+int mcN, mcW, mcBest;
+vector<vector<unsigned long long>> mcAdj;
+
+inline bool bitEmpty(const vector<unsigned long long>& a) {
+    for (auto x : a) if (x) return false;
+    return true;
+}
+
+inline void clearBit(vector<unsigned long long>& a, int v) {
+    a[v >> 6] &= ~(1ULL << (v & 63));
+}
+
+inline int firstBit(const vector<unsigned long long>& a) {
+    for (int i = 0; i < mcW; ++i) {
+        if (a[i]) return (i << 6) + __builtin_ctzll(a[i]);
+    }
+    return -1;
+}
+
+void colorSortMC(const vector<unsigned long long>& P, vector<int>& order, vector<int>& colors) {
+    vector<unsigned long long> U = P, Q(mcW);
+    order.clear();
+    colors.clear();
+
+    int rem = 0;
+    for (auto x : U) rem += __builtin_popcountll(x);
+
+    int c = 0;
+    while (rem > 0) {
+        ++c;
+        Q = U;
+        while (true) {
+            int v = firstBit(Q);
+            if (v < 0 || v >= mcN) break;
+
+            order.push_back(v);
+            colors.push_back(c);
+
+            clearBit(U, v);
+            --rem;
+            clearBit(Q, v);
+
+            for (int i = 0; i < mcW; ++i) Q[i] &= ~mcAdj[v][i];
+        }
+    }
+}
+
+void expandMC(vector<unsigned long long>& P, int sz) {
+    vector<int> order, colors;
+    colorSortMC(P, order, colors);
+
+    for (int i = (int)order.size() - 1; i >= 0; --i) {
+        if (sz + colors[i] <= mcBest) return;
+
+        int v = order[i];
+        clearBit(P, v);
+
+        vector<unsigned long long> P2(mcW);
+        for (int j = 0; j < mcW; ++j) P2[j] = P[j] & mcAdj[v][j];
+
+        if (bitEmpty(P2)) {
+            if (sz + 1 > mcBest) mcBest = sz + 1;
+        } else {
+            expandMC(P2, sz + 1);
+        }
+    }
+}
+
+int solveMaxCliqueBBMC(int lower) {
+    mcN = N;
+    mcW = (N + 63) >> 6;
+    mcBest = lower;
+
+    mcAdj.assign(N, vector<unsigned long long>(mcW, ~0ULL));
+    if (N & 63) {
+        unsigned long long mask = (1ULL << (N & 63)) - 1ULL;
+        for (int i = 0; i < N; ++i) mcAdj[i][mcW - 1] = mask;
+    }
+
+    for (int i = 0; i < N; ++i) clearBit(mcAdj[i], i);
+
+    for (auto [u, v] : compEdges) {
+        clearBit(mcAdj[u], v);
+        clearBit(mcAdj[v], u);
+    }
+
+    vector<unsigned long long> P(mcW, ~0ULL);
+    if (N & 63) P[mcW - 1] = (1ULL << (N & 63)) - 1ULL;
+
+    expandMC(P, 0);
+    return mcBest;
+}
+
+struct Change {
+    int v;
+    int oldDeg;
+    unsigned char wasActive;
+};
+
+struct Marker {
+    size_t hsz;
+    int cover;
+    int remaining;
+    long long edges;
+};
+
+vector<unsigned char> activeVC;
+vector<int> degVC;
+vector<Change> histVC;
+vector<int> matchedVC;
+int stampVC = 1;
+int coverVC = 0;
+int remainingVC = 0;
+long long activeEdgesVC = 0;
+int bestCoverVC = 0;
+
+inline Marker markVC() {
+    return {histVC.size(), coverVC, remainingVC, activeEdgesVC};
+}
+
+inline void restoreVC(const Marker& m) {
+    while (histVC.size() > m.hsz) {
+        Change c = histVC.back();
+        histVC.pop_back();
+        degVC[c.v] = c.oldDeg;
+        if (c.wasActive) activeVC[c.v] = 1;
+    }
+    coverVC = m.cover;
+    remainingVC = m.remaining;
+    activeEdgesVC = m.edges;
+}
+
+void removeVertexVC(int v) {
+    if (!activeVC[v]) return;
+
+    histVC.push_back({v, degVC[v], 1});
+    activeVC[v] = 0;
+    --remainingVC;
+    activeEdgesVC -= degVC[v];
+
+    for (int u : compAdj[v]) {
+        if (activeVC[u]) {
+            histVC.push_back({u, degVC[u], 0});
+            --degVC[u];
+        }
+    }
+}
+
+inline void includeVertexVC(int v) {
+    if (!activeVC[v]) return;
+    ++coverVC;
+    removeVertexVC(v);
+}
+
+inline bool compHasEdge(int a, int b) {
+    if (compAdj[a].size() > compAdj[b].size()) swap(a, b);
+    return binary_search(compAdj[a].begin(), compAdj[a].end(), b);
+}
+
+bool reduceVC() {
+    bool changed = true;
+    while (changed) {
+        if (coverVC >= bestCoverVC) return false;
+        changed = false;
+
+        for (int v = 0; v < N; ++v) {
+            if (!activeVC[v]) continue;
+
+            if (degVC[v] == 0) {
+                removeVertexVC(v);
+                changed = true;
+                break;
+            }
+
+            if (degVC[v] == 1) {
+                int u = -1;
+                for (int x : compAdj[v]) {
+                    if (activeVC[x]) {
+                        u = x;
+                        break;
+                    }
+                }
+                if (u >= 0) {
+                    includeVertexVC(u);
+                    changed = true;
+                    break;
+                }
+            }
+
+            if (degVC[v] == 2) {
+                int a = -1, b = -1;
+                for (int x : compAdj[v]) {
+                    if (activeVC[x]) {
+                        if (a < 0) a = x;
+                        else {
+                            b = x;
+                            break;
+                        }
+                    }
+                }
+                if (a >= 0 && b >= 0 && compHasEdge(a, b)) {
+                    includeVertexVC(a);
+                    includeVertexVC(b);
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+int matchingLowerBoundVC() {
+    ++stampVC;
+    if (stampVC == INT_MAX) {
+        fill(matchedVC.begin(), matchedVC.end(), 0);
+        stampVC = 1;
+    }
+
+    int lb = 0;
+    for (int v = 0; v < N; ++v) {
+        if (!activeVC[v] || matchedVC[v] == stampVC) continue;
+
+        for (int u : compAdj[v]) {
+            if (activeVC[u] && matchedVC[u] != stampVC) {
+                matchedVC[v] = matchedVC[u] = stampVC;
+                ++lb;
+                break;
+            }
+        }
+    }
+    return lb;
+}
+
+void dfsVC() {
+    if (!reduceVC()) return;
+
+    if (activeEdgesVC == 0) {
+        if (coverVC < bestCoverVC) bestCoverVC = coverVC;
+        return;
+    }
+
+    if (coverVC >= bestCoverVC) return;
+
+    int maxDeg = 0, v = -1;
+    for (int i = 0; i < N; ++i) {
+        if (activeVC[i] && degVC[i] > maxDeg) {
+            maxDeg = degVC[i];
+            v = i;
+        }
+    }
+
+    if (v < 0 || maxDeg == 0) {
+        if (coverVC < bestCoverVC) bestCoverVC = coverVC;
+        return;
+    }
+
+    int lb1 = matchingLowerBoundVC();
+    int lb2 = (int)((activeEdgesVC + maxDeg - 1) / maxDeg);
+    int lb = max(lb1, lb2);
+
+    if (coverVC + lb >= bestCoverVC) return;
+
+    {
+        Marker m = markVC();
+        includeVertexVC(v);
+        if (coverVC < bestCoverVC) dfsVC();
+        restoreVC(m);
+    }
+
+    if (coverVC + maxDeg < bestCoverVC) {
+        Marker m = markVC();
+        vector<int> neigh;
+        neigh.reserve(maxDeg);
+        for (int u : compAdj[v]) if (activeVC[u]) neigh.push_back(u);
+
+        for (int u : neigh) {
+            includeVertexVC(u);
+            if (coverVC >= bestCoverVC) break;
+        }
+        if (coverVC < bestCoverVC) {
+            removeVertexVC(v);
+            dfsVC();
+        }
+        restoreVC(m);
+    }
+}
+
+int solveVCExact(int cliqueLower) {
+    bestCoverVC = N - cliqueLower;
+    bestCoverVC = min(bestCoverVC, greedyVC());
+
+    activeVC.assign(N, 1);
+    degVC.assign(N, 0);
+    for (int i = 0; i < N; ++i) degVC[i] = (int)compAdj[i].size();
+
+    histVC.clear();
+    matchedVC.assign(N, 0);
+    coverVC = 0;
+    remainingVC = N;
+    activeEdgesVC = (long long)compEdges.size();
+
+    dfsVC();
+    return N - bestCoverVC;
+}
+
+int main() {
+    FastInput in;
+    N = in.nextInt();
+
+    compAdj.assign(N, {});
+    compEdges.clear();
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = in.nextBit();
+            if (i < j && b == 0) {
+                compAdj[i].push_back(j);
+                compAdj[j].push_back(i);
+                compEdges.push_back({i, j});
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) sort(compAdj[i].begin(), compAdj[i].end());
+
+    if (compEdges.empty()) {
+        cout << N << '\n';
+        return 0;
+    }
+
+    int lowerClique = initialCliqueLower();
+
+    if (N <= 1400) {
+        cout << solveMaxCliqueBBMC(lowerClique) << '\n';
+    } else {
+        cout << solveVCExact(lowerClique) << '\n';
+    }
+
+    return 0;
+}

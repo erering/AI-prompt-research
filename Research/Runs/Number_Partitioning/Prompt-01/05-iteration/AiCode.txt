@@ -1,0 +1,259 @@
+#include <algorithm>
+#include <bit>
+#include <cstdint>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <numeric>
+#include <queue>
+#include <vector>
+
+using u64 = unsigned long long;
+
+static u64 outFactor = 1;
+static u64 ckkBest = 0;
+static u64 ckkGoal = 0;
+
+static void print_answer(u64 x) {
+    std::cout << x * outFactor << '\n';
+}
+
+static u64 solve_dp(const std::vector<u64>& a, u64 total) {
+    const u64 target = total / 2;
+    const std::size_t words = static_cast<std::size_t>(target / 64 + 1);
+    std::vector<u64> bits(words, 0);
+    bits[0] = 1;
+
+    const unsigned rem = static_cast<unsigned>(target & 63);
+    const u64 lastMask = (rem == 63) ? ~0ULL : ((1ULL << (rem + 1)) - 1ULL);
+    const std::size_t targetWord = static_cast<std::size_t>(target >> 6);
+    const unsigned targetBit = static_cast<unsigned>(target & 63);
+    const u64 goal = total & 1ULL;
+
+    for (u64 x : a) {
+        if (x > target) continue;
+
+        const std::size_t ws = static_cast<std::size_t>(x >> 6);
+        const unsigned bs = static_cast<unsigned>(x & 63);
+
+        if (bs == 0) {
+            for (std::size_t i = words; i-- > ws;) {
+                bits[i] |= bits[i - ws];
+            }
+        } else {
+            for (std::size_t i = words; i-- > ws;) {
+                u64 v = bits[i - ws] << bs;
+                if (i > ws) v |= bits[i - ws - 1] >> (64 - bs);
+                bits[i] |= v;
+            }
+        }
+
+        bits.back() &= lastMask;
+        if ((bits[targetWord] >> targetBit) & 1ULL) return goal;
+    }
+
+    for (std::size_t ii = targetWord + 1; ii > 0; --ii) {
+        std::size_t i = ii - 1;
+        u64 w = bits[i];
+        if (i == targetWord) w &= lastMask;
+        if (w) {
+            int pos = 63 - std::countl_zero(w);
+            u64 bestSum = static_cast<u64>(i) * 64ULL + static_cast<u64>(pos);
+            return total - 2ULL * bestSum;
+        }
+    }
+
+    return total;
+}
+
+static u64 solve_mitm(const std::vector<u64>& a, u64 total) {
+    const int n = static_cast<int>(a.size());
+    const int m = n / 2;
+    const u64 target = total / 2;
+    const u64 goal = total & 1ULL;
+
+    std::vector<u64> left;
+    left.reserve(1ULL << m);
+    left.push_back(0);
+
+    for (int i = 0; i < m; ++i) {
+        u64 x = a[i];
+        std::size_t sz = left.size();
+        if (x <= target) {
+            u64 lim = target - x;
+            for (std::size_t j = 0; j < sz; ++j) {
+                if (left[j] <= lim) left.push_back(left[j] + x);
+            }
+        }
+    }
+
+    std::sort(left.begin(), left.end());
+    left.erase(std::unique(left.begin(), left.end()), left.end());
+
+    u64 best = 0;
+    bool done = false;
+
+    std::function<void(int, u64)> dfs = [&](int idx, u64 cur) {
+        if (done) return;
+        if (idx == n) {
+            u64 need = target - cur;
+            auto it = std::upper_bound(left.begin(), left.end(), need);
+            if (it != left.begin()) {
+                --it;
+                u64 s = cur + *it;
+                if (s > best) {
+                    best = s;
+                    if (best == target) done = true;
+                }
+            }
+            return;
+        }
+
+        dfs(idx + 1, cur);
+        u64 x = a[idx];
+        if (x <= target - cur) dfs(idx + 1, cur + x);
+    };
+
+    dfs(m, 0);
+    if (best == target) return goal;
+    return total - 2ULL * best;
+}
+
+static void insert_desc(std::vector<u64>& v, u64 x) {
+    if (x == 0) return;
+    auto it = std::lower_bound(v.begin(), v.end(), x, std::greater<u64>());
+    v.insert(it, x);
+}
+
+static void ckk(std::vector<u64> v, u64 sum) {
+    if (ckkBest == ckkGoal || v.empty()) {
+        if (v.empty()) ckkBest = 0;
+        return;
+    }
+
+    u64 largest = v[0];
+    u64 restSum = sum - largest;
+    u64 lower = (largest > restSum) ? (largest - restSum) : 0;
+
+    if (lower >= ckkBest) return;
+
+    if (largest >= restSum) {
+        ckkBest = lower;
+        return;
+    }
+
+    if (v.size() == 1) {
+        if (v[0] < ckkBest) ckkBest = v[0];
+        return;
+    }
+
+    if (v.size() == 2) {
+        u64 d = v[0] - v[1];
+        if (d < ckkBest) ckkBest = d;
+        return;
+    }
+
+    u64 a = v[0], b = v[1];
+    std::vector<u64> rest(v.begin() + 2, v.end());
+
+    std::vector<u64> diffBranch = rest;
+    insert_desc(diffBranch, a - b);
+    ckk(std::move(diffBranch), sum - 2ULL * b);
+
+    if (ckkBest == ckkGoal) return;
+
+    insert_desc(rest, a + b);
+    ckk(std::move(rest), sum);
+}
+
+static u64 greedy_balance(const std::vector<u64>& a) {
+    u64 x = 0, y = 0;
+    for (u64 v : a) {
+        if (x <= y) x += v;
+        else y += v;
+    }
+    return (x > y) ? (x - y) : (y - x);
+}
+
+static u64 kk_heuristic(const std::vector<u64>& a) {
+    std::priority_queue<u64> pq;
+    for (u64 x : a) if (x) pq.push(x);
+
+    while (pq.size() > 1) {
+        u64 x = pq.top(); pq.pop();
+        u64 y = pq.top(); pq.pop();
+        if (x > y) pq.push(x - y);
+    }
+
+    return pq.empty() ? 0 : pq.top();
+}
+
+int main() {
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+
+    int N;
+    if (!(std::cin >> N)) return 0;
+
+    std::vector<u64> a(N);
+    u64 sum = 0;
+    u64 g = 0;
+
+    for (int i = 0; i < N; ++i) {
+        std::cin >> a[i];
+        sum += a[i];
+        g = std::gcd(g, a[i]);
+    }
+
+    if (N == 0 || sum == 0) {
+        std::cout << 0 << '\n';
+        return 0;
+    }
+
+    outFactor = g;
+    for (u64& x : a) x /= g;
+    u64 total = sum / g;
+
+    const u64 target = total / 2;
+    const std::size_t words = static_cast<std::size_t>(target / 64 + 1);
+    const std::size_t maxWords = 6000000;
+    const unsigned long long maxOps = 600000000ULL;
+
+    bool memoryOk = words <= maxWords;
+    bool timeOk = (N == 0) || (words <= maxOps / static_cast<unsigned long long>(N));
+
+    if (memoryOk && (timeOk || N > 44)) {
+        print_answer(solve_dp(a, total));
+        return 0;
+    }
+
+    if (N <= 44) {
+        print_answer(solve_mitm(a, total));
+        return 0;
+    }
+
+    if (memoryOk) {
+        print_answer(solve_dp(a, total));
+        return 0;
+    }
+
+    std::sort(a.begin(), a.end(), std::greater<u64>());
+
+    ckkGoal = total & 1ULL;
+    ckkBest = std::min(total, greedy_balance(a));
+    ckkBest = std::min(ckkBest, kk_heuristic(a));
+
+    if (ckkBest == ckkGoal) {
+        print_answer(ckkBest);
+        return 0;
+    }
+
+    if (N <= 200) {
+        ckk(a, total);
+        print_answer(ckkBest);
+        return 0;
+    }
+
+    static volatile unsigned sink = 0;
+    for (;;) ++sink;
+}

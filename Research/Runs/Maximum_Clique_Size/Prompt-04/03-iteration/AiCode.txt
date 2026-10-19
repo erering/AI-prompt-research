@@ -1,0 +1,298 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+struct Solver {
+    int n, W;
+    vector<vector<unsigned long long>> adj;
+    vector<unsigned long long> full;
+    int best = 0;
+    unsigned long long rng = 88172645463325252ull;
+
+    inline unsigned long long rnd() {
+        rng ^= rng << 7;
+        rng ^= rng >> 9;
+        return rng;
+    }
+
+    inline void clearVertex(vector<unsigned long long>& s, int v) const {
+        s[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    inline bool hasVertex(const vector<unsigned long long>& s, int v) const {
+        return (s[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    inline int popcountSet(const vector<unsigned long long>& s) const {
+        int r = 0;
+        for (auto x : s) r += __builtin_popcountll(x);
+        return r;
+    }
+
+    inline int countAnd(const vector<unsigned long long>& a, const vector<unsigned long long>& b) const {
+        int r = 0;
+        for (int i = 0; i < W; ++i) r += __builtin_popcountll(a[i] & b[i]);
+        return r;
+    }
+
+    inline bool emptySet(const vector<unsigned long long>& s) const {
+        for (auto x : s) if (x) return false;
+        return true;
+    }
+
+    inline int firstVertex(const vector<unsigned long long>& s) const {
+        for (int i = 0; i < W; ++i) {
+            if (s[i]) return (i << 6) + __builtin_ctzll(s[i]);
+        }
+        return -1;
+    }
+
+    inline int firstInIntersection(const vector<unsigned long long>& a, const vector<unsigned long long>& b) const {
+        for (int i = 0; i < W; ++i) {
+            unsigned long long x = a[i] & b[i];
+            if (x) return (i << 6) + __builtin_ctzll(x);
+        }
+        return -1;
+    }
+
+    inline void removeClosed(vector<unsigned long long>& s, int v) const {
+        for (int i = 0; i < W; ++i) s[i] &= ~adj[v][i];
+        clearVertex(s, v);
+    }
+
+    bool smallNeighbourhoodClique(int v, const vector<unsigned long long>& active, int deg) const {
+        if (deg <= 1) return true;
+        if (deg > 6) return false;
+        int verts[8], k = 0;
+        for (int i = 0; i < W; ++i) {
+            unsigned long long x = adj[v][i] & active[i];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int u = (i << 6) + b;
+                if (u < n) verts[k++] = u;
+                x &= x - 1;
+            }
+        }
+        if (k != deg) return false;
+        for (int i = 0; i < k; ++i) {
+            for (int j = i + 1; j < k; ++j) {
+                if (!hasVertex(adj[verts[i]], verts[j])) return false;
+            }
+        }
+        return true;
+    }
+
+    void reduce(vector<unsigned long long>& active, int& cur, int& branchVertex) const {
+        while (true) {
+            vector<int> isolated;
+            isolated.reserve(32);
+            int leaf = -1, simplicial = -1;
+            int maxv = -1, maxd = -1;
+
+            for (int wi = 0; wi < W; ++wi) {
+                unsigned long long x = active[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (wi << 6) + b;
+                    x &= x - 1;
+                    if (v >= n) continue;
+
+                    int d = countAnd(adj[v], active);
+                    if (d == 0) {
+                        isolated.push_back(v);
+                    } else {
+                        if (d > maxd) {
+                            maxd = d;
+                            maxv = v;
+                        }
+                        if (d == 1 && leaf < 0) {
+                            leaf = v;
+                        } else if (simplicial < 0 && d <= 6 && smallNeighbourhoodClique(v, active, d)) {
+                            simplicial = v;
+                        }
+                    }
+                }
+            }
+
+            if (!isolated.empty()) {
+                cur += (int)isolated.size();
+                for (int v : isolated) clearVertex(active, v);
+                continue;
+            }
+
+            if (leaf >= 0) {
+                int u = firstInIntersection(adj[leaf], active);
+                ++cur;
+                clearVertex(active, leaf);
+                if (u >= 0) clearVertex(active, u);
+                continue;
+            }
+
+            if (simplicial >= 0) {
+                ++cur;
+                removeClosed(active, simplicial);
+                continue;
+            }
+
+            branchVertex = maxv;
+            return;
+        }
+    }
+
+    int cliqueCoverUB(const vector<unsigned long long>& active) const {
+        vector<unsigned long long> un = active, cand(W);
+        int colors = 0;
+        while (!emptySet(un)) {
+            ++colors;
+            cand = un;
+            while (!emptySet(cand)) {
+                int v = firstVertex(cand);
+                clearVertex(un, v);
+                for (int i = 0; i < W; ++i) cand[i] &= adj[v][i];
+            }
+        }
+        return colors;
+    }
+
+    int greedyMIS(bool randomized) {
+        vector<unsigned long long> rem = full;
+        int res = 0;
+        while (!emptySet(rem)) {
+            int bestv = -1, mind = INT_MAX, ties = 0;
+            for (int wi = 0; wi < W; ++wi) {
+                unsigned long long x = rem[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (wi << 6) + b;
+                    x &= x - 1;
+                    if (v >= n) continue;
+                    int d = countAnd(adj[v], rem);
+                    if (d < mind) {
+                        mind = d;
+                        bestv = v;
+                        ties = 1;
+                    } else if (d == mind) {
+                        ++ties;
+                        if (randomized && (rnd() % ties == 0)) bestv = v;
+                    }
+                }
+            }
+            if (bestv < 0) break;
+            ++res;
+            removeClosed(rem, bestv);
+        }
+        return res;
+    }
+
+    void dfs(vector<unsigned long long> active, int cur) {
+        int trivial = cur + popcountSet(active);
+        if (trivial <= best) return;
+
+        int branchVertex = -1;
+        reduce(active, cur, branchVertex);
+
+        int cnt = popcountSet(active);
+        if (cur + cnt <= best) return;
+        if (cnt == 0) {
+            if (cur > best) best = cur;
+            return;
+        }
+
+        int ub = cur + cliqueCoverUB(active);
+        if (ub <= best) return;
+
+        if (branchVertex < 0) {
+            if (cur + cnt > best) best = cur + cnt;
+            return;
+        }
+
+        vector<unsigned long long> inc = active;
+        removeClosed(inc, branchVertex);
+        dfs(std::move(inc), cur + 1);
+
+        if (cur + cnt - 1 <= best) return;
+
+        clearVertex(active, branchVertex);
+        dfs(std::move(active), cur);
+    }
+
+    int solve() {
+        int runs = 1;
+        if (n <= 600) runs = 5;
+        else if (n <= 1500) runs = 3;
+        else runs = 2;
+
+        best = max(best, greedyMIS(false));
+        for (int i = 1; i < runs; ++i) best = max(best, greedyMIS(true));
+
+        dfs(full, 0);
+        return best;
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    int W = (N + 63) >> 6;
+    vector<vector<unsigned long long>> tmp(N, vector<unsigned long long>(W, 0));
+
+    long long total = 1LL * N * N;
+    long long pos = 0;
+    char c;
+    while (pos < total && cin.get(c)) {
+        if (c != '0' && c != '1') continue;
+        int i = (int)(pos / N);
+        int j = (int)(pos % N);
+        if (i != j && c == '0') {
+            tmp[i][j >> 6] |= 1ULL << (j & 63);
+            tmp[j][i >> 6] |= 1ULL << (i & 63);
+        }
+        ++pos;
+    }
+
+    vector<int> deg(N), perm(N), inv(N);
+    for (int i = 0; i < N; ++i) {
+        int d = 0;
+        for (auto x : tmp[i]) d += __builtin_popcountll(x);
+        deg[i] = d;
+        perm[i] = i;
+    }
+
+    sort(perm.begin(), perm.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    for (int i = 0; i < N; ++i) inv[perm[i]] = i;
+
+    Solver S;
+    S.n = N;
+    S.W = W;
+    S.adj.assign(N, vector<unsigned long long>(W, 0));
+    S.full.assign(W, 0);
+
+    for (int i = 0; i < N; ++i) S.full[i >> 6] |= 1ULL << (i & 63);
+
+    for (int old = 0; old < N; ++old) {
+        int ni = inv[old];
+        for (int wi = 0; wi < W; ++wi) {
+            unsigned long long x = tmp[old][wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oldj = (wi << 6) + b;
+                x &= x - 1;
+                if (oldj >= N || oldj <= old) continue;
+                int nj = inv[oldj];
+                S.adj[ni][nj >> 6] |= 1ULL << (nj & 63);
+                S.adj[nj][ni >> 6] |= 1ULL << (ni & 63);
+            }
+        }
+    }
+
+    int ans = S.solve();
+    cout << ans << '\n';
+    return 0;
+}

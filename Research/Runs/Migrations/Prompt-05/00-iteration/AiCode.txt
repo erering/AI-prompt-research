@@ -1,0 +1,132 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+namespace {
+    const int MAXN = 10000;
+    const int LOG = 15;
+
+    int up_tbl[LOG][MAXN];
+    int dep_tbl[MAXN];
+    int diam_u, diam_v, diam_d;
+    int checkpoint_v;
+    int pending_state;
+    bool initialized = false;
+
+    int lca_node(int a, int b) {
+        if (dep_tbl[a] < dep_tbl[b]) swap(a, b);
+        int diff = dep_tbl[a] - dep_tbl[b];
+        for (int k = 0; k < LOG; ++k) {
+            if (diff & (1 << k)) a = up_tbl[k][a];
+        }
+        if (a == b) return a;
+        for (int k = LOG - 1; k >= 0; --k) {
+            if (up_tbl[k][a] != up_tbl[k][b]) {
+                a = up_tbl[k][a];
+                b = up_tbl[k][b];
+            }
+        }
+        return up_tbl[0][a];
+    }
+
+    int dist_node(int a, int b) {
+        int c = lca_node(a, b);
+        return dep_tbl[a] + dep_tbl[b] - 2 * dep_tbl[c];
+    }
+
+    void reset_sender() {
+        memset(up_tbl, 0, sizeof(up_tbl));
+        memset(dep_tbl, 0, sizeof(dep_tbl));
+        diam_u = 0;
+        diam_v = 0;
+        diam_d = 0;
+        checkpoint_v = 0;
+        pending_state = 0;
+        initialized = true;
+    }
+
+    int apply_new_vertex_sender(int i) {
+        int du = dist_node(i, diam_u);
+        int dv = dist_node(i, diam_v);
+
+        int state = 0;
+        if (du > diam_d || dv > diam_d) {
+            if (du >= dv) {
+                diam_v = i;
+                diam_d = du;
+                state = 2;
+            } else {
+                diam_u = i;
+                diam_d = dv;
+                state = 1;
+            }
+        }
+        return state;
+    }
+
+    void apply_receiver_state(int st, int x, int &u, int &v) {
+        if (st == 1) u = x;
+        else if (st == 2) v = x;
+    }
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || !initialized) reset_sender();
+
+    up_tbl[0][i] = Pi;
+    dep_tbl[i] = dep_tbl[Pi] + 1;
+    for (int k = 1; k < LOG; ++k) {
+        up_tbl[k][i] = up_tbl[k - 1][up_tbl[k - 1][i]];
+    }
+
+    int state = apply_new_vertex_sender(i);
+
+    int C = N - 48;
+
+    if (i < C) return 0;
+
+    if (i == C) {
+        checkpoint_v = diam_v;
+        return diam_u + 1;
+    }
+
+    if (i == C + 1) {
+        pending_state = state;
+        return checkpoint_v + 1;
+    }
+
+    if (i == C + 2) {
+        int code = pending_state * 3 + state;
+        return code + 1;
+    }
+
+    return state + 1;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    int C = N - 48;
+
+    if (N < 49 || C < 0 || C + 1 >= N || S[C] == 0 || S[C + 1] == 0) {
+        return {0, 0};
+    }
+
+    int u = S[C] - 1;
+    int v = S[C + 1] - 1;
+
+    if (C + 2 < N && S[C + 2] != 0) {
+        int code = S[C + 2] - 1;
+        int s1 = code / 3;
+        int s2 = code % 3;
+        apply_receiver_state(s1, C + 1, u, v);
+        apply_receiver_state(s2, C + 2, u, v);
+    }
+
+    for (int i = C + 3; i < N; ++i) {
+        if (S[i] != 0) {
+            int st = S[i] - 1;
+            apply_receiver_state(st, i, u, v);
+        }
+    }
+
+    return {u, v};
+}

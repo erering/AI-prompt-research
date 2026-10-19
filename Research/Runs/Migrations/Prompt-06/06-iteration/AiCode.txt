@@ -1,0 +1,98 @@
+#include <bits/stdc++.h>
+
+static const int LOGP = 20;
+static std::vector<std::array<int, LOGP>> up_tbl;
+static std::vector<int> dep_tbl;
+static int curN_state = -1;
+static int diamA_state = 0;
+static int diamB_state = 0;
+static int diamD_state = 0;
+
+static void reset_state(int N) {
+    curN_state = N;
+    up_tbl.assign(std::max(1, N), {});
+    dep_tbl.assign(std::max(1, N), 0);
+    for (int k = 0; k < LOGP; ++k) up_tbl[0][k] = 0;
+    dep_tbl[0] = 0;
+    diamA_state = 0;
+    diamB_state = 0;
+    diamD_state = 0;
+}
+
+static int lca_state(int a, int b) {
+    if (dep_tbl[a] < dep_tbl[b]) std::swap(a, b);
+    int diff = dep_tbl[a] - dep_tbl[b];
+    for (int k = 0; k < LOGP; ++k) {
+        if (diff & (1 << k)) a = up_tbl[a][k];
+    }
+    if (a == b) return a;
+    for (int k = LOGP - 1; k >= 0; --k) {
+        if (up_tbl[a][k] != up_tbl[b][k]) {
+            a = up_tbl[a][k];
+            b = up_tbl[b][k];
+        }
+    }
+    return up_tbl[a][0];
+}
+
+static int dist_state(int a, int b) {
+    int c = lca_state(a, b);
+    return dep_tbl[a] + dep_tbl[b] - 2 * dep_tbl[c];
+}
+
+int send_message(int N, int i, int Pi) {
+    if (i == 1 || curN_state != N || (int)up_tbl.size() < N) reset_state(N);
+
+    up_tbl[i][0] = Pi;
+    dep_tbl[i] = dep_tbl[Pi] + 1;
+    for (int k = 1; k < LOGP; ++k) {
+        up_tbl[i][k] = up_tbl[up_tbl[i][k - 1]][k - 1];
+    }
+
+    int oldA = diamA_state;
+    int oldB = diamB_state;
+    int oldD = diamD_state;
+    bool changed = false;
+    int other = -1;
+
+    int da = dist_state(i, oldA);
+    int db = dist_state(i, oldB);
+
+    if (da > oldD) {
+        diamA_state = i;
+        diamB_state = oldA;
+        diamD_state = da;
+        changed = true;
+        other = oldA;
+    } else if (db > oldD) {
+        diamA_state = i;
+        diamB_state = oldB;
+        diamD_state = db;
+        changed = true;
+        other = oldB;
+    }
+
+    if (i == N - 2) {
+        return diamA_state + 1;
+    }
+
+    if (i == N - 1) {
+        if (changed) return 10001 + other;
+        return diamB_state + 1;
+    }
+
+    return 0;
+}
+
+std::pair<int, int> longest_path(std::vector<int> S) {
+    int N = (int)S.size();
+    if (N <= 1) return {0, 0};
+
+    if (S[N - 1] >= 10001) {
+        return {N - 1, S[N - 1] - 10001};
+    }
+
+    if (N == 2) return {0, 1};
+
+    return {S[N - 2] - 1, S[N - 1] - 1};
+}

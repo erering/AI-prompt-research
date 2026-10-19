@@ -1,0 +1,160 @@
+#include <vector>
+#include <cstdint>
+#include <unordered_map>
+#include <algorithm>
+
+std::vector<bool> send_packet(std::vector<bool> A);
+
+namespace {
+    unsigned long long Cmb[32][32];
+    bool inited = false;
+
+    void init_comb() {
+        if (inited) return;
+        inited = true;
+        for (int n = 0; n < 32; ++n) {
+            Cmb[n][0] = Cmb[n][n] = 1;
+            for (int k = 1; k < n; ++k) Cmb[n][k] = Cmb[n - 1][k - 1] + Cmb[n - 1][k];
+        }
+    }
+
+    unsigned long long rank_subset_lex(const std::vector<int>& sub, int n, int k) {
+        unsigned long long r = 0;
+        int start = 0;
+        int rem = k;
+        for (int x : sub) {
+            for (int v = start; v < x; ++v) {
+                r += Cmb[n - 1 - v][rem - 1];
+            }
+            start = x + 1;
+            --rem;
+        }
+        return r;
+    }
+
+    bool unrank_subset_lex(unsigned long long r, int n, int k, std::vector<int>& sub) {
+        sub.clear();
+        if (r >= Cmb[n][k]) return false;
+
+        int start = 0;
+        for (int rem = k; rem >= 1; --rem) {
+            bool chosen = false;
+            for (int x = start; x <= n - rem; ++x) {
+                unsigned long long cnt = Cmb[n - 1 - x][rem - 1];
+                if (r >= cnt) {
+                    r -= cnt;
+                } else {
+                    sub.push_back(x);
+                    start = x + 1;
+                    chosen = true;
+                    break;
+                }
+            }
+            if (!chosen) return false;
+        }
+        return true;
+    }
+}
+
+void send_message(std::vector<bool> M, std::vector<bool> C) {
+    init_comb();
+
+    std::vector<int> good;
+    for (int i = 0; i < 31; ++i) {
+        if (!C[i]) good.push_back(i);
+    }
+
+    unsigned long long label[31] = {};
+    for (int i : good) {
+        std::vector<int> sub;
+        sub.reserve(15);
+        for (int j : good) {
+            if (j == i) continue;
+            sub.push_back(j < i ? j : j - 1);
+        }
+        label[i] = rank_subset_lex(sub, 30, 15);
+    }
+
+    for (int b = 0; b < 28; ++b) {
+        std::vector<bool> A(31, false);
+        for (int i : good) {
+            A[i] = ((label[i] >> b) & 1ULL) != 0;
+        }
+        send_packet(A);
+    }
+
+    std::vector<bool> bits;
+    int s = (int)M.size();
+    int len_code = s - 1;
+    for (int b = 0; b < 10; ++b) {
+        bits.push_back(((len_code >> b) & 1) != 0);
+    }
+    for (bool x : M) bits.push_back(x);
+
+    int p = 0;
+    while (p < (int)bits.size()) {
+        std::vector<bool> A(31, false);
+        for (int i : good) {
+            if (p < (int)bits.size()) A[i] = bits[p++];
+        }
+        send_packet(A);
+    }
+}
+
+std::vector<bool> receive_message(std::vector<std::vector<bool>> R) {
+    init_comb();
+
+    int Q = (int)R.size();
+
+    unsigned long long label[31] = {};
+    for (int b = 0; b < 28 && b < Q; ++b) {
+        for (int i = 0; i < 31; ++i) {
+            if (R[b][i]) label[i] |= (1ULL << b);
+        }
+    }
+
+    std::unordered_map<unsigned int, int> cnt;
+    for (int i = 0; i < 31; ++i) {
+        std::vector<int> sub;
+        if (!unrank_subset_lex(label[i], 30, 15, sub)) continue;
+
+        unsigned int mask = (1u << i);
+        for (int x : sub) {
+            int pos = (x < i ? x : x + 1);
+            mask |= (1u << pos);
+        }
+        ++cnt[mask];
+    }
+
+    unsigned int good_mask = 0;
+    int best = -1;
+    for (auto &e : cnt) {
+        if (e.second > best) {
+            best = e.second;
+            good_mask = e.first;
+        }
+    }
+
+    std::vector<bool> stream;
+    for (int t = 28; t < Q; ++t) {
+        for (int i = 0; i < 31; ++i) {
+            if ((good_mask >> i) & 1u) {
+                stream.push_back(R[t][i]);
+            }
+        }
+    }
+
+    int len_code = 0;
+    for (int b = 0; b < 10 && b < (int)stream.size(); ++b) {
+        if (stream[b]) len_code |= (1 << b);
+    }
+    int S = len_code + 1;
+
+    std::vector<bool> M;
+    M.reserve(S);
+    for (int i = 0; i < S; ++i) {
+        int idx = 10 + i;
+        M.push_back(idx < (int)stream.size() ? stream[idx] : false);
+    }
+    return M;
+}

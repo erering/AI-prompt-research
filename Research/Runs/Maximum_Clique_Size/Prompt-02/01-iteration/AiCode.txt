@@ -1,0 +1,667 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using U64 = unsigned long long;
+
+struct SmallSolver {
+    int n;
+    vector<U64> adj;
+    unordered_map<U64, int> memo;
+
+    int deg(U64 s, int v) const {
+        return __builtin_popcountll(adj[v] & s);
+    }
+
+    int solve_deg2(U64 s) const {
+        int ans = 0;
+        U64 unseen = s;
+        while (unseen) {
+            int start = __builtin_ctzll(unseen);
+            U64 comp = 0;
+            vector<int> st;
+            unseen &= ~(1ULL << start);
+            st.push_back(start);
+            comp |= 1ULL << start;
+
+            for (size_t qi = 0; qi < st.size(); ++qi) {
+                int v = st[qi];
+                U64 nb = adj[v] & unseen;
+                while (nb) {
+                    int u = __builtin_ctzll(nb);
+                    nb &= nb - 1;
+                    unseen &= ~(1ULL << u);
+                    comp |= 1ULL << u;
+                    st.push_back(u);
+                }
+            }
+
+            int k = __builtin_popcountll(comp);
+            int sumdeg = 0;
+            U64 t = comp;
+            while (t) {
+                int v = __builtin_ctzll(t);
+                t &= t - 1;
+                sumdeg += __builtin_popcountll(adj[v] & comp);
+            }
+            int edges = sumdeg / 2;
+            if (edges == k && k > 1) ans += k / 2;
+            else ans += (k + 1) / 2;
+        }
+        return ans;
+    }
+
+    int greedy_matching(U64 s) const {
+        U64 unmatched = s;
+        int m = 0;
+        U64 it = s;
+        while (it) {
+            int v = __builtin_ctzll(it);
+            it &= it - 1;
+            if (!(unmatched & (1ULL << v))) continue;
+            U64 nb = adj[v] & unmatched;
+            nb &= ~(1ULL << v);
+            if (nb) {
+                int u = __builtin_ctzll(nb);
+                unmatched &= ~(1ULL << v);
+                unmatched &= ~(1ULL << u);
+                ++m;
+            }
+        }
+        return m;
+    }
+
+    int greedy_is(U64 s) const {
+        int res = 0;
+        while (s) {
+            int best = -1, bestd = INT_MAX;
+            U64 it = s;
+            while (it) {
+                int v = __builtin_ctzll(it);
+                it &= it - 1;
+                int d = __builtin_popcountll(adj[v] & s);
+                if (d < bestd) {
+                    bestd = d;
+                    best = v;
+                    if (d == 0) break;
+                }
+            }
+            ++res;
+            s &= ~adj[best];
+            s &= ~(1ULL << best);
+        }
+        return res;
+    }
+
+    int dfs(U64 s) {
+        if (!s) return 0;
+        auto itmemo = memo.find(s);
+        if (itmemo != memo.end()) return itmemo->second;
+
+        U64 key = s;
+        int add = 0;
+
+        while (true) {
+            bool acted = false;
+            int maxd = -1;
+
+            U64 it = s;
+            while (it) {
+                int v = __builtin_ctzll(it);
+                it &= it - 1;
+                U64 nb = adj[v] & s;
+                int d = __builtin_popcountll(nb);
+
+                if (d == 0) {
+                    s &= ~(1ULL << v);
+                    ++add;
+                    acted = true;
+                    break;
+                }
+
+                if (d == 1) {
+                    int u = __builtin_ctzll(nb);
+                    s &= ~(1ULL << v);
+                    s &= ~(1ULL << u);
+                    ++add;
+                    acted = true;
+                    break;
+                }
+
+                if (d == 2) {
+                    int a = __builtin_ctzll(nb);
+                    U64 nb2 = nb & (nb - 1);
+                    int b = __builtin_ctzll(nb2);
+                    if (adj[a] & (1ULL << b)) {
+                        s &= ~(1ULL << v);
+                        s &= ~(1ULL << a);
+                        s &= ~(1ULL << b);
+                        ++add;
+                        acted = true;
+                        break;
+                    }
+                }
+
+                maxd = max(maxd, d);
+            }
+
+            if (acted) {
+                if (!s) {
+                    memo[key] = add;
+                    return add;
+                }
+                continue;
+            }
+
+            if (maxd <= 2) {
+                int ans = add + solve_deg2(s);
+                memo[key] = ans;
+                return ans;
+            }
+
+            break;
+        }
+
+        if (!s) {
+            memo[key] = add;
+            return add;
+        }
+
+        U64 unseen = s;
+        vector<U64> comps;
+        while (unseen) {
+            int start = __builtin_ctzll(unseen);
+            U64 comp = 0;
+            vector<int> q;
+            unseen &= ~(1ULL << start);
+            comp |= 1ULL << start;
+            q.push_back(start);
+
+            for (size_t qi = 0; qi < q.size(); ++qi) {
+                int v = q[qi];
+                U64 nb = adj[v] & unseen;
+                while (nb) {
+                    int u = __builtin_ctzll(nb);
+                    nb &= nb - 1;
+                    unseen &= ~(1ULL << u);
+                    comp |= 1ULL << u;
+                    q.push_back(u);
+                }
+            }
+            comps.push_back(comp);
+            if (comps.size() > 1 && unseen == 0) break;
+        }
+
+        if (comps.size() > 1) {
+            int sum = add;
+            for (U64 c : comps) sum += dfs(c);
+            memo[key] = sum;
+            return sum;
+        }
+
+        int cnt = __builtin_popcountll(s);
+        int ub = cnt - greedy_matching(s);
+        int lb = greedy_is(s);
+        if (lb == ub) {
+            memo[key] = add + lb;
+            return add + lb;
+        }
+
+        int vbest = -1, dbest = -1, scorebest = -1;
+        U64 it = s;
+        while (it) {
+            int v = __builtin_ctzll(it);
+            it &= it - 1;
+            U64 nb = adj[v] & s;
+            int d = __builtin_popcountll(nb);
+            int score = d;
+            U64 nt = nb;
+            while (nt) {
+                int u = __builtin_ctzll(nt);
+                nt &= nt - 1;
+                score += __builtin_popcountll(adj[u] & s);
+            }
+            if (d > dbest || (d == dbest && score > scorebest)) {
+                dbest = d;
+                scorebest = score;
+                vbest = v;
+            }
+        }
+
+        U64 incs = s & ~adj[vbest];
+        incs &= ~(1ULL << vbest);
+        int inc = 1 + dfs(incs);
+        if (inc == ub) {
+            memo[key] = add + inc;
+            return add + inc;
+        }
+
+        U64 excs = s & ~(1ULL << vbest);
+        int exc_cnt = __builtin_popcountll(excs);
+        int exc_ub = exc_cnt - greedy_matching(excs);
+        int exc = 0;
+        if (exc_ub > inc) exc = dfs(excs);
+
+        int ans = add + max(inc, exc);
+        memo[key] = ans;
+        return ans;
+    }
+
+    int solve() {
+        U64 all = (n == 64 ? ~0ULL : ((1ULL << n) - 1ULL));
+        memo.reserve(1 << 16);
+        return dfs(all);
+    }
+};
+
+struct Solver {
+    int n, W;
+    vector<vector<U64>> adj;
+
+    Solver(int n_) : n(n_), W((n_ + 63) >> 6), adj(n_, vector<U64>(W, 0)) {}
+
+    void add_edge(int a, int b) {
+        adj[a][b >> 6] |= 1ULL << (b & 63);
+        adj[b][a >> 6] |= 1ULL << (a & 63);
+    }
+
+    bool test_bit(const vector<U64>& s, int v) const {
+        return (s[v >> 6] >> (v & 63)) & 1ULL;
+    }
+
+    void clear_bit(vector<U64>& s, int v) const {
+        s[v >> 6] &= ~(1ULL << (v & 63));
+    }
+
+    int popcount(const vector<U64>& s) const {
+        int r = 0;
+        for (U64 x : s) r += __builtin_popcountll(x);
+        return r;
+    }
+
+    bool empty(const vector<U64>& s) const {
+        for (U64 x : s) if (x) return false;
+        return true;
+    }
+
+    int degree(const vector<U64>& s, int v) const {
+        int r = 0;
+        for (int i = 0; i < W; ++i) r += __builtin_popcountll(adj[v][i] & s[i]);
+        return r;
+    }
+
+    vector<int> neighbors_limited(const vector<U64>& s, int v, int lim) const {
+        vector<int> res;
+        for (int i = 0; i < W && (int)res.size() < lim; ++i) {
+            U64 x = adj[v][i] & s[i];
+            while (x && (int)res.size() < lim) {
+                int b = __builtin_ctzll(x);
+                int u = i * 64 + b;
+                if (u < n) res.push_back(u);
+                x &= x - 1;
+            }
+        }
+        return res;
+    }
+
+    void remove_closed(vector<U64>& s, int v) const {
+        for (int i = 0; i < W; ++i) s[i] &= ~adj[v][i];
+        clear_bit(s, v);
+    }
+
+    int first_vertex(const vector<U64>& s) const {
+        for (int i = 0; i < W; ++i) {
+            if (s[i]) {
+                int b = __builtin_ctzll(s[i]);
+                int v = i * 64 + b;
+                if (v < n) return v;
+            }
+        }
+        return -1;
+    }
+
+    int solve_deg2(vector<U64>& s) const {
+        int ans = 0;
+        vector<U64> unseen = s;
+        vector<int> q;
+
+        while (!empty(unseen)) {
+            int start = first_vertex(unseen);
+            clear_bit(unseen, start);
+            q.clear();
+            q.push_back(start);
+            int cnt = 0;
+            int sumdeg = 0;
+
+            for (size_t qi = 0; qi < q.size(); ++qi) {
+                int v = q[qi];
+                ++cnt;
+                int d = 0;
+                for (int w = 0; w < W; ++w) {
+                    U64 nb = adj[v][w] & s[w];
+                    d += __builtin_popcountll(nb);
+
+                    U64 x = nb & unseen[w];
+                    while (x) {
+                        int b = __builtin_ctzll(x);
+                        int u = w * 64 + b;
+                        x &= x - 1;
+                        if (u >= n) continue;
+                        clear_bit(unseen, u);
+                        q.push_back(u);
+                    }
+                }
+                sumdeg += d;
+            }
+
+            int edges = sumdeg / 2;
+            if (edges == cnt && cnt > 1) ans += cnt / 2;
+            else ans += (cnt + 1) / 2;
+        }
+
+        fill(s.begin(), s.end(), 0);
+        return ans;
+    }
+
+    bool reduce(vector<U64>& s, int& add) const {
+        while (true) {
+            bool acted = false;
+            int maxd = -1;
+
+            for (int wi = 0; wi < W && !acted; ++wi) {
+                U64 x = s[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    x &= x - 1;
+                    int v = wi * 64 + b;
+                    if (v >= n) continue;
+
+                    int d = degree(s, v);
+
+                    if (d == 0) {
+                        clear_bit(s, v);
+                        ++add;
+                        acted = true;
+                        break;
+                    }
+
+                    if (d == 1) {
+                        auto nb = neighbors_limited(s, v, 1);
+                        clear_bit(s, v);
+                        if (!nb.empty()) clear_bit(s, nb[0]);
+                        ++add;
+                        acted = true;
+                        break;
+                    }
+
+                    if (d == 2) {
+                        auto nb = neighbors_limited(s, v, 2);
+                        if (nb.size() == 2 && ((adj[nb[0]][nb[1] >> 6] >> (nb[1] & 63)) & 1ULL)) {
+                            clear_bit(s, v);
+                            clear_bit(s, nb[0]);
+                            clear_bit(s, nb[1]);
+                            ++add;
+                            acted = true;
+                            break;
+                        }
+                    }
+
+                    if (d > maxd) maxd = d;
+                }
+            }
+
+            if (acted) continue;
+
+            if (empty(s)) return true;
+
+            if (maxd <= 2) {
+                add += solve_deg2(s);
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    int greedy_matching(const vector<U64>& s) const {
+        vector<U64> unmatched = s;
+        int m = 0;
+
+        for (int wi = 0; wi < W; ++wi) {
+            U64 x = s[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                x &= x - 1;
+                int v = wi * 64 + b;
+                if (v >= n || !test_bit(unmatched, v)) continue;
+
+                int mate = -1;
+                for (int j = 0; j < W && mate == -1; ++j) {
+                    U64 nb = adj[v][j] & unmatched[j];
+                    nb &= ~(j == (v >> 6) ? (1ULL << (v & 63)) : 0ULL);
+                    if (nb) {
+                        int bb = __builtin_ctzll(nb);
+                        mate = j * 64 + bb;
+                    }
+                }
+
+                if (mate != -1 && mate < n) {
+                    clear_bit(unmatched, v);
+                    clear_bit(unmatched, mate);
+                    ++m;
+                }
+            }
+        }
+
+        return m;
+    }
+
+    int greedy_is(vector<U64> s) const {
+        int res = 0;
+        while (!empty(s)) {
+            int best = -1, bestd = INT_MAX;
+
+            for (int wi = 0; wi < W; ++wi) {
+                U64 x = s[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    x &= x - 1;
+                    int v = wi * 64 + b;
+                    if (v >= n) continue;
+                    int d = degree(s, v);
+                    if (d < bestd) {
+                        bestd = d;
+                        best = v;
+                        if (d == 0) break;
+                    }
+                }
+                if (bestd == 0) break;
+            }
+
+            ++res;
+            remove_closed(s, best);
+        }
+        return res;
+    }
+
+    vector<vector<U64>> components(const vector<U64>& s) const {
+        vector<vector<U64>> comps;
+        vector<U64> unseen = s;
+        vector<int> q;
+
+        while (!empty(unseen)) {
+            int start = first_vertex(unseen);
+            vector<U64> comp(W, 0);
+            clear_bit(unseen, start);
+            comp[start >> 6] |= 1ULL << (start & 63);
+            q.clear();
+            q.push_back(start);
+
+            for (size_t qi = 0; qi < q.size(); ++qi) {
+                int v = q[qi];
+                for (int w = 0; w < W; ++w) {
+                    U64 nb = adj[v][w] & unseen[w];
+                    while (nb) {
+                        int b = __builtin_ctzll(nb);
+                        nb &= nb - 1;
+                        int u = w * 64 + b;
+                        if (u >= n) continue;
+                        clear_bit(unseen, u);
+                        comp[u >> 6] |= 1ULL << (u & 63);
+                        q.push_back(u);
+                    }
+                }
+            }
+
+            comps.push_back(std::move(comp));
+        }
+
+        return comps;
+    }
+
+    int small_solve(const vector<U64>& s) const {
+        vector<int> verts;
+        verts.reserve(64);
+        vector<int> pos(n, -1);
+
+        for (int wi = 0; wi < W; ++wi) {
+            U64 x = s[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                x &= x - 1;
+                int v = wi * 64 + b;
+                if (v < n) {
+                    pos[v] = (int)verts.size();
+                    verts.push_back(v);
+                }
+            }
+        }
+
+        int k = (int)verts.size();
+        SmallSolver ss;
+        ss.n = k;
+        ss.adj.assign(k, 0);
+
+        for (int i = 0; i < k; ++i) {
+            int v = verts[i];
+            U64 mask = 0;
+            for (int w = 0; w < W; ++w) {
+                U64 x = adj[v][w] & s[w];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    x &= x - 1;
+                    int u = w * 64 + b;
+                    if (u < n && pos[u] >= 0) mask |= 1ULL << pos[u];
+                }
+            }
+            ss.adj[i] = mask;
+        }
+
+        return ss.solve();
+    }
+
+    int mis(vector<U64> s) const {
+        int cnt0 = popcount(s);
+        if (cnt0 <= 60) return small_solve(s);
+
+        int add = 0;
+        reduce(s, add);
+
+        if (empty(s)) return add;
+
+        int cnt = popcount(s);
+        if (cnt <= 60) return add + small_solve(s);
+
+        auto comps = components(s);
+        if (comps.size() > 1) {
+            int sum = add;
+            for (auto& c : comps) sum += mis(c);
+            return sum;
+        }
+
+        cnt = popcount(s);
+        int ub = cnt - greedy_matching(s);
+        int lb = greedy_is(s);
+        if (lb == ub) return add + lb;
+
+        int vbest = -1, dbest = -1, scorebest = -1;
+
+        for (int wi = 0; wi < W; ++wi) {
+            U64 x = s[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                x &= x - 1;
+                int v = wi * 64 + b;
+                if (v >= n) continue;
+                int d = degree(s, v);
+                int score = d;
+
+                for (int ww = 0; ww < W; ++ww) {
+                    U64 nb = adj[v][ww] & s[ww];
+                    while (nb) {
+                        int bb = __builtin_ctzll(nb);
+                        nb &= nb - 1;
+                        int u = ww * 64 + bb;
+                        if (u < n) score += degree(s, u);
+                    }
+                }
+
+                if (d > dbest || (d == dbest && score > scorebest)) {
+                    dbest = d;
+                    scorebest = score;
+                    vbest = v;
+                }
+            }
+        }
+
+        vector<U64> incs = s;
+        remove_closed(incs, vbest);
+        int inc = 1 + mis(incs);
+        if (inc == ub) return add + inc;
+
+        vector<U64> excs = s;
+        clear_bit(excs, vbest);
+
+        int exc_cnt = popcount(excs);
+        int exc_ub = exc_cnt - greedy_matching(excs);
+        int exc = 0;
+        if (exc_ub > inc) exc = mis(excs);
+
+        return add + max(inc, exc);
+    }
+
+    int solve() const {
+        vector<U64> all(W, 0);
+        for (int i = 0; i < n; ++i) all[i >> 6] |= 1ULL << (i & 63);
+        return mis(all);
+    }
+};
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int N;
+    if (!(cin >> N)) return 0;
+
+    Solver solver(N);
+
+    char c;
+    long long need = 1LL * N * N;
+    long long got = 0;
+
+    while (got < need && cin.get(c)) {
+        if (c != '0' && c != '1') continue;
+
+        int i = (int)(got / N);
+        int j = (int)(got % N);
+
+        if (i < j && c == '0') {
+            solver.add_edge(i, j);
+        }
+
+        ++got;
+    }
+
+    cout << solver.solve() << '\n';
+    return 0;
+}

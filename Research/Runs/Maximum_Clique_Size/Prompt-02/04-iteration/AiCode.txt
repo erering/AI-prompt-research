@@ -1,0 +1,388 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+using ull = unsigned long long;
+
+int N, W;
+vector<vector<ull>> adjBits;
+vector<vector<int>> compAdj;
+vector<ull> allBits;
+int bestAns = 0;
+
+vector<int> matchTag;
+int curTag = 1;
+
+inline bool testBit(const vector<ull>& b, int i) {
+    return (b[i >> 6] >> (i & 63)) & 1ULL;
+}
+
+inline bool edgeG(int u, int v) {
+    return (adjBits[u][v >> 6] >> (v & 63)) & 1ULL;
+}
+
+inline void setBit(vector<ull>& b, int i) {
+    b[i >> 6] |= 1ULL << (i & 63);
+}
+
+inline void clearBit(vector<ull>& b, int i) {
+    b[i >> 6] &= ~(1ULL << (i & 63));
+}
+
+inline int popcountBits(const vector<ull>& b) {
+    int s = 0;
+    for (ull x : b) s += __builtin_popcountll(x);
+    return s;
+}
+
+inline bool anyBits(const vector<ull>& b) {
+    for (ull x : b) if (x) return true;
+    return false;
+}
+
+inline int intersectionCount(const vector<ull>& a, const vector<ull>& b) {
+    int s = 0;
+    for (int i = 0; i < W; ++i) s += __builtin_popcountll(a[i] & b[i]);
+    return s;
+}
+
+int readBitInput() {
+    char c;
+    while (cin.get(c)) {
+        if (c == '0' || c == '1') return c - '0';
+    }
+    return 0;
+}
+
+int greedyMatchingBound(const vector<ull>& P) {
+    ++curTag;
+    if (curTag == INT_MAX) {
+        fill(matchTag.begin(), matchTag.end(), 0);
+        curTag = 1;
+    }
+
+    int m = 0;
+    for (int wi = 0; wi < W; ++wi) {
+        ull x = P[wi];
+        while (x) {
+            int b = __builtin_ctzll(x);
+            int u = (wi << 6) + b;
+            x &= x - 1;
+            if (u >= N || matchTag[u] == curTag) continue;
+
+            for (int v : compAdj[u]) {
+                if (matchTag[v] != curTag && testBit(P, v)) {
+                    matchTag[u] = matchTag[v] = curTag;
+                    ++m;
+                    break;
+                }
+            }
+        }
+    }
+    return m;
+}
+
+vector<ull> improveClique(vector<ull> C) {
+    while (true) {
+        bool changed = false;
+
+        while (true) {
+            bool added = false;
+            vector<ull> outside(W);
+            for (int i = 0; i < W; ++i) outside[i] = allBits[i] & ~C[i];
+
+            for (int wi = 0; wi < W && !added; ++wi) {
+                ull x = outside[wi];
+                while (x) {
+                    int b = __builtin_ctzll(x);
+                    int v = (wi << 6) + b;
+                    x &= x - 1;
+                    if (v >= N) continue;
+
+                    bool ok = true;
+                    for (int k = 0; k < W; ++k) {
+                        if (C[k] & ~adjBits[v][k]) {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if (ok) {
+                        setBit(C, v);
+                        added = true;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+            if (!added) break;
+        }
+
+        vector<int> verts, conflict;
+        vector<ull> outside(W);
+        for (int i = 0; i < W; ++i) outside[i] = allBits[i] & ~C[i];
+
+        for (int wi = 0; wi < W; ++wi) {
+            ull x = outside[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                x &= x - 1;
+                if (v >= N) continue;
+
+                int cnt = 0, conf = -1;
+                for (int k = 0; k < W && cnt <= 1; ++k) {
+                    ull mb = C[k] & ~adjBits[v][k];
+                    while (mb) {
+                        int bb = __builtin_ctzll(mb);
+                        conf = (k << 6) + bb;
+                        mb &= mb - 1;
+                        if (++cnt > 1) break;
+                    }
+                }
+                if (cnt == 1) {
+                    verts.push_back(v);
+                    conflict.push_back(conf);
+                }
+            }
+        }
+
+        bool swapped = false;
+        int a = -1, b = -1, rem = -1;
+        int M = (int)verts.size();
+
+        for (int i = 0; i < M && !swapped; ++i) {
+            for (int j = i + 1; j < M; ++j) {
+                if (conflict[i] == conflict[j] && edgeG(verts[i], verts[j])) {
+                    a = verts[i];
+                    b = verts[j];
+                    rem = conflict[i];
+                    swapped = true;
+                    break;
+                }
+            }
+        }
+
+        if (swapped) {
+            clearBit(C, rem);
+            setBit(C, a);
+            setBit(C, b);
+            changed = true;
+        }
+
+        if (!changed) break;
+    }
+
+    bestAns = max(bestAns, popcountBits(C));
+    return C;
+}
+
+vector<ull> greedyClique(int forced) {
+    vector<ull> C(W, 0), cand = allBits;
+
+    if (forced >= 0) {
+        setBit(C, forced);
+        for (int i = 0; i < W; ++i) cand[i] &= adjBits[forced][i];
+    }
+
+    while (anyBits(cand)) {
+        int bv = -1, bd = -1;
+
+        for (int wi = 0; wi < W; ++wi) {
+            ull x = cand[wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int v = (wi << 6) + b;
+                x &= x - 1;
+                if (v >= N) continue;
+
+                int d = intersectionCount(cand, adjBits[v]);
+                if (d > bd) {
+                    bd = d;
+                    bv = v;
+                }
+            }
+        }
+
+        if (bv < 0) break;
+        setBit(C, bv);
+        for (int i = 0; i < W; ++i) cand[i] &= adjBits[bv][i];
+    }
+
+    return improveClique(C);
+}
+
+void colorSort(const vector<ull>& P, vector<int>& verts, vector<int>& colors) {
+    verts.clear();
+    colors.clear();
+
+    vector<ull> U = P, Q(W);
+    int color = 0;
+
+    while (anyBits(U)) {
+        ++color;
+        Q = U;
+
+        while (anyBits(Q)) {
+            int v = -1;
+            for (int wi = 0; wi < W; ++wi) {
+                if (Q[wi]) {
+                    v = (wi << 6) + __builtin_ctzll(Q[wi]);
+                    break;
+                }
+            }
+
+            if (v < 0 || v >= N) break;
+
+            verts.push_back(v);
+            colors.push_back(color);
+
+            clearBit(U, v);
+            clearBit(Q, v);
+
+            for (int i = 0; i < W; ++i) Q[i] &= ~adjBits[v][i];
+        }
+    }
+}
+
+void expand(const vector<ull>& P, int sz) {
+    int cnt = popcountBits(P);
+    if (cnt == 0) {
+        if (sz > bestAns) bestAns = sz;
+        return;
+    }
+
+    if (sz + cnt <= bestAns) return;
+
+    int mb = greedyMatchingBound(P);
+    if (sz + cnt - mb <= bestAns) return;
+
+    vector<int> verts, colors;
+    verts.reserve(cnt);
+    colors.reserve(cnt);
+    colorSort(P, verts, colors);
+
+    vector<ull> Pcur = P;
+
+    for (int i = (int)verts.size() - 1; i >= 0; --i) {
+        if (sz + colors[i] <= bestAns) return;
+
+        int v = verts[i];
+        if (!testBit(Pcur, v)) continue;
+
+        vector<ull> newP(W);
+        int newCnt = 0;
+        for (int k = 0; k < W; ++k) {
+            newP[k] = Pcur[k] & adjBits[v][k];
+            newCnt += __builtin_popcountll(newP[k]);
+        }
+
+        if (sz + 1 > bestAns) bestAns = sz + 1;
+        if (sz + 1 + newCnt > bestAns) expand(newP, sz + 1);
+
+        clearBit(Pcur, v);
+    }
+}
+
+int main() {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    if (!(cin >> N)) return 0;
+    cin.get();
+
+    W = (N + 63) >> 6;
+    vector<vector<ull>> orig(N, vector<ull>(W, 0));
+
+    for (int i = 0; i < N; ++i) {
+        for (int j = 0; j < N; ++j) {
+            int b = readBitInput();
+            if (b && i != j) {
+                setBit(orig[i], j);
+                setBit(orig[j], i);
+            }
+        }
+    }
+
+    vector<int> deg(N), order(N), inv(N);
+    iota(order.begin(), order.end(), 0);
+
+    for (int i = 0; i < N; ++i) deg[i] = popcountBits(orig[i]);
+
+    sort(order.begin(), order.end(), [&](int a, int b) {
+        if (deg[a] != deg[b]) return deg[a] > deg[b];
+        return a < b;
+    });
+
+    for (int i = 0; i < N; ++i) inv[order[i]] = i;
+
+    adjBits.assign(N, vector<ull>(W, 0));
+
+    for (int ni = 0; ni < N; ++ni) {
+        int oi = order[ni];
+        for (int wi = 0; wi < W; ++wi) {
+            ull x = orig[oi][wi];
+            while (x) {
+                int b = __builtin_ctzll(x);
+                int oj = (wi << 6) + b;
+                x &= x - 1;
+                if (oj < N) setBit(adjBits[ni], inv[oj]);
+            }
+        }
+        clearBit(adjBits[ni], ni);
+    }
+
+    allBits.assign(W, ~0ULL);
+    if (N & 63) allBits[W - 1] = (1ULL << (N & 63)) - 1ULL;
+
+    compAdj.assign(N, {});
+    for (int i = 0; i < N; ++i) {
+        for (int j = i + 1; j < N; ++j) {
+            if (!edgeG(i, j)) {
+                compAdj[i].push_back(j);
+                compAdj[j].push_back(i);
+            }
+        }
+    }
+
+    for (int i = 0; i < N; ++i) {
+        sort(compAdj[i].begin(), compAdj[i].end(), [&](int a, int b) {
+            return compAdj[a].size() < compAdj[b].size();
+        });
+    }
+
+    matchTag.assign(N, 0);
+
+    if (N == 0) {
+        cout << 0 << '\n';
+        return 0;
+    }
+
+    vector<ull> C = greedyClique(-1);
+
+    int starts;
+    if (N <= 500) starts = min(N, 64);
+    else if (N <= 2000) starts = min(N, 24);
+    else starts = min(N, 8);
+
+    for (int i = 0; i < starts; ++i) {
+        vector<ull> C2 = greedyClique(i);
+        if (popcountBits(C2) > popcountBits(C)) C = C2;
+    }
+
+    bestAns = max(bestAns, popcountBits(C));
+
+    if (bestAns == N) {
+        cout << bestAns << '\n';
+        return 0;
+    }
+
+    int rootMatch = greedyMatchingBound(allBits);
+    if (bestAns >= N - rootMatch) {
+        cout << bestAns << '\n';
+        return 0;
+    }
+
+    expand(allBits, 0);
+
+    cout << bestAns << '\n';
+    return 0;
+}

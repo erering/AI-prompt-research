@@ -1,0 +1,38 @@
+Output checklist for the solution code: produce only valid C++20 source; include no explanation, markdown, code fences, or standard input/output; define int send_message(int N, int i, int Pi) and std::pair<int,int> longest_path(std::vector<int> S); helpers and globals are allowed.
+
+Problem checklist:
+- N is always 10000.
+- Vertices/sites are 0..N-1.
+- For every i in 1..N-1, P[i] exists and satisfies 0<=P[i]<i.
+- Add undirected edge {i,P[i]}; the result is a connected tree.
+- Distance is minimum number of edges between two vertices.
+- Required receiver output is any pair (U,V) attaining the tree diameter; non-uniqueness is allowed.
+
+First execution checklist for send_message:
+- Called exactly N-1 times, in order i=1,2,...,N-1.
+- Call arguments are N, current i, and Pi=P[i].
+- You may retain information between these calls in this execution.
+- Return S[i]=0 to send no message.
+- Return S[i] in [1,20000] to send that integer from vertex i.
+- Total nonzero returns M must be at most 50.
+- The sender is online and cannot use future P values.
+- The grader may be adaptive: later parents may depend on previous sender returns, but always obey 0<=P[i]<i.
+
+Second execution checklist for longest_path:
+- The program is run independently from the first execution.
+- Called exactly once.
+- Receives vector S of length N with S[0]=0 and S[i] equal to the first-execution return from vertex i.
+- Has no access to first-execution state except S.
+- Knows message locations from indices i with S[i]!=0.
+- Must return a valid diameter endpoint pair for the tree that generated S.
+
+Validity checklist:
+- Every S[i] must be 0 or an integer in [1,20000].
+- Z=max_i S[i] must be at most 20000.
+- M=number of nonzero S[i] must be at most 50.
+- Returned pair must be a diameter pair.
+- Any violation gives score 0.
+
+Scoring checklist:
+- Subtask 1: 30 points; extra promise exists v!=0 such that (0,v) is a diameter. If valid, score by Z is 10 for 9998<=Z<=20000, 16 for 102<=Z<=9997, 23 for 5<=Z<=101, 30 for Z<=4.
+- Subtask 2: 70 points; no extra constraints. If valid, score is 35-25*log_{4000}(Z/5) for 5<=Z<=20000 and M<=50; 40 for Z<=4 and 32<=M<=50; 70-30*log_4(M/8) for Z<=4 and 9<=M<=31; 70 for Z<=4 and M<=8.
