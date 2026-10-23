@@ -73,4 +73,53 @@ Grading followed two paths depending on the task type:
   exactly by the grading scripts. `Baseline_Outputs/` contains the
   baselines' answers used as the correctness reference.
 
-- **Re-running the graders.** Both
+- **Re-running the graders.** Both grading scripts regenerate the test
+  cases and baseline outputs when run, overwriting the saved copies in
+  `Benchmark_Testcases/` and `Baseline_Outputs/`.
+
+- **Untrusted code.** The graders compile and run AI-generated C++ without
+  a sandbox. Run them in an isolated environment if you re-grade.
+
+## Running the code
+
+Requirements: Node.js, a C++20 compiler (`g++-16` and/or `g++`), and an
+OpenAI API key set as the `OPENAI_API_KEY` environment variable.
+
+Install the dependencies once, from the repository root:
+
+```
+npm install
+```
+
+Then run each script from the repository root:
+
+```
+npx tsx Automation/Generation.ts
+npx tsx Automation/Grade_Clique.ts
+npx tsx Automation/Grade_Partition.ts
+```
+
+## Citation
+
+If you use this work, please cite:
+
+```bibtex
+@misc{alarifi2026prompt,
+  title         = {How Prompt Style Affects AI Accuracy and Speed in Competitive Programming},
+  author        = {Alarifi, Saad B. and Alam, Mohammed A.},
+  year          = {2026},
+  eprint        = {2610.30223},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.LG},
+  doi           = {10.48550/arXiv.2610.30223},
+  url           = {https://arxiv.org/abs/2610.30223}
+}
+```
+
+## License
+
+The prompts, generated solutions, results, and scripts written for this
+study are © Saad Alarifi, all rights reserved. The Maximum Clique baseline
+in `Research/Base_Lines/Maximum_Clique_Size` is the KACTL implementation of
+the MaxCliqueDyn algorithm and remains under its original GPL-3.0+ license;
+it is not covered by the statement above.
